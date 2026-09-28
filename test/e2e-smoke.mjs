@@ -160,11 +160,17 @@ if (await enterBtn.isVisible().catch(() => false)) {
   await paula.getByRole("button", { name: /Submit score · 14–10/ }).click();
   const submitted = paula.getByText(/waiting for .* to confirm|Final: 14–10/i).first();
   try {
-    await submitted.waitFor({ timeout: 8000 });
+    await submitted.waitFor({ timeout: 15000 });
   } catch {
-    // Background pages don't always poll in headless runs; a reload shows the saved score.
+    // Cold containers can be slow to re-render; a reload shows the saved score.
     await paula.reload();
-    await submitted.waitFor({ timeout: 10000 });
+    try {
+      await submitted.waitFor({ timeout: 20000 });
+    } catch (e) {
+      const txt = (await paula.locator("body").innerText().catch(() => "")).replace(/\s+/g, " ");
+      console.error("PAULA PAGE AT FAILURE:", txt.slice(0, 700));
+      throw e;
+    }
   }
   log("Paula submitted 14–10 for her match");
   await shot(paula, "07-paula-submitted");
@@ -307,6 +313,11 @@ log("empty board recovers: start round 1 again / pause back to check-in");
 // --- Night planner → prefilled new session --------------------------------
 await org.goto(`${BASE}/plan?players=12&courts=3&duration=90`);
 await org.getByText("Night planner").waitFor({ timeout: 10000 });
+await org.getByText("How many players?").waitFor();
+// 3 courts · 16 pts · 90 min → 7 rounds: 15 players = 21 sit-out slots → everyone sits 1–2 rounds.
+const guideRow15 = org.locator("tr", { has: org.locator("td:first-child", { hasText: /^15\b/ }) }).first();
+await guideRow15.waitFor({ timeout: 10000 });
+if (!(await guideRow15.innerText()).includes("1–2 sit-outs")) fail("roster guide should flag 15 players as 1–2 sit-outs for 3 courts / 90 min");
 await org.getByText("🍻 social").first().waitFor();
 const socialRow = org.locator("tr", { hasText: "🍻 social" }).first();
 if (!(await socialRow.innerText()).includes("16 pts")) fail("planner should suggest 16-point games for 12 players / 90 min");

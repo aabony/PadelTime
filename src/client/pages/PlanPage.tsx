@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { SETUP_MINUTES, planNight, recommendSetup, sweetSpot } from "../../shared/timing";
+import { SETUP_MINUTES, estimateRounds, minutesPerMatch, planNight, recommendSetup, sweetSpot } from "../../shared/timing";
 import { Badge, Button, Card, Field, Input, cls } from "../components/ui";
 import { Logo } from "../App";
 
@@ -23,6 +23,8 @@ export function PlanPage() {
   const social = recommendSetup(players, courtsAvailable, duration, "social");
   const spot = sweetSpot(courtsAvailable);
   const playMinutes = Math.max(duration - SETUP_MINUTES, 0);
+  // Roster guide runs on the points the booking calls for (16 for 90 min, 24 for 2 h).
+  const guidePoints = recommendSetup(courtsAvailable * 4, courtsAvailable, duration, "playing")?.points ?? 16;
 
   const createWith = (courts: number, points: number) =>
     navigate(`/app?new=1&players=${players}&courts=${courts}&points=${points}&duration=${duration}`);
@@ -61,6 +63,8 @@ export function PlanPage() {
             {spot.min}–{spot.max} players.
           </p>
         </Card>
+
+        <RosterGuide courts={courtsAvailable} duration={duration} points={guidePoints} current={players} />
 
         {Array.from({ length: maxCourts }, (_, i) => maxCourts - i).map((courts) => {
           const sitting = players - courts * 4;
@@ -136,6 +140,70 @@ export function PlanPage() {
         </p>
       </main>
     </div>
+  );
+}
+
+/**
+ * The inverse question — "how many people can I invite?": for the courts and
+ * booking, every roster size from full courts to half the group sitting, with
+ * the exact sit-out split (rounds × seats short, shared as evenly as the
+ * rotation allows).
+ */
+function RosterGuide({ courts, duration, points, current }: { courts: number; duration: number; points: number; current: number }) {
+  const mpm = minutesPerMatch(points);
+  const rounds = estimateRounds(duration, points);
+  if (!rounds) return null;
+  const seats = courts * 4;
+  const sizes = Array.from({ length: seats + 1 }, (_, i) => seats + i);
+  const span = (lo: number, hi: number, unit = "") => (lo === hi ? `${lo}${unit}` : `${lo}–${hi}${unit}`);
+  return (
+    <Card>
+      <h2 className="text-lg font-black text-navy">How many players?</h2>
+      <p className="mt-1 text-xs text-muted">
+        {courts} court{courts === 1 ? "" : "s"} · {points}-point games (~{mpm} min) · {rounds} rounds in {duration} min. A sit-out is
+        one round; the rotation spreads them as evenly as the numbers allow.
+      </p>
+      <div className="mt-2 overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-xs uppercase tracking-wider text-muted">
+              <th className="py-2 pr-2 font-semibold">Players</th>
+              <th className="py-2 pr-2 text-right font-semibold">Sit each round</th>
+              <th className="py-2 pr-2 text-right font-semibold">Plays</th>
+              <th className="py-2 pr-2 text-right font-semibold">Sit-outs</th>
+              <th className="py-2 text-right font-semibold">Social</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sizes.map((n) => {
+              const short = n - seats;
+              const slots = rounds * short;
+              const sitMin = Math.floor(slots / n);
+              const sitMax = Math.ceil(slots / n);
+              const social = sitMax <= 2 && sitMin >= 1;
+              return (
+                <tr key={n} className={cls("border-t border-line", n === current && "bg-royal-soft/60", social && n !== current && "bg-lime-soft/50")}>
+                  <td className="py-2 pr-2 font-bold text-navy">
+                    {n}
+                    {n === current && <span className="ml-1.5 text-xs font-bold text-royal">now</span>}
+                    {social && (
+                      <Badge tone="lime" className="ml-1.5">
+                        🍻 1–2 sit-outs
+                      </Badge>
+                    )}
+                    {short === 0 && <span className="ml-1.5 text-xs text-muted">nobody sits</span>}
+                  </td>
+                  <td className="tabular py-2 pr-2 text-right">{short}</td>
+                  <td className="tabular py-2 pr-2 text-right">{span(rounds - sitMax, rounds - sitMin)}</td>
+                  <td className="tabular py-2 pr-2 text-right">{span(sitMin, sitMax)}</td>
+                  <td className="tabular py-2 text-right text-muted">{short === 0 ? "—" : span(sitMin * mpm, sitMax * mpm, " min")}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </Card>
   );
 }
 
