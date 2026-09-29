@@ -310,25 +310,40 @@ await org.getByRole("button", { name: /Pause game/ }).click();
 await org.getByText("Only checked-in players").waitFor({ timeout: 10000 });
 log("empty board recovers: start round 1 again / pause back to check-in");
 
-// --- Night planner → prefilled new session --------------------------------
-await org.goto(`${BASE}/plan?players=12&courts=3&duration=90`);
+// --- Night planner: 4 dials → on-court / off-court split → prefilled new session ----
+await org.goto(`${BASE}/plan?players=11&courts=2&duration=90&points=16`);
 await org.getByText("Night planner").waitFor({ timeout: 10000 });
-await org.getByText("How many players?").waitFor();
-// 3 courts · 16 pts · 90 min → 7 rounds: 15 players = 21 sit-out slots → everyone sits 1–2 rounds.
-const guideRow15 = org.locator("tr", { has: org.locator("td:first-child", { hasText: /^15\b/ }) }).first();
-await guideRow15.waitFor({ timeout: 10000 });
-if (!(await guideRow15.innerText()).includes("1–2 sit-outs")) fail("roster guide should flag 15 players as 1–2 sit-outs for 3 courts / 90 min");
-await org.getByText("🍻 social").first().waitFor();
-const socialRow = org.locator("tr", { hasText: "🍻 social" }).first();
-if (!(await socialRow.innerText()).includes("16 pts")) fail("planner should suggest 16-point games for 12 players / 90 min");
-await socialRow.getByRole("button", { name: "Use" }).click();
+const roundSplit = org.getByTestId("round-split");
+const onCourtBox = org.getByTestId("on-court");
+const offCourtBox = org.getByTestId("off-court");
+// 11 players · 2 courts · 16 pts · 90 min → 7 rounds: 8 on court, 3 off; everyone plays 5–6 and sits 1–2.
+await roundSplit.filter({ hasText: "8 on court · 3 off" }).waitFor({ timeout: 10000 });
+await org.getByText(/^7 rounds/).first().waitFor();
+await onCourtBox.filter({ hasText: "5–6 games" }).waitFor();
+await offCourtBox.filter({ hasText: "1–2 sit-outs" }).waitFor();
+if ((await org.locator("[data-tone]").getAttribute("data-tone")) !== "social") fail("11 players / 2 courts / 16 pts should be the social sweet spot");
+// Switch scoring to 24 → 5 rounds, 3–4 games each.
+await org.getByRole("radio", { name: "24", exact: true }).click();
+await org.getByText(/^5 rounds/).first().waitFor();
+await onCourtBox.filter({ hasText: "3–4 games" }).waitFor();
+// A third court: 11 players can only fill 2 of 3.
+await org.getByRole("button", { name: "Increase courts" }).click();
+await org.getByText(/fill 2 of 3 courts/).waitFor();
+await org.getByRole("button", { name: "Decrease courts" }).click();
+// One more player → 12: 4 off each round.
+await org.getByRole("button", { name: "Increase players" }).click();
+await roundSplit.filter({ hasText: "8 on court · 4 off" }).waitFor();
+log("night planner: players / courts / scoring dials update the on-court / off-court split");
+await org.getByRole("button", { name: /Create this session/ }).click();
 await org.waitForURL("**/app?new=1**", { timeout: 15000 });
-await org.getByText("New session").waitFor({ timeout: 10000 });
+await org.getByRole("heading", { name: "New session" }).waitFor({ timeout: 10000 });
 const newForm = org.locator("form", { hasText: "Create session" });
-const courtsVal = await newForm.getByLabel("Courts", { exact: true }).inputValue().catch((e) => `err:${e.message.split("\n")[0]}`);
-const pointsVal = await newForm.getByLabel("Points", { exact: true }).inputValue().catch((e) => `err:${e.message.split("\n")[0]}`);
-if (courtsVal !== "2" || pointsVal !== "16") fail(`planner prefill expected courts 2 / points 16, got ${courtsVal} / ${pointsVal}`);
-log("night planner → 'Use' opens a new session prefilled (2 courts · 16 points)");
+const formVal = (label) =>
+  newForm.getByLabel(label, { exact: true }).inputValue().catch((e) => `err:${e.message.split("\n")[0]}`);
+const [courtsVal, pointsVal, maxVal] = [await formVal("Courts"), await formVal("Points"), await formVal("Max players")];
+if (courtsVal !== "2" || pointsVal !== "24" || maxVal !== "12")
+  fail(`planner prefill expected courts 2 / points 24 / max 12, got ${courtsVal} / ${pointsVal} / ${maxVal}`);
+log("night planner → 'Create a session' opens the form prefilled (2 courts · 24 points · 12 max)");
 
 await browser.close();
 console.log("\nE2E SMOKE: ALL PASSED ✅");

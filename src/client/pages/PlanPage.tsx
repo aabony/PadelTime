@@ -1,33 +1,56 @@
-import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { SETUP_MINUTES, estimateRounds, minutesPerMatch, planNight, recommendSetup, sweetSpot } from "../../shared/timing";
-import { Badge, Button, Card, Field, Input, cls } from "../components/ui";
+import { SETUP_MINUTES, estimateRounds, minutesPerMatch, rosterSplit, sweetSpot } from "../../shared/timing";
+import { Button, Card, Stepper, cls } from "../components/ui";
 import { Logo } from "../App";
 
-const POINTS = [24, 21, 16, 12];
+const SCORING = [12, 16, 24] as const;
+
+type Tone = "nonstop" | "light" | "social" | "waiting";
+
+const VERDICT: Record<Tone, { text: string; style: string }> = {
+  nonstop: { text: "🎾 Nonstop padel — nobody sits out", style: "bg-royal-soft text-royal-dark" },
+  light: { text: "Light breaks — some players never sit out", style: "bg-canvas text-navy" },
+  social: { text: "🍻 Social sweet spot — everyone sits out 1–2 rounds", style: "bg-lime-soft text-navy" },
+  waiting: { text: "⏳ Lots of waiting — 3+ sit-outs each", style: "bg-amber-soft text-amber-dark" },
+};
+
+/** Nonstop: nobody sits. Social: everyone sits 1–2 rounds. Light: some never sit. Waiting: 3+ sit-outs. */
+function toneOf(sitMin: number, sitMax: number): Tone {
+  if (sitMax === 0) return "nonstop";
+  if (sitMax <= 2) return sitMin >= 1 ? "social" : "light";
+  return "waiting";
+}
+
+const span = (lo: number, hi: number) => (lo === hi ? `${lo}` : `${lo}–${hi}`);
 
 /**
- * Night planner: every courts × points setup for a roster and booking, with
- * rounds, matches, sit-outs and break length per player — so the trade-off
- * between padel and socialising is a table, not a guess.
+ * Night planner: four dials — players, courts, game scoring and court time —
+ * and the on-court / off-court split they produce, per round and per player.
+ * The setup lives in the URL, so a planned night can be shared as a link.
  */
 export function PlanPage() {
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
-  const [players, setPlayers] = useState(clamp(params.get("players"), 12, 4, 64));
-  const [courtsAvailable, setCourtsAvailable] = useState(clamp(params.get("courts"), 3, 1, 12));
-  const [duration, setDuration] = useState(clamp(params.get("duration"), 90, 30, 600));
+  const players = clamp(params.get("players"), 12, 4, 64);
+  const courts = clamp(params.get("courts"), 2, 1, 12);
+  const duration = clamp(params.get("duration"), 90, 30, 600);
+  const points = snapScoring(params.get("points"));
 
-  const maxCourts = Math.max(1, Math.min(courtsAvailable, Math.floor(players / 4)));
-  const playing = recommendSetup(players, courtsAvailable, duration, "playing");
-  const social = recommendSetup(players, courtsAvailable, duration, "social");
-  const spot = sweetSpot(courtsAvailable);
-  const playMinutes = Math.max(duration - SETUP_MINUTES, 0);
-  // Roster guide runs on the points the booking calls for (16 for 90 min, 24 for 2 h).
-  const guidePoints = recommendSetup(courtsAvailable * 4, courtsAvailable, duration, "playing")?.points ?? 16;
+  const set = (patch: Partial<Record<"players" | "courts" | "duration" | "points", number>>) => {
+    const next = { players, courts, duration, points, ...patch };
+    setParams(
+      Object.fromEntries(Object.entries(next).map(([k, v]) => [k, String(v)])),
+      { replace: true },
+    );
+  };
 
-  const createWith = (courts: number, points: number) =>
-    navigate(`/app?new=1&players=${players}&courts=${courts}&points=${points}&duration=${duration}`);
+  const mpm = minutesPerMatch(points);
+  const rounds = estimateRounds(duration, points) ?? 1;
+  const split = rosterSplit(players, courts, rounds);
+  const onCourt = split.courtsUsed * 4;
+  const tone = toneOf(split.sitMin, split.sitMax);
+  const onCourtPct = Math.round((onCourt / players) * 100);
+  const spot = sweetSpot(courts);
 
   return (
     <div className="min-h-dvh bg-canvas pb-16">
@@ -41,170 +64,149 @@ export function PlanPage() {
         <div>
           <h1 className="text-3xl font-black tracking-tight text-navy">Night planner</h1>
           <p className="mt-1 text-sm text-muted">
-            A 24-point game runs about 15 minutes, a 16-point game about 11, and play starts roughly {SETUP_MINUTES} minutes into a
-            booking — measured on real nights. A sit-out always lasts one round.
+            Dial in your night and see who's on court and who's off. Timings are measured on real nights: a 24-point game
+            runs about 15 minutes, a 16-point game about 11.
           </p>
         </div>
 
         <Card>
-          <div className="grid grid-cols-3 gap-3">
-            <Field label="Players">
-              <Input type="number" min={4} max={64} value={players} onChange={(e) => setPlayers(clamp(e.target.value, players, 4, 64))} />
-            </Field>
-            <Field label="Courts booked">
-              <Input type="number" min={1} max={12} value={courtsAvailable} onChange={(e) => setCourtsAvailable(clamp(e.target.value, courtsAvailable, 1, 12))} />
-            </Field>
-            <Field label="Booking (min)">
-              <Input type="number" min={30} max={600} step={15} value={duration} onChange={(e) => setDuration(clamp(e.target.value, duration, 30, 600))} />
-            </Field>
+          <div className="divide-y divide-line">
+            <Row label="Players" hint={`Sweet spot for ${courts} court${courts === 1 ? "" : "s"}: ${spot.min}–${spot.max}`}>
+              <Stepper label="players" value={players} min={4} max={64} onChange={(v) => set({ players: v })} />
+            </Row>
+            <Row label="Courts">
+              <Stepper label="courts" value={courts} min={1} max={12} onChange={(v) => set({ courts: v })} />
+            </Row>
+            <Row label="Game scoring" hint={`~${mpm} min per game`}>
+              <div role="radiogroup" aria-label="Game scoring" className="grid grid-cols-3 gap-1 rounded-full bg-canvas p-1">
+                {SCORING.map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    role="radio"
+                    aria-checked={p === points}
+                    onClick={() => set({ points: p })}
+                    className={cls(
+                      "rounded-full px-3 py-1.5 text-sm font-black transition-colors",
+                      p === points ? "bg-navy text-white shadow" : "text-navy hover:bg-white",
+                    )}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+            </Row>
+            <Row label="Court time" hint={`≈ ${Math.max(duration - SETUP_MINUTES, 0)} min of play after check-in`}>
+              <Stepper label="court time" unit="min" step={15} value={duration} min={30} max={600} onChange={(v) => set({ duration: v })} />
+            </Row>
           </div>
-          <p className="mt-3 text-xs text-muted">
-            ≈ {playMinutes} min of play after arrivals and check-in · sweet spot for {courtsAvailable} court{courtsAvailable === 1 ? "" : "s"}:{" "}
-            {spot.min}–{spot.max} players.
-          </p>
         </Card>
 
-        <RosterGuide courts={courtsAvailable} duration={duration} points={guidePoints} current={players} />
+        <Card>
+          <p className="text-xs font-bold uppercase tracking-wider text-muted">Your night</p>
+          <p className="mt-1 text-2xl font-black text-navy">
+            {rounds} round{rounds === 1 ? "" : "s"}
+          </p>
+          <p className="text-sm font-semibold text-muted">
+            of {points}-point games · ~{mpm} min each
+          </p>
 
-        {Array.from({ length: maxCourts }, (_, i) => maxCourts - i).map((courts) => {
-          const sitting = players - courts * 4;
-          const share = Math.round((sitting / players) * 100);
-          return (
-            <Card key={courts}>
-              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                <h2 className="text-lg font-black text-navy">
-                  {courts} court{courts === 1 ? "" : "s"}
-                  <span className="ml-2 text-sm font-semibold text-muted">
-                    {courts * 4} on court{sitting > 0 ? ` · ${sitting} sit each round (${share}%)` : " · nobody sits out"}
-                  </span>
-                </h2>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-xs uppercase tracking-wider text-muted">
-                      <th className="py-2 pr-2 font-semibold">Game</th>
-                      <th className="py-2 pr-2 text-right font-semibold">Rounds</th>
-                      <th className="py-2 pr-2 text-right font-semibold">Plays</th>
-                      <th className="py-2 pr-2 text-right font-semibold">Sits</th>
-                      <th className="py-2 pr-2 text-right font-semibold">Break</th>
-                      <th className="py-2 pr-2 text-right font-semibold">Padel</th>
-                      <th className="py-2" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {POINTS.map((points) => {
-                      const p = planNight(players, courts, duration, points);
-                      const isPlaying = playing?.courts === courts && playing.points === points;
-                      const isSocial = social?.courts === courts && social.points === points;
-                      const padel = p.matchesPerPlayer == null ? null : Math.round(p.matchesPerPlayer * p.minutesPerMatch);
-                      return (
-                        <tr key={points} className={cls("border-t border-line", (isPlaying || isSocial) && "bg-lime-soft/60")}>
-                          <td className="py-2 pr-2">
-                            <span className="font-bold text-navy">{points} pts</span>
-                            <span className="ml-1 text-xs text-muted">~{p.minutesPerMatch} min</span>
-                            {isPlaying && (
-                              <Badge tone="lime" className="ml-1.5">
-                                🎾 playing
-                              </Badge>
-                            )}
-                            {isSocial && (
-                              <Badge tone="amber" className="ml-1.5">
-                                🍻 social
-                              </Badge>
-                            )}
-                          </td>
-                          <td className="tabular py-2 pr-2 text-right font-black text-navy">{p.rounds ?? "—"}</td>
-                          <td className="tabular py-2 pr-2 text-right">{p.matchesPerPlayer ?? "—"}</td>
-                          <td className="tabular py-2 pr-2 text-right">{sitting > 0 ? p.sitOutsPerPlayer : "0"}</td>
-                          <td className="tabular py-2 pr-2 text-right text-muted">{sitting > 0 ? `${p.minutesPerMatch} min` : "—"}</td>
-                          <td className="tabular py-2 pr-2 text-right text-muted">{padel != null ? `${padel} min` : "—"}</td>
-                          <td className="py-2 text-right">
-                            <Button size="sm" variant="subtle" onClick={() => createWith(courts, points)}>
-                              Use
-                            </Button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </Card>
-          );
-        })}
+          <div className="mt-4">
+            <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+              <span className="text-sm font-bold text-navy">Each round</span>
+              <span className="text-sm text-ink" data-testid="round-split">
+                <b className="text-royal">{onCourt}</b> on court · <b className="text-lime-dark">{split.sittingPerRound}</b> off
+              </span>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1" aria-hidden="true">
+              {Array.from({ length: players }, (_, i) => (
+                <span key={i} className={cls("size-3.5 rounded-full", i < onCourt ? "bg-royal" : "bg-lime ring-1 ring-lime-dark/40")} />
+              ))}
+            </div>
+            {split.courtsUsed < courts && (
+              <p className="mt-2 text-xs font-semibold text-amber-dark">
+                {players} players fill {split.courtsUsed} of {courts} courts — {courts - split.courtsUsed} stay{courts - split.courtsUsed === 1 ? "s" : ""} empty.
+              </p>
+            )}
+          </div>
 
-        <p className="text-xs text-muted">
-          Plays = matches per player over the night; Sits = rounds sat out; Break = how long each sit-out lasts (one round);
-          Padel = minutes on court per player. "Use" opens a new session with that setup.
-        </p>
+          <div className="mt-5">
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="text-sm font-bold text-navy">Each player</span>
+              <span className="text-sm text-ink">
+                <b className="text-royal">{onCourtPct}%</b> on court
+              </span>
+            </div>
+            <div
+              className="mt-2 flex h-3 overflow-hidden rounded-full bg-lime"
+              role="img"
+              aria-label={`${onCourtPct}% of the night on court, ${100 - onCourtPct}% off court`}
+            >
+              <div className="bg-royal" style={{ width: `${onCourtPct}%` }} />
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <div className="rounded-2xl bg-royal-soft px-3 py-2.5" data-testid="on-court">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-royal">On court</p>
+                <p className="text-lg font-black text-navy">
+                  {span(split.playMin, split.playMax)} game{split.playMax === 1 ? "" : "s"}
+                </p>
+                <p className="text-xs text-muted">{span(split.playMin * mpm, split.playMax * mpm)} min of padel</p>
+              </div>
+              <div className="rounded-2xl bg-lime-soft px-3 py-2.5" data-testid="off-court">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-lime-dark">Off court</p>
+                <p className="text-lg font-black text-navy">
+                  {split.sitMax === 0 ? (
+                    <>
+                      No <span className="whitespace-nowrap">sit-outs</span>
+                    </>
+                  ) : (
+                    <>
+                      {span(split.sitMin, split.sitMax)}{" "}
+                      <span className="whitespace-nowrap">sit-out{split.sitMax === 1 ? "" : "s"}</span>
+                    </>
+                  )}
+                </p>
+                <p className="text-xs text-muted">
+                  {split.sitMax === 0 ? "nonstop" : `${span(split.sitMin * mpm, split.sitMax * mpm)} min to socialise`}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <p className={cls("mt-4 rounded-2xl px-3 py-2 text-sm font-bold", VERDICT[tone].style)} data-tone={tone}>
+            {VERDICT[tone].text}
+          </p>
+
+          <Button
+            className="mt-4 w-full"
+            size="lg"
+            onClick={() => navigate(`/app?new=1&players=${players}&courts=${courts}&points=${points}&duration=${duration}`)}
+          >
+            Create this session →
+          </Button>
+        </Card>
       </main>
     </div>
   );
 }
 
-/**
- * The inverse question — "how many people can I invite?": for the courts and
- * booking, every roster size from full courts to half the group sitting, with
- * the exact sit-out split (rounds × seats short, shared as evenly as the
- * rotation allows).
- */
-function RosterGuide({ courts, duration, points, current }: { courts: number; duration: number; points: number; current: number }) {
-  const mpm = minutesPerMatch(points);
-  const rounds = estimateRounds(duration, points);
-  if (!rounds) return null;
-  const seats = courts * 4;
-  const sizes = Array.from({ length: seats + 1 }, (_, i) => seats + i);
-  const span = (lo: number, hi: number, unit = "") => (lo === hi ? `${lo}${unit}` : `${lo}–${hi}${unit}`);
+function Row({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+  // Label on the left (its hint wraps under it), control pinned right, on every width.
   return (
-    <Card>
-      <h2 className="text-lg font-black text-navy">How many players?</h2>
-      <p className="mt-1 text-xs text-muted">
-        {courts} court{courts === 1 ? "" : "s"} · {points}-point games (~{mpm} min) · {rounds} rounds in {duration} min. A sit-out is
-        one round; the rotation spreads them as evenly as the numbers allow.
-      </p>
-      <div className="mt-2 overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-xs uppercase tracking-wider text-muted">
-              <th className="py-2 pr-2 font-semibold">Players</th>
-              <th className="py-2 pr-2 text-right font-semibold">Sit each round</th>
-              <th className="py-2 pr-2 text-right font-semibold">Plays</th>
-              <th className="py-2 pr-2 text-right font-semibold">Sit-outs</th>
-              <th className="py-2 text-right font-semibold">Social</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sizes.map((n) => {
-              const short = n - seats;
-              const slots = rounds * short;
-              const sitMin = Math.floor(slots / n);
-              const sitMax = Math.ceil(slots / n);
-              const social = sitMax <= 2 && sitMin >= 1;
-              return (
-                <tr key={n} className={cls("border-t border-line", n === current && "bg-royal-soft/60", social && n !== current && "bg-lime-soft/50")}>
-                  <td className="py-2 pr-2 font-bold text-navy">
-                    {n}
-                    {n === current && <span className="ml-1.5 text-xs font-bold text-royal">now</span>}
-                    {social && (
-                      <Badge tone="lime" className="ml-1.5">
-                        🍻 1–2 sit-outs
-                      </Badge>
-                    )}
-                    {short === 0 && <span className="ml-1.5 text-xs text-muted">nobody sits</span>}
-                  </td>
-                  <td className="tabular py-2 pr-2 text-right">{short}</td>
-                  <td className="tabular py-2 pr-2 text-right">{span(rounds - sitMax, rounds - sitMin)}</td>
-                  <td className="tabular py-2 pr-2 text-right">{span(sitMin, sitMax)}</td>
-                  <td className="tabular py-2 text-right text-muted">{short === 0 ? "—" : span(sitMin * mpm, sitMax * mpm, " min")}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+    <div className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-black text-navy">{label}</p>
+        {hint && <p className="text-xs leading-snug text-muted">{hint}</p>}
       </div>
-    </Card>
+      <div className="shrink-0">{children}</div>
+    </div>
   );
+}
+
+function snapScoring(raw: string | null): number {
+  const n = parseInt(raw ?? "", 10);
+  if (!Number.isFinite(n)) return 16;
+  return SCORING.reduce((best, p) => (Math.abs(p - n) < Math.abs(best - n) ? p : best), SCORING[0]);
 }
 
 function clamp(raw: string | null | undefined, fallback: number, min: number, max: number): number {

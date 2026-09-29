@@ -96,10 +96,10 @@ export function Landing() {
         <div className="mt-8 rounded-3xl border border-line bg-white p-6 sm:p-8">
           <div className="flex flex-wrap items-center justify-between gap-6">
             <div className="max-w-sm">
-              <h3 className="text-xl font-black text-navy">How many courts, how many points? 🧮</h3>
+              <h3 className="text-xl font-black text-navy">How many players, how many points? 🧮</h3>
               <p className="mt-1 text-sm text-muted">
-                Tell the planner how many players, courts and minutes you have. It shows every setup with rounds,
-                matches, sit-outs and break length per player — measured on real nights, no account needed.
+                Dial in players, courts, 12-, 16- or 24-point games and court time, and see the on-court / off-court
+                split for every player — measured on real nights, no account needed.
               </p>
             </div>
             <Link to="/plan">

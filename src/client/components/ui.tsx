@@ -172,12 +172,19 @@ export function Stepper({
   min,
   max,
   big = false,
+  step = 1,
+  label,
+  unit,
 }: {
   value: number;
   onChange: (v: number) => void;
   min: number;
   max: number;
   big?: boolean;
+  step?: number;
+  /** Names the buttons for screen readers and tests ("Increase players"). */
+  label?: string;
+  unit?: string;
 }) {
   const btn = cls(
     "flex items-center justify-center rounded-full bg-royal-soft text-royal hover:bg-royal-soft-2 active:bg-royal-soft-2 disabled:opacity-30 font-black select-none",
@@ -185,11 +192,26 @@ export function Stepper({
   );
   return (
     <div className="inline-flex items-center gap-3">
-      <button type="button" className={btn} disabled={value <= min} onClick={() => onChange(value - 1)}>
+      <button
+        type="button"
+        className={btn}
+        aria-label={label ? `Decrease ${label}` : undefined}
+        disabled={value <= min}
+        onClick={() => onChange(Math.max(min, value - step))}
+      >
         −
       </button>
-      <span className={cls("tabular text-center font-black text-navy", big ? "w-14 text-4xl" : "w-8 text-xl")}>{value}</span>
-      <button type="button" className={btn} disabled={value >= max} onClick={() => onChange(value + 1)}>
+      <span className={cls("tabular text-center font-black text-navy", big ? "w-14 text-4xl" : "min-w-10 text-xl")}>
+        {value}
+        {unit && <span className="ml-0.5 text-xs font-bold text-muted">{unit}</span>}
+      </span>
+      <button
+        type="button"
+        className={btn}
+        aria-label={label ? `Increase ${label}` : undefined}
+        disabled={value >= max}
+        onClick={() => onChange(Math.min(max, value + step))}
+      >
         +
       </button>
     </div>

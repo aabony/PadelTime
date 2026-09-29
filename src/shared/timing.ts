@@ -89,6 +89,32 @@ export function recommendSetup(
   return { courts, points, rounds: estimateRounds(durationMin, points) };
 }
 
+export interface RosterSplit {
+  /** Courts actually in use (a group too small for every booked court leaves some empty). */
+  courtsUsed: number;
+  sittingPerRound: number;
+  /** Fewest / most rounds any one player sits out over the night. */
+  sitMin: number;
+  sitMax: number;
+  /** Fewest / most games any one player gets. */
+  playMin: number;
+  playMax: number;
+}
+
+/**
+ * Exact games and sit-outs per player for a roster, courts and number of
+ * rounds. The bye rotation (pickByes) keeps everyone's sit-out count within
+ * one of each other, so the night's sit-out slots split into floor/ceil shares.
+ */
+export function rosterSplit(players: number, courts: number, rounds: number): RosterSplit {
+  const courtsUsed = Math.max(0, Math.min(courts, Math.floor(players / 4)));
+  const sittingPerRound = Math.max(0, players - courtsUsed * 4);
+  const slots = rounds * sittingPerRound;
+  const sitMin = players > 0 ? Math.floor(slots / players) : 0;
+  const sitMax = players > 0 ? Math.ceil(slots / players) : 0;
+  return { courtsUsed, sittingPerRound, sitMin, sitMax, playMin: rounds - sitMax, playMax: rounds - sitMin };
+}
+
 /** Roster size that keeps everyone on court for 60–100% of rounds: 3 courts → 12–20 players. */
 export function sweetSpot(courts: number): { min: number; max: number } {
   return { min: courts * 4, max: Math.floor((courts * 4) / 0.6) };

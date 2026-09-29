@@ -1487,7 +1487,12 @@ function MyMatchCard({
   const opponents = myTeam === "a" ? myMatch.b : myMatch.a;
   const submittedByMyTeam =
     myMatch.submittedBy != null && (myTeam === "a" ? myMatch.a : myMatch.b).includes(myMatch.submittedBy);
-  const scoreLine = myMatch.scoreA != null ? `${myMatch.scoreA}–${myMatch.scoreB}` : null;
+  // Always "your team first": a player on the second team who entered 14–10 must see 14–10, not 10–14.
+  const myScore = myTeam === "a" ? myMatch.scoreA : myMatch.scoreB;
+  const theirScore = myTeam === "a" ? myMatch.scoreB : myMatch.scoreA;
+  const scoreLine = myScore != null && theirScore != null ? `${myScore}–${theirScore}` : null;
+  const outcome =
+    myScore == null || theirScore == null ? null : myScore > theirScore ? "win" : myScore < theirScore ? "loss" : "tie";
 
   return (
     <Card className="border-royal/40 shadow-md">
@@ -1551,7 +1556,8 @@ function MyMatchCard({
         {myMatch.status === "submitted" && !submittedByMyTeam && (
           <div className="space-y-2">
             <p className="text-center text-sm text-ink">
-              They submitted <span className="font-black text-navy">{scoreLine}</span> — look right?
+              They submitted <span className="font-black text-navy">{scoreLine}</span>
+              {outcome && ` — a ${outcome} for you`}. Look right?
             </p>
             <div className="grid grid-cols-2 gap-2">
               <Button busy={busyKey === `confirm-${myMatch.id}`} onClick={() => run(`confirm-${myMatch.id}`, () => Api.confirmScore(myMatch.id))}>
@@ -1566,7 +1572,16 @@ function MyMatchCard({
 
         {myMatch.status === "disputed" && <p className="text-center text-sm font-semibold text-rose-dark">Score disputed — the organizer will settle it.</p>}
 
-        {myMatch.status === "confirmed" && <p className="text-center text-lg font-black text-navy">Final: {scoreLine} ✓</p>}
+        {myMatch.status === "confirmed" && (
+          <div className="text-center">
+            <p className="text-lg font-black text-navy">Final: {scoreLine} ✓</p>
+            {outcome && (
+              <p className="text-xs font-semibold text-muted">
+                {outcome === "win" ? "You won 🎉" : outcome === "loss" ? "Good game — on to the next one" : "A tie"}
+              </p>
+            )}
+          </div>
+        )}
       </div>
     </Card>
   );
