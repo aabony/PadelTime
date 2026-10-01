@@ -345,5 +345,22 @@ if (courtsVal !== "2" || pointsVal !== "24" || maxVal !== "12")
   fail(`planner prefill expected courts 2 / points 24 / max 12, got ${courtsVal} / ${pointsVal} / ${maxVal}`);
 log("night planner → 'Create a session' opens the form prefilled (2 courts · 24 points · 12 max)");
 
+// --- Signed-out planner hand-off: sign in first, then land on the prefilled form ----
+const visitorCtx = await newContext({ ...contextOpts, viewport: { width: 390, height: 844 } });
+const visitor = await visitorCtx.newPage();
+await visitor.goto(`${BASE}/plan?players=11&courts=2&duration=90&points=16`);
+await visitor.getByRole("button", { name: /Create this session/ }).click();
+await visitor.waitForURL("**/login**", { timeout: 15000 });
+await otpSignIn(visitor, "Vic", `vic${run}@test.com`);
+await visitor.waitForURL("**/app?new=1**", { timeout: 15000 });
+await visitor.getByRole("heading", { name: "New session" }).waitFor({ timeout: 10000 });
+const visitorForm = visitor.locator("form", { hasText: "Create session" });
+const visitorVal = (label) =>
+  visitorForm.getByLabel(label, { exact: true }).inputValue().catch((e) => `err:${e.message.split("\n")[0]}`);
+const [vCourts, vPoints, vMax] = [await visitorVal("Courts"), await visitorVal("Points"), await visitorVal("Max players")];
+if (vCourts !== "2" || vPoints !== "16" || vMax !== "11")
+  fail(`signed-out hand-off expected courts 2 / points 16 / max 11 after sign-in, got ${vCourts} / ${vPoints} / ${vMax}`);
+log("signed-out planner → sign in → lands on the prefilled form (2 courts · 16 points · 11 max)");
+
 await browser.close();
 console.log("\nE2E SMOKE: ALL PASSED ✅");
