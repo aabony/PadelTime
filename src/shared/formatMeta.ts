@@ -9,6 +9,8 @@ export interface FormatMeta {
   emoji: string;
   tagline: string;
   blurb: string;
+  /** The blurb when the session groups players by playing level. */
+  groupedBlurb: string;
 }
 
 export const FORMAT_META: Record<FormatKey, FormatMeta> = {
@@ -19,6 +21,8 @@ export const FORMAT_META: Record<FormatKey, FormatMeta> = {
     emoji: "🎉",
     tagline: "Mix with everyone",
     blurb: "New partner every round and courts drawn for variety — it's you against the whole field.",
+    groupedBlurb:
+      "New partner every round, courts filled by playing level — beginners play beginners, intermediate and advanced play each other.",
   },
   mexicano: {
     key: "mexicano",
@@ -28,6 +32,8 @@ export const FORMAT_META: Record<FormatKey, FormatMeta> = {
     tagline: "Play your level",
     blurb:
       "Round 1 is a random draw. After that the standings deal the courts: top four on court 1, next four on court 2… 1st & 4th vs 2nd & 3rd, so every match stays close.",
+    groupedBlurb:
+      "First games are grouped by playing level. After that the standings deal the courts: top four on court 1, next four on court 2… 1st & 4th vs 2nd & 3rd, so every match stays close.",
   },
 };
 

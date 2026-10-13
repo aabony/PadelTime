@@ -6,6 +6,7 @@ import { buildDetail, isGroupMember, isGroupOrganizer, loadRounds, loadSession }
 import { generateNextRound } from "../lib/engine";
 import { getFormat } from "../../shared/formats/registry";
 import { parseGender } from "../../shared/genders";
+import { parseLevel } from "../../shared/levels";
 import { asInt, newId, now, trimmed } from "../lib/util";
 import type { ApiCtx, AuthedUser } from "./context";
 
@@ -81,6 +82,7 @@ sessionRoutes.patch("/sessions/:id", async (c) => {
     patch.format = format.key;
   }
   if (typeof body.mixedPairs === "boolean") patch.mixedPairs = body.mixedPairs;
+  if (typeof body.groupByLevel === "boolean") patch.groupByLevel = body.groupByLevel;
 
   // Max players can change any time (extra people turn up mid-session); the
   // points per match are locked once a round has been dealt, since every
@@ -306,6 +308,10 @@ sessionRoutes.patch("/sessions/:id/players/:pid", async (c) => {
       break;
     case "set_gender":
       await db.update(sessionPlayers).set({ gender: parseGender(body.gender) }).where(eq(sessionPlayers.id, player.id));
+      break;
+    case "set_level":
+      // Organizer-only (this route is guarded by canManage); players never set or see levels.
+      await db.update(sessionPlayers).set({ level: parseLevel(body.level) }).where(eq(sessionPlayers.id, player.id));
       break;
     case "merge": {
       // "Brandon Pourmorady" (account) is the same person as guest "Brandon P":

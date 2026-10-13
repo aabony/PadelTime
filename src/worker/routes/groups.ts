@@ -134,6 +134,7 @@ async function createSession(
         pointsPerMatch,
         format: format.key,
         mixedPairs: body.mixedPairs === true,
+        groupByLevel: body.groupByLevel === true,
         status: "draft",
         inviteCode: inviteCode(),
         createdBy: u.id,
@@ -249,6 +250,7 @@ groupRoutes.post("/sessions", async (c) => {
           joinedAt: ts + i,
           checkedInAt: null,
           gender: p.gender,
+          level: p.level,
         }));
       if (rows.length > 0) await db.insert(sessionPlayers).values(rows);
     }

@@ -1,6 +1,9 @@
 import type { EngineContext, FormatStrategy, PlannedMatch, RoundPlan } from "./types";
 import { pairKey, shuffle } from "./types";
-import { americano, pickByes } from "./americano";
+import { americano } from "./americano";
+import { pickByes } from "./byes";
+import { chooseSitOuts, groupingLevels, levelIn, levelMixCost } from "./levelGrouping";
+import { ADVANCED, isBeginner } from "../levels";
 
 type Split = [[string, string], [string, string]];
 
@@ -54,8 +57,68 @@ function courtGroups(ranked: string[], courtCount: number, ctx: EngineContext): 
 //  - Byes rotate fairly (fewest sit-outs first), same as Americano — the
 //    players at the bottom shouldn't also be the ones sitting out.
 //  - Players with no results yet (late arrivals) start on the bottom court.
-//  - If the organizer (or the players) set ability levels, round 1 is seeded
-//    from them instead of drawn at random — the ladder starts sorted.
+//  - "Group players by playing level" (session toggle, organizer-set levels):
+//    a player's FIRST game is placed by level instead — by level alone while
+//    nobody has results, otherwise next to the players on court at their own
+//    level (or, if there are none, slotted into the ladder: advanced a quarter
+//    of the way down, intermediate/unset halfway, beginners three quarters) —
+//    and players tied on sit-out fairness are chosen so first games don't mix
+//    beginners with stronger players. When the ladder still can't manage that,
+//    the round is split at the beginner line (ladder order on each side).
+//    After that, results deal the courts.
+//    With so many sitting (18 on 2 courts), rounds 1 and 2 are both all first
+//    games, which is why this works per player rather than on round 1 only.
+
+/** Where a player without results slots into the ladder, as a fraction of the way down. */
+function ladderSlot(level: number): number {
+  if (level >= ADVANCED) return 0.25;
+  return isBeginner(level) ? 0.75 : 0.5;
+}
+
+/**
+ * Court order for the players on court. Ranked players keep their standings
+ * order. Players without results go to the bottom — unless grouping by level,
+ * where they're placed by level (see above). Ties are broken at random.
+ */
+function orderOnCourt(ctx: EngineContext, onCourt: string[], levels: Record<string, number> | null): string[] {
+  const rank = new Map(ctx.standings.map((s, i) => [s.playerId, i]));
+  const ranked = ctx.standings.length;
+  // A newcomer sits next to the players on court at their own level (exact level,
+  // else same side of the beginner line), so their first game is with them.
+  const meanRank = (match: (level: number) => boolean): number | null => {
+    const idx = onCourt.filter((p) => rank.has(p) && match(levelIn(levels!, p))).map((p) => rank.get(p)!);
+    return idx.length ? idx.reduce((a, b) => a + b, 0) / idx.length : null;
+  };
+  const key = (id: string): number => {
+    const r = rank.get(id);
+    if (r != null) return r;
+    if (!levels) return ranked;
+    const level = levelIn(levels, id);
+    if (ranked === 0) return -level;
+    return (
+      meanRank((l) => l === level) ??
+      meanRank((l) => isBeginner(l) === isBeginner(level)) ??
+      ladderSlot(level) * ranked
+    );
+  };
+  const tier = (id: string) => (rank.has(id) ? 0 : 1);
+  // Shuffle first so exact ties land in random order; the sort is stable.
+  return shuffle([...onCourt], ctx.rng).sort((x, y) => key(x) - key(y) || tier(x) - tier(y));
+}
+
+/**
+ * The same court order split at the beginner line: beginners' courts and
+ * everyone else's, each keeping its order, the stronger group first. Null when
+ * the split wouldn't fill whole courts.
+ */
+function splitAtBeginnerLine(order: string[], levels: Record<string, number>): string[] | null {
+  const beg = order.filter((p) => isBeginner(levelIn(levels, p)));
+  const rest = order.filter((p) => !isBeginner(levelIn(levels, p)));
+  if (beg.length === 0 || rest.length === 0 || beg.length % 4 !== 0) return null;
+  const pos = new Map(order.map((p, i) => [p, i]));
+  const meanPos = (group: string[]) => group.reduce((s, p) => s + pos.get(p)!, 0) / group.length;
+  return meanPos(beg) < meanPos(rest) ? [...beg, ...rest] : [...rest, ...beg];
+}
 
 function repeatPartners(a: [string, string], b: [string, string], ctx: EngineContext): number {
   return (ctx.partnerCounts[pairKey(a[0], a[1])] ?? 0) + (ctx.partnerCounts[pairKey(b[0], b[1])] ?? 0);
@@ -68,31 +131,47 @@ export const mexicano: FormatStrategy = {
   defaultPoints: 24,
 
   planRound(ctx: EngineContext): RoundPlan {
-    // Nothing on the board yet → seed from levels if any are set, else a random draw.
-    let standings = ctx.standings;
-    if (standings.length === 0) {
-      const seeded = ctx.players.filter((p) => ctx.levels?.[p] != null);
-      if (seeded.length === 0) return americano.planRound(ctx);
-      standings = seeded
-        .map((playerId) => ({ playerId, points: ctx.levels![playerId] }))
-        .sort((a, b) => b.points - a.points);
-    }
+    const levels = groupingLevels(ctx);
+    // Nothing on the board and nothing to group by → a random draw.
+    if (ctx.standings.length === 0 && !levels) return americano.planRound(ctx);
 
     const courtCount = Math.min(ctx.courts, Math.floor(ctx.players.length / 4));
     if (courtCount === 0) {
       return { matches: [], byes: [...ctx.players] };
     }
-    const byes = pickByes(ctx, ctx.players.length - courtCount * 4);
-    const byeSet = new Set(byes);
+    const sitCount = ctx.players.length - courtCount * 4;
+    const onCourtFor = (sitters: string[]) => {
+      const sitting = new Set(sitters);
+      return ctx.players.filter((p) => !sitting.has(p));
+    };
 
-    // Shuffle first so exact ties and unranked players land in random order;
-    // the sort is stable, so the ranking decides everything else.
-    const rank = new Map(standings.map((s, i) => [s.playerId, i]));
-    const unranked = standings.length;
-    const ranked = shuffle(
-      ctx.players.filter((p) => !byeSet.has(p)),
-      ctx.rng,
-    ).sort((x, y) => (rank.get(x) ?? unranked) - (rank.get(y) ?? unranked));
+    let byes: string[];
+    let ranked: string[];
+    if (levels) {
+      // Only first games count: courts where everyone already has results are the ladder's business.
+      const hasResults = new Set(ctx.standings.map((s) => s.playerId));
+      const firstGameMix = (order: string[]) => {
+        let cost = 0;
+        for (const four of courtGroups(order, courtCount, ctx)) {
+          if (four.some((p) => !hasResults.has(p))) cost += levelMixCost(four, levels);
+        }
+        return cost;
+      };
+      const pick = chooseSitOuts(ctx, sitCount, levels, (sitters) => {
+        const ladder = orderOnCourt(ctx, onCourtFor(sitters), levels);
+        const cost = firstGameMix(ladder);
+        // When the ladder can't keep a first game on one side of the beginner line,
+        // bend it for this round: split at the line, ladder order within each side.
+        const split = cost > 0 ? splitAtBeginnerLine(ladder, levels) : null;
+        const splitCost = split ? firstGameMix(split) + 0.5 : Infinity;
+        return splitCost < cost ? { cost: splitCost, result: split! } : { cost, result: ladder };
+      });
+      byes = pick.sitters;
+      ranked = pick.result;
+    } else {
+      byes = pickByes(ctx, sitCount);
+      ranked = orderOnCourt(ctx, onCourtFor(byes), null);
+    }
 
     const matches: PlannedMatch[] = [];
     const groups = courtGroups(ranked, courtCount, ctx);

@@ -6,6 +6,8 @@ import { buildHistory } from "../src/shared/history";
 import type { HistoryRound } from "../src/shared/history";
 import { computeStandings } from "../src/shared/standings";
 import type { RoundRow } from "../src/shared/types";
+import { americano as legacyAmericano } from "./legacy/americano.legacy";
+import { byeSpread, mixedRoster, mixesBeginners, playNight } from "./helpers/night";
 
 function makeCtx(players: string[], courts: number, roundsPlayed: HistoryRound[], seed = 42): EngineContext {
   const h = buildHistory(roundsPlayed);
@@ -207,7 +209,7 @@ describe("americano level balancing", () => {
   it("splits a court strong + weak vs strong + weak when levels are known", () => {
     const players = ["a", "b", "c", "d"];
     const levels = { a: 4, b: 4, c: 1, d: 1 };
-    const plan = americano.planRound({ ...makeCtx(players, 1, []), levels });
+    const plan = americano.planRound({ ...makeCtx(players, 1, []), levels, groupByLevel: true });
     const m = plan.matches[0];
     const sum = (t: [string, string]) => levels[t[0] as keyof typeof levels] + levels[t[1] as keyof typeof levels];
     expect(sum(m.a)).toBe(5);
@@ -222,7 +224,7 @@ describe("americano level balancing", () => {
       { number: 1, byes: [], matches: [{ a: ["a", "c"], b: ["b", "d"] }] },
       { number: 2, byes: [], matches: [{ a: ["a", "d"], b: ["b", "c"] }] },
     ];
-    const plan = americano.planRound({ ...makeCtx(players, 1, history), levels });
+    const plan = americano.planRound({ ...makeCtx(players, 1, history), levels, groupByLevel: true });
     const m = plan.matches[0];
     expect(new Set([[...m.a].sort().join("+"), [...m.b].sort().join("+")])).toEqual(new Set(["a+b", "c+d"]));
   });
@@ -265,4 +267,61 @@ describe("americano mixed pairs", () => {
     const plan = americano.planRound({ ...makeCtx(players, 1, []), genders, mixedPairs: true });
     expect(plan.matches).toHaveLength(1);
   });
+});
+
+describe("americano grouped by playing level", () => {
+  const sameCourt = (m: { a: [string, string]; b: [string, string] }) => new Set([...m.a, ...m.b]);
+
+  it("toggle off plans exactly as before, mixed pairs included", () => {
+    for (let seed = 1; seed <= 12; seed++) {
+      const { players } = mixedRoster(seed);
+      expect(playNight(americano.planRound, { players, courts: 2, rounds: 7, seed }).map((r) => r.plan)).toEqual(
+        playNight(legacyAmericano.planRound, { players, courts: 2, rounds: 7, seed }).map((r) => r.plan),
+      );
+    }
+    const genders = Object.fromEntries(names(12).map((p, i) => [p, i % 3 === 0 ? "woman" : "man"] as const));
+    for (let seed = 1; seed <= 8; seed++) {
+      const night = { players: names(12), courts: 2, rounds: 6, seed, genders, mixedPairs: true };
+      expect(playNight(americano.planRound, night).map((r) => r.plan)).toEqual(
+        playNight(legacyAmericano.planRound, night).map((r) => r.plan),
+      );
+    }
+  }, 60_000);
+
+  it("4 beginners + 4 advanced on 2 courts: every court is one level, every round", () => {
+    const players = ["b1", "b2", "b3", "b4", "a1", "a2", "a3", "a4"];
+    const levels = { b1: 2, b2: 2, b3: 2, b4: 2, a1: 4, a2: 4, a3: 4, a4: 4 };
+    const night = playNight(americano.planRound, { players, courts: 2, rounds: 6, seed: 3, levels, groupByLevel: true });
+    for (const { plan } of night) {
+      const courts = plan.matches.map(sameCourt);
+      expect(courts).toContainEqual(new Set(["b1", "b2", "b3", "b4"]));
+      expect(courts).toContainEqual(new Set(["a1", "a2", "a3", "a4"]));
+    }
+    // partners still rotate inside a level: the first three rounds use all three pairings
+    const partners = new Set(night.slice(0, 3).flatMap(({ plan }) => plan.matches.flatMap((m) => [m.a, m.b].map((t) => [...t].sort().join("+")))));
+    expect(partners.size).toBe(12);
+  });
+
+  it("unset players count as intermediate, so they play with the stronger group", () => {
+    const players = ["b1", "b2", "b3", "b4", "u1", "u2", "a1", "a2"];
+    const levels = { b1: 2, b2: 2, b3: 2, b4: 2, a1: 4, a2: 4 };
+    for (let seed = 1; seed <= 5; seed++) {
+      const plan = americano.planRound({ ...makeCtx(players, 2, [], seed), levels, groupByLevel: true });
+      expect(plan.matches.map(sameCourt)).toContainEqual(new Set(["b1", "b2", "b3", "b4"]));
+    }
+  });
+
+  it("18 players on 2 courts: no beginner's first game is with stronger players, sit-outs stay fair", () => {
+    for (let seed = 1; seed <= 12; seed++) {
+      const { players, levels } = mixedRoster(seed);
+      const night = playNight(americano.planRound, { players, courts: 2, rounds: 7, seed, levels, groupByLevel: true });
+      for (const { plan, firstGame } of night) {
+        for (const m of plan.matches) {
+          const four = [...m.a, ...m.b];
+          if (four.some((p) => firstGame.has(p))) expect(mixesBeginners(four, levels)).toBe(false);
+        }
+      }
+      expect(byeSpread(night, players)).toBeLessThanOrEqual(1);
+    }
+  }, 60_000);
 });

@@ -1,3 +1,4 @@
+import { normalizeLevel } from "../../shared/levels";
 import { and, eq, inArray } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import * as schema from "../db/schema";
@@ -82,6 +83,7 @@ export async function loadPlayers(db: DB, sessionId: string): Promise<PlayerRow[
       checkedInAt: sp.checkedInAt,
       joinedAt: sp.joinedAt,
       gender: (sp.gender as PlayerRow["gender"]) ?? null,
+      level: normalizeLevel(sp.level),
     }))
     .sort((a, b) => a.joinedAt - b.joinedAt);
 }
@@ -216,10 +218,12 @@ export async function buildDetail(
     maxPlayers: session.maxPlayers,
     pointsPerMatch: session.pointsPerMatch,
     mixedPairs: session.mixedPairs,
+    groupByLevel: session.groupByLevel,
     inviteCode: session.inviteCode,
     myRole,
     myPlayerId,
-    players,
+    // Levels are the organizer's private assessment: strip them for everyone else.
+    players: myRole === "organizer" ? players : players.map((p) => ({ ...p, level: null })),
     rounds: roundRows,
     standings,
     warnings: myRole === "organizer" ? computeWarnings(players, roundRows) : [],

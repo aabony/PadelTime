@@ -28,6 +28,8 @@ import { StandingsTable, rankStyle } from "../components/StandingsTable";
 import { statusTone } from "./Home";
 import { StylePicker } from "../components/StylePicker";
 import { GenderBadge, GenderSelect, GenderToggle } from "../components/GenderSelect";
+import { LevelSelect } from "../components/LevelSelect";
+import { GroupByLevelToggle } from "../components/GroupByLevelToggle";
 import { NightSummary } from "../components/NightSummary";
 import { FORMAT_META, formatMeta } from "../../shared/formatMeta";
 
@@ -208,6 +210,7 @@ function Hero({ d, isOrganizer, onSettings }: { d: SessionDetail; isOrganizer: b
               {d.status === "checkin" && d.rounds.length > 0 ? "Paused" : SESSION_STATUS_LABEL[d.status]}
             </Badge>
             {d.mixedPairs && <Badge tone="zinc">👩👨 Mixed pairs</Badge>}
+            {d.groupByLevel && <Badge tone="zinc">🎚️ Grouped by level</Badge>}
           </div>
           {isOrganizer && (
             <button
@@ -351,8 +354,9 @@ function RulesCard({ d }: { d: SessionDetail }) {
             {d.format === "mexicano" ? (
               <>
                 <InfoRow icon="🎲">
-                  <b>Round 1 is a random draw.</b> Then points per match played deal the courts (sitting out never
-                  costs you a court): top four on court 1, next four on court 2, and so on.
+                  <b>{d.groupByLevel ? "First games are grouped by playing level." : "Round 1 is a random draw."}</b> Then
+                  points per match played deal the courts (sitting out never costs you a court): top four on court 1,
+                  next four on court 2, and so on.
                 </InfoRow>
                 <InfoRow icon="🏆">
                   <b>Play your level.</b> On each court it's 1st & 4th vs 2nd & 3rd, so matches stay close. Win and you
@@ -366,6 +370,12 @@ function RulesCard({ d }: { d: SessionDetail }) {
                   fixed teams.
                 </InfoRow>
               </>
+            )}
+            {d.groupByLevel && (
+              <InfoRow icon="🎚️">
+                <b>Grouped by playing level.</b> Beginners play beginners, intermediate and advanced play each other
+                {d.format === "mexicano" ? " for everyone's first game — after that, results decide." : " — partners still rotate within each group."}
+              </InfoRow>
             )}
             {d.mixedPairs && (
               <InfoRow icon="👩👨">
@@ -447,6 +457,7 @@ function SettingsModal({
     pointsPerMatch: d.pointsPerMatch,
     format: d.format,
     mixedPairs: d.mixedPairs,
+    groupByLevel: d.groupByLevel,
   });
   const pointsLocked = d.rounds.length > 0;
   const num = (v: string, fallback: number) => {
@@ -511,6 +522,7 @@ function SettingsModal({
             </span>
           </span>
         </label>
+        <GroupByLevelToggle checked={form.groupByLevel} onChange={(groupByLevel) => setForm({ ...form, groupByLevel })} />
         {pointsLocked && (
           <p className="text-xs text-muted">Points per match are locked once a round has been dealt. Max players and courts can change any time.</p>
         )}
@@ -529,6 +541,7 @@ function SettingsModal({
                 pointsPerMatch: form.pointsPerMatch,
                 format: form.format,
                 mixedPairs: form.mixedPairs,
+                groupByLevel: form.groupByLevel,
               });
               onClose();
             })
@@ -627,6 +640,21 @@ function MergeHint({ d, p, run, busyKey }: { d: SessionDetail; p: PlayerRow; run
   );
 }
 
+/** Organizer-only: how many levels are set, and what grouping does with them. */
+function LevelHint({ d, players }: { d: SessionDetail; players: PlayerRow[] }) {
+  const set = players.filter((p) => p.level != null).length;
+  return (
+    <p className="-mt-1 mb-3 rounded-xl bg-canvas px-3 py-2 text-xs text-muted">
+      🎚️ Levels: <b className={set < players.length ? "text-amber-dark" : "text-navy"}>{set}</b> of {players.length} set
+      {set < players.length && " (unset counts as intermediate)"} ·{" "}
+      {d.format === "mexicano"
+        ? "first games put beginners together and intermediate/advanced together."
+        : "beginners play beginners, intermediate and advanced play each other."}{" "}
+      Only you see levels.
+    </p>
+  );
+}
+
 function playerStatusBadge(p: PlayerRow) {
   switch (p.status) {
     case "checked_in":
@@ -660,6 +688,7 @@ function PlayersCard({ d, isOrganizer, run, busyKey, checkinMode = false }: View
         {inCount < 4 ? `Needs at least 4 players` : `${Math.min(d.courts, Math.floor(inCount / 4))} court${Math.min(d.courts, Math.floor(inCount / 4)) === 1 ? "" : "s"} per round`}
         {d.counts.waitlist > 0 && ` · ${d.counts.waitlist} waitlisted`}
       </p>
+      {isOrganizer && d.groupByLevel && visible.length > 0 && <LevelHint d={d} players={visible} />}
 
       {visible.length === 0 && <p className="py-4 text-center text-sm text-muted">Nobody yet — share the invite link or add names below.</p>}
       <ul className="divide-y divide-line">
@@ -685,16 +714,25 @@ function PlayersCard({ d, isOrganizer, run, busyKey, checkinMode = false }: View
                 {p.isGuest && <span className="ml-1.5 text-xs font-medium text-faint">guest</span>}
                 {p.id === d.myPlayerId && <span className="ml-1.5 text-xs font-bold text-royal">you</span>}
               </span>
+              {isOrganizer && (
+                <span className="mt-1 flex flex-wrap items-center gap-1">
+                  <GenderSelect
+                    value={p.gender}
+                    busy={busyKey === `g-${p.id}`}
+                    onChange={(gender) => run(`g-${p.id}`, () => Api.playerAction(d.id, p.id, "set_gender", { gender }))}
+                  />
+                  {d.groupByLevel && (
+                    <LevelSelect
+                      value={p.level}
+                      busy={busyKey === `lvl-${p.id}`}
+                      onChange={(level) => run(`lvl-${p.id}`, () => Api.playerAction(d.id, p.id, "set_level", { level }))}
+                    />
+                  )}
+                </span>
+              )}
               {isOrganizer && <MergeHint d={d} p={p} run={run} busyKey={busyKey} />}
             </span>
             <div className="flex shrink-0 items-center gap-1.5">
-              {isOrganizer && (
-                <GenderSelect
-                  value={p.gender}
-                  busy={busyKey === `g-${p.id}`}
-                  onChange={(gender) => run(`g-${p.id}`, () => Api.playerAction(d.id, p.id, "set_gender", { gender }))}
-                />
-              )}
               {playerStatusBadge(p)}
               {isOrganizer && p.status === "waitlist" && (
                 <Button
@@ -1149,7 +1187,7 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
           </div>
           <p className="mt-3 text-xs text-muted">
             {formatMeta(d.format).emoji} <b className="text-navy">{formatMeta(d.format).style}</b> style ·{" "}
-            {formatMeta(d.format).name}: {formatMeta(d.format).blurb}{" "}
+            {formatMeta(d.format).name}: {d.groupByLevel ? formatMeta(d.format).groupedBlurb : formatMeta(d.format).blurb}{" "}
             <button
               type="button"
               className="font-bold text-royal hover:underline"
@@ -1232,6 +1270,7 @@ function LiveRosterCard({ d, isOrganizer, run, busyKey }: ViewProps) {
         {sitting > 0 ? ` · ${sitting} sit${sitting === 1 ? "s" : ""} out each round` : " · everyone plays"}
         {d.counts.confirmed > 0 && ` · ${d.counts.confirmed} not checked in`}
       </p>
+      {isOrganizer && d.groupByLevel && <LevelHint d={d} players={d.players.filter((p) => p.status !== "dropped" && p.status !== "waitlist")} />}
 
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
@@ -1277,6 +1316,13 @@ function LiveRosterCard({ d, isOrganizer, run, busyKey }: ViewProps) {
                             />
                           ) : (
                             <GenderBadge gender={p.gender} />
+                          )}
+                          {isOrganizer && d.groupByLevel && (
+                            <LevelSelect
+                              value={p.level}
+                              busy={busyKey === `lvl-${p.id}`}
+                              onChange={(level) => run(`lvl-${p.id}`, () => Api.playerAction(d.id, p.id, "set_level", { level }))}
+                            />
                           )}
                           <span>
                             {p.status === "checked_in" ? "playing" : "not checked in"}

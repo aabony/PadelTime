@@ -1,6 +1,10 @@
 import type { EngineContext, FormatStrategy, PlannedMatch, RoundPlan } from "./types";
 import { pairKey, shuffle } from "./types";
 import { UNSET_LEVEL } from "../levels";
+import { pickByes } from "./byes";
+import { chooseSitOuts, groupingLevels, levelMixCost, levelTiers } from "./levelGrouping";
+
+export { pickByes };
 
 // Americano:
 //  - rotating partners, fixed total points per match, individual cumulative scoring
@@ -14,6 +18,12 @@ import { UNSET_LEVEL } from "../levels";
 // opponents, so the engine burns opponent variety before it ever repeats a
 // partnership. Player counts at a padel night are small (≤ ~28), so a few
 // thousand restarts explore the space thoroughly in a few milliseconds.
+//
+// "Group players by playing level" (session toggle): every round, courts are
+// filled tier by tier — advanced, then intermediate, then beginners — so
+// beginners play beginners; partners still rotate within a tier and teams are
+// balanced by level. Players tied on sit-out fairness are chosen so the
+// beginners on court fill whole courts where possible.
 
 const PARTNER_WEIGHT = 40;
 const OPPONENT_WEIGHT = 3;
@@ -37,6 +47,17 @@ function sameGenderTeam(t: [string, string], ctx: EngineContext): boolean {
  * + two men for as long as both pools last; the leftovers fill the rest.
  */
 export function drawOrder(active: string[], courtCount: number, ctx: EngineContext): string[] {
+  const levels = groupingLevels(ctx);
+  if (levels) {
+    // Level tiers in order; with mixed pairs, women and men are paired up inside each tier.
+    return levelTiers(active, levels, ctx.rng).flatMap((tier) =>
+      ctx.mixedPairs && ctx.genders ? genderOrder(tier, Math.ceil(tier.length / 4), ctx) : tier,
+    );
+  }
+  return genderOrder(active, courtCount, ctx);
+}
+
+function genderOrder(active: string[], courtCount: number, ctx: EngineContext): string[] {
   if (!ctx.mixedPairs || !ctx.genders) return shuffle([...active], ctx.rng);
   const women = shuffle(active.filter((p) => ctx.genders![p] === "woman"), ctx.rng);
   const men = shuffle(active.filter((p) => ctx.genders![p] === "man"), ctx.rng);
@@ -61,7 +82,8 @@ function teamsCost(a: [string, string], b: [string, string], ctx: EngineContext)
       cost += OPPONENT_WEIGHT * o * o;
     }
   }
-  if (ctx.levels) {
+  // Levels only count when the session groups by level.
+  if (ctx.levels && ctx.groupByLevel) {
     const gap = Math.abs(levelOf(a[0], ctx) + levelOf(a[1], ctx) - levelOf(b[0], ctx) - levelOf(b[1], ctx));
     cost += BALANCE_WEIGHT * gap;
   }
@@ -103,19 +125,6 @@ function bestSplit(four: string[], ctx: EngineContext): { a: [string, string]; b
   return { a: best[0], b: best[1], cost: bestCost };
 }
 
-export function pickByes(ctx: EngineContext, byeCount: number): string[] {
-  if (byeCount <= 0) return [];
-  // Random shuffle first so equal candidates rotate fairly, then a stable sort
-  // by fairness criteria: fewest byes sit next, then whoever sat longest ago.
-  const candidates = shuffle([...ctx.players], ctx.rng);
-  candidates.sort(
-    (x, y) =>
-      (ctx.byeCounts[x] ?? 0) - (ctx.byeCounts[y] ?? 0) ||
-      (ctx.lastByeRound[x] ?? 0) - (ctx.lastByeRound[y] ?? 0),
-  );
-  return candidates.slice(0, byeCount);
-}
-
 export const americano: FormatStrategy = {
   key: "americano",
   name: "Americano",
@@ -127,7 +136,19 @@ export const americano: FormatStrategy = {
     if (courtCount === 0) {
       return { matches: [], byes: [...ctx.players] };
     }
-    const byes = pickByes(ctx, ctx.players.length - courtCount * 4);
+    const sitCount = ctx.players.length - courtCount * 4;
+    const levels = groupingLevels(ctx);
+    // Grouping by level: among players tied on sit-out fairness, sit the ones that
+    // let the level tiers fill whole courts (scored on the tier layout by counts).
+    const byes = levels
+      ? chooseSitOuts(ctx, sitCount, levels, (sitters) => {
+          const sitting = new Set(sitters);
+          const tiered = levelTiers(ctx.players.filter((p) => !sitting.has(p)), levels, () => 0).flat();
+          let cost = 0;
+          for (let c = 0; c < courtCount; c++) cost += levelMixCost(tiered.slice(c * 4, c * 4 + 4), levels);
+          return { cost, result: null };
+        }).sitters
+      : pickByes(ctx, sitCount);
     const byeSet = new Set(byes);
     const active = ctx.players.filter((p) => !byeSet.has(p));
 

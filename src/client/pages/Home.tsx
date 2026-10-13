@@ -6,6 +6,7 @@ import { SESSION_STATUS_LABEL } from "../../shared/types";
 import type { FormatKey, SessionStatus, SessionSummary } from "../../shared/types";
 import { StylePicker } from "../components/StylePicker";
 import { NightSummary } from "../components/NightSummary";
+import { GroupByLevelToggle } from "../components/GroupByLevelToggle";
 import { Badge, Button, Card, EmptyState, ErrorNote, Field, Input, Modal, PageSpinner, ProgressBar, cls } from "../components/ui";
 
 export const statusTone = (s: SessionStatus) =>
@@ -178,6 +179,7 @@ export function NewSessionModal({
     copyPlayersFrom: "",
     format: "americano" as FormatKey,
     mixedPairs: false,
+    groupByLevel: false,
   });
   const num = (v: string, fallback: number) => {
     const n = parseInt(v, 10);
@@ -199,6 +201,7 @@ export function NewSessionModal({
         pointsPerMatch: form.pointsPerMatch,
         format: form.format,
         mixedPairs: form.mixedPairs,
+        groupByLevel: form.groupByLevel,
         copyPlayersFrom: form.copyPlayersFrom || null,
       });
       onClose();
@@ -261,6 +264,7 @@ export function NewSessionModal({
             <span className="block text-xs text-muted">Every team is one woman + one man whenever the numbers allow. Players say which they are when they join.</span>
           </span>
         </label>
+        <GroupByLevelToggle checked={form.groupByLevel} onChange={(groupByLevel) => setForm({ ...form, groupByLevel })} />
         {previous.length > 0 && (
           <Field label="Bring back the players from" hint="Everyone from that session is added to this one — no re-inviting.">
             <select

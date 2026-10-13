@@ -39,4 +39,9 @@ async function apply(db: Env["DB"]): Promise<void> {
     }
     await record("0005_gender_mixed_pairs.sql");
   }
+  const sessions = await columns("game_sessions");
+  if (!sessions.has("group_by_level")) {
+    await db.prepare("ALTER TABLE game_sessions ADD COLUMN group_by_level integer NOT NULL DEFAULT 0").run();
+    await record("0006_group_by_level.sql");
+  }
 }

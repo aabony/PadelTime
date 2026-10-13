@@ -110,6 +110,8 @@ export const gameSessions = sqliteTable(
     format: text("format").notNull().default("americano"),
     /** Every team is one woman + one man whenever the numbers allow. */
     mixedPairs: integer("mixed_pairs", { mode: "boolean" }).notNull().default(false),
+    /** Group players by organizer-set playing level (beginners together, intermediate/advanced together). */
+    groupByLevel: integer("group_by_level", { mode: "boolean" }).notNull().default(false),
     status: text("status").notNull().default("draft"),
     inviteCode: text("invite_code").notNull().unique(),
     createdBy: text("created_by")
@@ -133,7 +135,7 @@ export const sessionPlayers = sqliteTable(
     status: text("status").notNull().default("confirmed"),
     joinedAt: integer("joined_at").notNull(),
     checkedInAt: integer("checked_in_at"),
-    /** Ability level 1 (newbie) … 4 (advanced); null = not set. No UI today — engine hint only. */
+    /** Organizer-set level: 2 beginner, 3 intermediate, 4 advanced (old 1 reads as beginner); null = not set. Organizer-only. */
     level: integer("level"),
     /** "woman" | "man" | null — drives the mixed-pairs option. */
     gender: text("gender"),

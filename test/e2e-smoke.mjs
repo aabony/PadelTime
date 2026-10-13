@@ -109,6 +109,21 @@ await org.reload();
 await org.getByText("Invite players").waitFor({ timeout: 10000 });
 if ((await genderOf(org, "George").inputValue()) !== "man") fail("George's gender should persist");
 log("organizer set George as a man — persists");
+
+// Group players by playing level: off by default, switched on in Settings, then
+// the organizer's roster grows a Level select per player.
+const levelOf = (pg, name) => pg.locator("li", { hasText: name }).getByRole("combobox", { name: "Level" });
+if ((await levelOf(org, "George").count()) !== 0) fail("no Level selects until the session groups by level");
+await org.getByRole("button", { name: "Settings" }).click();
+await org.getByRole("checkbox", { name: /Group players by playing level/ }).check();
+await org.getByRole("button", { name: "Save changes" }).click();
+await org.getByText("🎚️ Grouped by level").waitFor({ timeout: 10000 });
+await levelOf(org, "George").selectOption("4");
+await org.getByText(/Levels: 1 of \d+ set/).waitFor({ timeout: 10000 });
+await org.reload();
+await org.getByText("Invite players").waitFor({ timeout: 10000 });
+if ((await levelOf(org, "George").inputValue()) !== "4") fail("George's level should persist");
+log("grouping by level switched on; George set to Advanced — persists");
 await shot(org, "02-roster-open");
 
 // --- Player joins via invite link ------------------------------------------
@@ -126,6 +141,12 @@ await paula.getByText("You're in ✓").waitFor({ timeout: 10000 });
 await paula.getByRole("button", { name: "Open session" }).click();
 await paula.waitForURL("**/app/sessions/**");
 log("Paula joined via invite link (8 players total)");
+await paula.getByText("George").first().waitFor({ timeout: 10000 });
+if ((await paula.getByRole("combobox", { name: "Level" }).count()) !== 0) fail("players must not see Level selects");
+const paulaView = await (await paula.request.get(`${BASE}/api/sessions/${sessionId}`)).json();
+if (!paulaView.groupByLevel) fail("Paula's view should say the session groups by level");
+if (paulaView.players.some((p) => p.level != null)) fail("levels must not reach players' API responses");
+log("levels are organizer-only: no selects for Paula, null in her API payload");
 
 // --- Check-in --------------------------------------------------------------
 await org.getByRole("button", { name: "Start check-in" }).click();
@@ -269,16 +290,19 @@ await org.getByRole("button", { name: "+ New session" }).click();
 await org.getByPlaceholder("Thursday Padel Jam").fill("Bring Back Night");
 await org.getByRole("button", { name: /Competitive/ }).click(); // Mexicano
 await org.getByRole("checkbox", { name: /Mixed pairs/ }).check();
+await org.getByRole("checkbox", { name: /Group players by playing level/ }).check();
 await org.locator("select").selectOption({ index: 1 });
 await org.getByRole("button", { name: "Create session", exact: true }).click();
 await org.waitForURL("**/app/sessions/**");
 await org.getByText("George").first().waitFor({ timeout: 10000 });
 if ((await org.locator("ul > li").count()) < 8) fail("copied roster should have 8 players");
 await org.getByText("Mexicano").first().waitFor();
-await org.getByText("Round 1 is a random draw").waitFor();
+await org.getByText("First games are grouped by playing level.").waitFor();
+await org.getByText("🎚️ Grouped by level").waitFor();
 if ((await genderOf(org, "George").inputValue()) !== "man") fail("bring-back should carry gender over");
+if ((await levelOf(org, "George").inputValue()) !== "4") fail("bring-back should carry level over");
 await org.getByText("Mixed pairs").first().waitFor();
-log("bring back players: new competitive (Mexicano) session pre-loaded with previous roster");
+log("bring back players: new competitive (Mexicano) session, grouped by level, pre-loaded with previous roster + levels");
 await org.goto(`${BASE}/app`);
 await org.getByRole("button", { name: "+ New session" }).click();
 await org.getByPlaceholder("Thursday Padel Jam").fill("Quick Start Night");

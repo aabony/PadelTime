@@ -72,6 +72,8 @@ export interface PlayerRow {
   joinedAt: number;
   /** "woman" | "man" | null — used by the mixed-pairs option. */
   gender: "woman" | "man" | null;
+  /** Organizer-set level (2 beginner, 3 intermediate, 4 advanced). Only ever sent to the organizer; null for everyone else. */
+  level: number | null;
 }
 
 export interface MatchRow {
@@ -125,6 +127,8 @@ export interface SessionDetail {
   pointsPerMatch: number;
   /** Every team is one woman + one man whenever the numbers allow. */
   mixedPairs: boolean;
+  /** Group players by playing level (organizer-set levels). */
+  groupByLevel: boolean;
   inviteCode: string;
   myRole: "organizer" | "player" | "none";
   myPlayerId: string | null;

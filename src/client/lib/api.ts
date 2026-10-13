@@ -54,6 +54,7 @@ export const Api = {
       format: string;
       copyPlayersFrom?: string | null;
       mixedPairs?: boolean;
+      groupByLevel?: boolean;
     },
   ) => req<{ id: string }>(groupId ? `/groups/${groupId}/sessions` : "/sessions", post(body)),
   session: (id: string) => req<SessionDetail>(`/sessions/${id}`),

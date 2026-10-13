@@ -29,8 +29,10 @@ export interface EngineContext {
    * Empty until a match has been confirmed.
    */
   standings: { playerId: string; points: number; diff?: number; played?: number }[];
-  /** Ability level per player id (1 newbie … 4 advanced); players without one are omitted. */
+  /** Organizer-set level per player id (2 beginner, 3 intermediate, 4 advanced); unset players are omitted. */
   levels?: Record<string, number>;
+  /** "Group players by playing level": beginners play beginners, intermediate/advanced play each other. */
+  groupByLevel?: boolean;
   /** Gender per player id ("woman" | "man"); players who haven't said are omitted. */
   genders?: Record<string, "woman" | "man">;
   /** Prefer teams of one woman + one man whenever the numbers allow. */

@@ -3,6 +3,7 @@ import { getFormat } from "../../shared/formats/registry";
 import type { EngineContext } from "../../shared/formats/types";
 import { buildHistory } from "../../shared/history";
 import { computeStandings, rankForCourts } from "../../shared/standings";
+import { normalizeLevel } from "../../shared/levels";
 import { matches, playerResults, rounds, sessionPlayers } from "../db/schema";
 import type { DB, SessionRow } from "./detail";
 import { loadRounds } from "./detail";
@@ -30,7 +31,9 @@ export async function generateNextRound(
   const levels: Record<string, number> = {};
   const genders: Record<string, "woman" | "man"> = {};
   for (const p of players) {
-    if (p.level != null) levels[p.id] = p.level;
+    // Levels only matter when the session groups by level; otherwise the engine never sees them.
+    const level = session.groupByLevel ? normalizeLevel(p.level) : null;
+    if (level != null) levels[p.id] = level;
     if (p.gender === "woman" || p.gender === "man") genders[p.id] = p.gender;
   }
   if (eligible.length < format.minPlayers) {
@@ -55,7 +58,8 @@ export async function generateNextRound(
     roundNumber: (latest?.number ?? 0) + 1,
     ...history,
     standings: ranked.map((r) => ({ playerId: r.playerId, points: r.points, diff: r.diff, played: r.played })),
-    levels,
+    levels: session.groupByLevel ? levels : undefined,
+    groupByLevel: session.groupByLevel,
     genders,
     mixedPairs: session.mixedPairs,
     rng: Math.random,
