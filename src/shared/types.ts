@@ -109,6 +109,8 @@ export interface StandingRow {
   ties: number;
   played: number;
   byes: number;
+  /** Has at least half as many games as the busiest player, so counts in the ranking. */
+  ranked: boolean;
 }
 
 export interface SessionDetail {

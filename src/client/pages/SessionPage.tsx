@@ -24,7 +24,7 @@ import {
   cls,
 } from "../components/ui";
 import { ScoreEntry } from "../components/ScoreEntry";
-import { StandingsTable, rankStyle } from "../components/StandingsTable";
+import { StandingsTable, perGame, rankStyle } from "../components/StandingsTable";
 import { statusTone } from "./Home";
 import { StylePicker } from "../components/StylePicker";
 import { GenderBadge, GenderSelect, GenderToggle } from "../components/GenderSelect";
@@ -415,7 +415,8 @@ function RulesCard({ d }: { d: SessionDetail }) {
 
           <RuleGroup label="Winning">
             <InfoRow icon="🏆">
-              <b>Most total points at the end wins.</b> Ties are allowed.
+              <b>Most points per game wins</b> — so sitting out never costs you. You need at least half as many games as
+              the busiest player to be ranked. Ties are allowed.
             </InfoRow>
             {est && (
               <InfoRow icon="⏱">
@@ -1280,7 +1281,9 @@ function LiveRosterCard({ d, isOrganizer, run, busyKey }: ViewProps) {
             <tr className="text-left text-xs uppercase tracking-wider text-muted">
               <th className="py-2 pr-2 font-semibold">#</th>
               <th className="py-2 pr-2 font-semibold">Player</th>
-              <th className="py-2 pr-2 text-right font-semibold">Pts</th>
+              <th className="py-2 pr-2 text-right font-semibold" title="Points per game — the ranking">
+                Avg
+              </th>
               <th className="hidden py-2 pr-2 text-right font-semibold sm:table-cell">W-L</th>
               <th className="hidden py-2 pr-2 text-right font-semibold sm:table-cell">+/-</th>
               {isOrganizer && <th className="py-2" />}
@@ -1296,8 +1299,13 @@ function LiveRosterCard({ d, isOrganizer, run, busyKey }: ViewProps) {
                   className={cls("border-t border-line transition-opacity", me && "bg-lime-soft", removing.has(p.id) && "opacity-40")}
                 >
                   <td className="py-2 pr-2">
-                    <span className={cls("inline-flex size-6 items-center justify-center rounded-full text-xs font-bold", rankStyle(i))}>
-                      {i + 1}
+                    <span
+                      className={cls(
+                        "inline-flex size-6 items-center justify-center rounded-full text-xs font-bold",
+                        row.ranked ? rankStyle(i) : "bg-canvas text-faint",
+                      )}
+                    >
+                      {row.ranked ? i + 1 : "–"}
                     </span>
                   </td>
                   <td className="py-2 pr-2">
@@ -1326,22 +1334,23 @@ function LiveRosterCard({ d, isOrganizer, run, busyKey }: ViewProps) {
                               onChange={(level) => run(`lvl-${p.id}`, () => Api.playerAction(d.id, p.id, "set_level", { level }))}
                             />
                           )}
-                          <span>
-                            {p.status === "checked_in" ? "playing" : "not checked in"}
-                            {d.format === "mexicano" && row.played > 0 && ` · ${(row.points / row.played).toFixed(1)}/match`}
-                            {row.byes > 0 ? ` · sat out ${row.byes}` : ""}
-                            <span className="sm:hidden">
-                              {" "}
-                              · {row.wins}-{row.losses}
-                              {row.ties > 0 ? `-${row.ties}` : ""}
-                            </span>
+                          {/* Each fact stays on one line; the line wraps between them. */}
+                          <span>{p.status === "checked_in" ? "playing" : "not checked in"}</span>
+                          {row.played > 0 && <span className="whitespace-nowrap">· {row.points} pts in {row.played}</span>}
+                          {row.played > 0 && !row.ranked && <span className="whitespace-nowrap">· too few games to rank</span>}
+                          {row.byes > 0 && <span className="whitespace-nowrap">· sat out {row.byes}</span>}
+                          <span className="whitespace-nowrap sm:hidden">
+                            · {row.wins}-{row.losses}
+                            {row.ties > 0 ? `-${row.ties}` : ""}
                           </span>
                         </div>
                         {isOrganizer && <MergeHint d={d} p={p} run={run} busyKey={busyKey} />}
                       </div>
                     </div>
                   </td>
-                  <td className="tabular py-2 pr-2 text-right text-base font-black text-navy">{row.points}</td>
+                  <td className={cls("tabular py-2 pr-2 text-right text-base font-black", row.ranked ? "text-navy" : "text-muted")}>
+                    {perGame(row)}
+                  </td>
                   <td className="tabular hidden py-2 pr-2 text-right text-muted sm:table-cell">
                     {row.wins}-{row.losses}
                     {row.ties > 0 ? `-${row.ties}` : ""}
@@ -1669,7 +1678,7 @@ function RoundHistory({ rounds, nameOf }: { rounds: RoundRow[]; nameOf: (id: str
 
 function CompleteView({ d, isOrganizer, run, busyKey }: ViewProps) {
   const nameOf = useNameOf(d);
-  const podium = d.standings.slice(0, 3);
+  const podium = d.standings.filter((r) => r.ranked).slice(0, 3);
   return (
     <div className="space-y-4">
       {podium.length > 0 && (
@@ -1680,17 +1689,19 @@ function CompleteView({ d, isOrganizer, run, busyKey }: ViewProps) {
             <Avatar name={podium[0].name} size="lg" ring />
           </div>
           <p className="mt-2 text-2xl font-black text-navy">{podium[0].name}</p>
-          <p className="text-sm text-muted">{podium[0].points} points</p>
+          <p className="text-sm text-muted">
+            {perGame(podium[0])} per game · {podium[0].points} points in {podium[0].played}
+          </p>
           {podium.length > 1 && (
             <div className="mt-4 flex justify-center gap-6 text-sm font-semibold text-ink">
               {podium[1] && (
                 <span>
-                  🥈 {podium[1].name} · {podium[1].points}
+                  🥈 {podium[1].name} · {perGame(podium[1])}
                 </span>
               )}
               {podium[2] && (
                 <span>
-                  🥉 {podium[2].name} · {podium[2].points}
+                  🥉 {podium[2].name} · {perGame(podium[2])}
                 </span>
               )}
             </div>

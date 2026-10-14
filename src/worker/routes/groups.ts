@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { getFormat } from "../../shared/formats/registry";
+import { minGamesToRank, pointsPerGame } from "../../shared/standings";
 import type { GroupRole, MeResponse, SessionStatus, SessionSummary } from "../../shared/types";
 import { gameSessions, groupMembers, groups, playerResults, sessionPlayers, user } from "../db/schema";
 import type { DB } from "../lib/detail";
@@ -32,14 +33,26 @@ async function winnersFor(db: DB, sessionIds: string[]): Promise<Map<string, str
       sessionId: playerResults.sessionId,
       playerId: playerResults.playerId,
       pts: sql<number>`sum(${playerResults.pointsFor})`,
+      games: sql<number>`count(*)`,
     })
     .from(playerResults)
     .where(inArray(playerResults.sessionId, sessionIds))
     .groupBy(playerResults.sessionId, playerResults.playerId);
-  const top = new Map<string, { playerId: string; pts: number }>();
+  // Same rule as the standings: best points per game among players with at
+  // least half as many games as the busiest player.
+  const bySession = new Map<string, { playerId: string; points: number; played: number }[]>();
   for (const r of sums) {
-    const cur = top.get(r.sessionId);
-    if (!cur || Number(r.pts) > cur.pts) top.set(r.sessionId, { playerId: r.playerId, pts: Number(r.pts) });
+    const rows = bySession.get(r.sessionId) ?? [];
+    rows.push({ playerId: r.playerId, points: Number(r.pts), played: Number(r.games) });
+    bySession.set(r.sessionId, rows);
+  }
+  const top = new Map<string, { playerId: string }>();
+  for (const [sessionId, rows] of bySession) {
+    const min = minGamesToRank(rows);
+    const best = rows
+      .filter((r) => r.played >= min)
+      .sort((a, b) => pointsPerGame(b) - pointsPerGame(a) || b.points - a.points)[0];
+    if (best) top.set(sessionId, best);
   }
   const playerIds = [...top.values()].map((t) => t.playerId);
   if (playerIds.length === 0) return new Map();

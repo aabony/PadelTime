@@ -1,3 +1,4 @@
+import { pointsPerGame } from "../../shared/standings";
 import type { StandingRow } from "../../shared/types";
 import { cls } from "./ui";
 
@@ -9,6 +10,9 @@ export const rankStyle = (i: number) =>
       : i === 2
         ? "bg-amber-soft text-amber-dark"
         : "bg-canvas text-muted";
+
+/** Points per game for display: one decimal, or "–" before a first game. */
+export const perGame = (row: { points: number; played: number }) => (row.played > 0 ? pointsPerGame(row).toFixed(1) : "–");
 
 export function StandingsTable({
   standings,
@@ -26,10 +30,15 @@ export function StandingsTable({
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
-          <tr className="text-left text-xs uppercase tracking-wider text-muted">
+          <tr className="whitespace-nowrap text-left text-xs uppercase tracking-wider text-muted">
             <th className="py-2 pr-2 font-semibold">#</th>
             <th className="py-2 pr-2 font-semibold">Player</th>
-            <th className="py-2 pr-2 text-right font-semibold">Pts</th>
+            <th className="py-2 pr-2 text-right font-semibold" title="Points per game — the ranking">
+              Avg
+            </th>
+            <th className="py-2 pr-2 text-right font-semibold" title="Total points">
+              Pts
+            </th>
             {!compact && <th className="py-2 pr-2 text-right font-semibold">W-L{""}</th>}
             {!compact && <th className="py-2 pr-2 text-right font-semibold">+/-</th>}
             <th className="py-2 text-right font-semibold">P</th>
@@ -42,25 +51,28 @@ export function StandingsTable({
               className={cls(
                 "border-t border-line",
                 row.playerId === highlightId && "bg-lime-soft",
+                !row.ranked && "text-muted",
               )}
             >
               <td className="py-2 pr-2">
                 <span
                   className={cls(
                     "inline-flex size-6 items-center justify-center rounded-full text-xs font-bold",
-                    rankStyle(i),
+                    row.ranked ? rankStyle(i) : "bg-canvas text-faint",
                   )}
                 >
-                  {i + 1}
+                  {row.ranked ? i + 1 : "–"}
                 </span>
               </td>
-              <td className="py-2 pr-2 font-semibold text-navy">
+              <td className={cls("py-2 pr-2 font-semibold", row.ranked ? "text-navy" : "text-muted")}>
                 {row.name}
                 {row.playerId === highlightId && <span className="ml-1.5 text-xs font-bold text-royal">you</span>}
+                {!row.ranked && row.played > 0 && <span className="block text-[11px] font-medium text-faint">too few games to rank</span>}
               </td>
-              <td className="tabular py-2 pr-2 text-right text-base font-black text-navy">
-                {row.points}
+              <td className={cls("tabular py-2 pr-2 text-right text-base font-black", row.ranked ? "text-navy" : "text-muted")}>
+                {perGame(row)}
               </td>
+              <td className="tabular py-2 pr-2 text-right text-muted">{row.points}</td>
               {!compact && (
                 <td className="tabular py-2 pr-2 text-right text-muted">
                   {row.wins}-{row.losses}

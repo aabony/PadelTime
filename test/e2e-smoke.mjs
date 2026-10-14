@@ -319,6 +319,35 @@ const againDetail = await api("GET", `/sessions/${again.id}`);
 if (againDetail.players.length !== 18) fail(`bring-back should copy all 18 players (got ${againDetail.players.length})`);
 if (!againDetail.players.some((p) => p.level === 2)) fail("bring-back should copy levels on a big roster too");
 log("bring back an 18-player roster: all 18 copied with their levels");
+
+// A player who leaves after one big win keeps their score but can't take the
+// podium: the table ranks by points per game, and needs half the busiest
+// player's games to rank.
+const dn = await api("POST", "/sessions", { name: "Drop-out Night", format: "americano", courts: 2, pointsPerMatch: 16 });
+for (let i = 1; i <= 8; i++) await api("POST", `/sessions/${dn.id}/players`, { guestName: `D${i}` });
+await api("POST", `/sessions/${dn.id}/status`, { action: "start" });
+let dd = await api("GET", `/sessions/${dn.id}`);
+const [c1, c2] = dd.rounds[0].matches;
+await api("POST", `/matches/${c1.id}/score`, { scoreA: 16, scoreB: 0 });
+await api("POST", `/matches/${c2.id}/score`, { scoreA: 8, scoreB: 8 });
+const leaver = c1.a[0];
+await api("PATCH", `/sessions/${dn.id}/players/${leaver}`, { action: "drop" });
+for (let r = 2; r <= 4; r++) {
+  await api("POST", `/sessions/${dn.id}/rounds`, {});
+  dd = await api("GET", `/sessions/${dn.id}`);
+  for (const m of dd.rounds.at(-1).matches) await api("POST", `/matches/${m.id}/score`, { scoreA: 9, scoreB: 7 });
+}
+await api("POST", `/sessions/${dn.id}/status`, { action: "complete" });
+dd = await api("GET", `/sessions/${dn.id}`);
+const leaverRow = dd.standings.find((r) => r.playerId === leaver);
+if (leaverRow.points !== 16 || leaverRow.ranked) fail(`leaver should keep 16 points but be unranked: ${JSON.stringify(leaverRow)}`);
+if (dd.standings.find((r) => r.ranked).playerId === leaver) fail("leaver must not top the table");
+await org.goto(`${BASE}/app/sessions/${dn.id}`);
+await org.getByText("Final result").waitFor({ timeout: 10000 });
+await org.getByText("too few games to rank").first().waitFor();
+const leaverName = dd.players.find((p) => p.id === leaver).name;
+if ((await org.locator("p.text-2xl", { hasText: leaverName }).count()) !== 0) fail("leaver must not be the champion");
+log("drop-out after one 16–0 win: score kept, listed as 'too few games to rank', not on the podium");
 await org.goto(`${BASE}/app`);
 await org.getByRole("button", { name: "+ New session" }).click();
 await org.getByPlaceholder("Thursday Padel Jam").fill("Quick Start Night");

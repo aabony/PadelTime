@@ -431,6 +431,8 @@ export function PrintSheetPage() {
 
             <p className="mt-1.5 text-[9px] leading-tight text-zinc-500">
               “—” = sitting that round out. Game to {sheet.points} total points, no deuce.{" "}
+              <b>Winner:</b> most points per game (Total ÷ games played; you need at least half as many games as the
+              busiest player).{" "}
               {sheet.format === "mexicano" && (
                 <>
                   <b>Mexicano:</b> after each round rank everyone by points — top four to court 1, next four to court 2,

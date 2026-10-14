@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { useParams } from "react-router-dom";
 import { Api, usePoll } from "../lib/api";
-import { StandingsTable } from "../components/StandingsTable";
+import { StandingsTable, perGame } from "../components/StandingsTable";
 import { Avatar, Badge, PageSpinner, cls } from "../components/ui";
 import { formatMeta } from "../../shared/formatMeta";
 
@@ -21,7 +21,7 @@ export function BoardPage() {
   const current = data.rounds[data.rounds.length - 1];
   const done = data.status === "complete";
   const paused = data.status === "checkin" && data.rounds.length > 0;
-  const champion = done ? data.standings[0] : null;
+  const champion = done ? (data.standings.find((r) => r.ranked) ?? null) : null;
 
   return (
     <div className="min-h-dvh bg-canvas px-6 py-8">
@@ -55,7 +55,9 @@ export function BoardPage() {
               <Avatar name={champion.name} size="lg" ring />
             </div>
             <p className="text-5xl font-black text-navy">{champion.name}</p>
-            <p className="mt-1 text-muted">{champion.points} points</p>
+            <p className="mt-1 text-muted">
+              {perGame(champion)} per game · {champion.points} points in {champion.played}
+            </p>
           </div>
         )}
 

@@ -1,7 +1,21 @@
 import type { MatchRow, RoundRow, StandingRow } from "./types";
 
-// Individual cumulative standings from confirmed matches only.
-// Every player on a team is credited with the team's points (Americano rule).
+// Individual standings from confirmed matches only. Every player on a team is
+// credited with the team's points (Americano rule). The table ranks by points
+// per game, so sitting out (or arriving late) never costs you — but you need at
+// least half as many games as the busiest player to be ranked; anyone with
+// fewer (left early, arrived very late) keeps their scores, listed below.
+
+/** Points per game played; -1 for someone who hasn't played. */
+export function pointsPerGame(row: { points: number; played: number }): number {
+  return row.played > 0 ? row.points / row.played : -1;
+}
+
+/** Fewest games needed to be ranked: half the most anyone has played, rounded up. */
+export function minGamesToRank(rows: { played: number }[]): number {
+  return Math.ceil(Math.max(0, ...rows.map((r) => r.played)) / 2);
+}
+
 export function computeStandings(
   players: { id: string; name: string }[],
   rounds: RoundRow[],
@@ -19,6 +33,7 @@ export function computeStandings(
       ties: 0,
       played: 0,
       byes: 0,
+      ranked: false,
     });
   }
   const credit = (ids: [string, string], scoreFor: number, scoreAgainst: number) => {
@@ -45,10 +60,19 @@ export function computeStandings(
     }
   }
   const rows = [...byId.values()];
-  rows.forEach((r) => (r.diff = r.points - r.against));
+  const min = minGamesToRank(rows);
+  for (const r of rows) {
+    r.diff = r.points - r.against;
+    r.ranked = r.played > 0 && r.played >= min;
+  }
   rows.sort(
     (a, b) =>
-      b.points - a.points || b.wins - a.wins || b.diff - a.diff || a.name.localeCompare(b.name),
+      Number(b.ranked) - Number(a.ranked) ||
+      pointsPerGame(b) - pointsPerGame(a) ||
+      b.points - a.points ||
+      b.wins - a.wins ||
+      b.diff - a.diff ||
+      a.name.localeCompare(b.name),
   );
   return rows;
 }
@@ -56,7 +80,7 @@ export function computeStandings(
 /**
  * Court-assignment order for ranked formats (Mexicano): points per match played
  * first, so sitting a round out never drops you a court; then total points,
- * then point difference. The leaderboard itself stays on total points.
+ * then point difference. Unlike the table, nobody is left unranked here.
  */
 export function rankForCourts<T extends { points: number; diff: number; played: number; name: string }>(rows: T[]): T[] {
   const avg = (r: T) => (r.played > 0 ? r.points / r.played : -1);
