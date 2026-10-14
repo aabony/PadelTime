@@ -3,7 +3,18 @@ import type { FormatKey } from "../../shared/types";
 import { cls } from "./ui";
 
 /** Casual (Americano) vs Competitive (Mexicano) — the one choice that changes how courts are dealt. */
-export function StylePicker({ value, onChange, hint }: { value: FormatKey; onChange: (key: FormatKey) => void; hint?: string }) {
+export function StylePicker({
+  value,
+  onChange,
+  hint,
+  grouped = false,
+}: {
+  value: FormatKey;
+  onChange: (key: FormatKey) => void;
+  hint?: string;
+  /** "Group players by playing level" is ticked: describe the grouped version. */
+  grouped?: boolean;
+}) {
   return (
     <div>
       <p className="mb-1.5 text-sm font-semibold text-navy">Style</p>
@@ -28,7 +39,7 @@ export function StylePicker({ value, onChange, hint }: { value: FormatKey; onCha
               <p className="text-xs font-bold text-royal">
                 {m.name} · {m.tagline}
               </p>
-              <p className="mt-1 text-xs leading-snug text-muted">{m.blurb}</p>
+              <p className="mt-1 text-xs leading-snug text-muted">{grouped ? m.groupedBlurb : m.blurb}</p>
             </button>
           );
         })}

@@ -4,7 +4,7 @@
 // check grouping, fairness and the no-toggle equivalence over many nights.
 import type { EngineContext, RoundPlan } from "../../src/shared/formats/types";
 import { mulberry32 } from "../../src/shared/formats/types";
-import { buildHistory } from "../../src/shared/history";
+import { buildHistory, creditAbsences } from "../../src/shared/history";
 import { computeStandings, rankForCourts } from "../../src/shared/standings";
 import type { RoundRow } from "../../src/shared/types";
 
@@ -20,6 +20,8 @@ export interface NightOptions {
   groupByLevel?: boolean;
   genders?: Record<string, "woman" | "man">;
   mixedPairs?: boolean;
+  /** Round a player arrives in (default 1): they're only checked in from then on. */
+  arrivals?: Record<string, number>;
 }
 
 export interface NightRound {
@@ -39,11 +41,12 @@ export function playNight(planner: Planner, o: NightOptions): NightRound[] {
     const ranked = rankForCourts(computeStandings(o.players.map((id) => ({ id, name: id })), played)).filter(
       (r) => r.played > 0,
     );
+    const present = o.players.filter((p) => (o.arrivals?.[p] ?? 1) <= n);
     const ctx: EngineContext = {
-      players: o.players,
+      players: present,
       courts: o.courts,
       roundNumber: n,
-      ...buildHistory(played),
+      ...creditAbsences(buildHistory(played), played, present),
       standings: ranked.map((r) => ({ playerId: r.playerId, points: r.points, diff: r.diff, played: r.played })),
       levels: o.levels,
       groupByLevel: o.groupByLevel,

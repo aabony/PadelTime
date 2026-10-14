@@ -1,8 +1,8 @@
 // Player ability, set by the organizer in the roster and never shown to
-// players. Three coarse levels on purpose. Competitive (Mexicano) nights use
-// them to group each player's first game (beginners together, intermediate and
-// advanced together); casual (Americano) nights use them to balance the two
-// teams on a court.
+// players. Three coarse levels on purpose. Only used when the session has
+// "Group players by playing level" on: beginners together, intermediate and
+// advanced together — every round in Casual (Americano, which also balances
+// teams by level), for each player's first game in Competitive (Mexicano).
 //
 // Stored values reuse the earlier 1–4 scale so rows saved by the old feature
 // still read sensibly: 1 ("Newbie") now reads as Beginner.

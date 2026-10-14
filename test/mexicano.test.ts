@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { mexicano } from "../src/shared/formats/mexicano";
 import { mulberry32 } from "../src/shared/formats/types";
 import type { EngineContext } from "../src/shared/formats/types";
-import { buildHistory } from "../src/shared/history";
+import { buildHistory, creditAbsences } from "../src/shared/history";
 import type { HistoryRound } from "../src/shared/history";
 import { mexicano as legacyMexicano } from "./legacy/mexicano.legacy";
 import { byeSpread, mixedRoster, mixesBeginners, playNight } from "./helpers/night";
@@ -174,6 +174,55 @@ describe("group players by playing level", () => {
     expect(new Set([...courtWithNewcomers.a, ...courtWithNewcomers.b])).toEqual(new Set(["b1", "b2", "n1", "n2"]));
   });
 
+  it("swaps players between courts when splitting at the beginner line isn't possible", () => {
+    // Three beginners on court (n1 new), so no all-beginner court exists; n1 should still
+    // avoid the advanced players, and newcomer n2 (intermediate) the beginners.
+    const players = ["x1", "b1", "x2", "x3", "b2", "x4", "n1", "n2"];
+    const levels = { x1: 4, b1: 2, x2: 4, x3: 3, b2: 2, x4: 3, n1: 2, n2: 3 };
+    const standings = ladder(players.slice(0, 6));
+    for (let seed = 1; seed <= 10; seed++) {
+      const plan = mexicano.planRound({ ...ctxOf(players, 2, [], standings, seed), levels, groupByLevel: true });
+      const courtOfId = (id: string) => plan.matches.find((m) => [...m.a, ...m.b].includes(id))!;
+      const n1 = courtOfId("n1");
+      expect([...n1.a, ...n1.b].some((p) => levels[p as keyof typeof levels] === 4)).toBe(false);
+      const n2 = courtOfId("n2");
+      expect([...n2.a, ...n2.b].some((p) => levels[p as keyof typeof levels] === 2)).toBe(false);
+    }
+  });
+
+  it("13 players (7 advanced, 6 beginners) on 3 courts: the round-1 sitter's first game stays in level", () => {
+    for (let seed = 1; seed <= 30; seed++) {
+      const players = names(13);
+      const levels = Object.fromEntries(players.map((p, i) => [p, i < 7 ? 4 : 2]));
+      const night = playNight(mexicano.planRound, { players, courts: 3, rounds: 3, seed, levels, groupByLevel: true });
+      for (const { plan, firstGame } of night) {
+        for (const m of plan.matches) {
+          const four = [...m.a, ...m.b];
+          if (four.some((p) => firstGame.has(p))) {
+            // a beginner's first game is with beginners only if there are enough; never with an advanced player when avoidable
+            const newcomers = four.filter((p) => firstGame.has(p));
+            if (newcomers.every((p) => levels[p] === 4)) expect(four.some((p) => levels[p] === 2)).toBe(false);
+          }
+        }
+      }
+    }
+  });
+
+  it("with mixed pairs too, first games stay on one side of the beginner line", () => {
+    for (let seed = 1; seed <= 20; seed++) {
+      const { players, levels } = mixedRoster(seed);
+      const genders = Object.fromEntries(players.map((p, i) => [p, i % 2 ? "woman" : "man"] as const));
+      const night = playNight(mexicano.planRound, { players, courts: 2, rounds: 5, seed, levels, groupByLevel: true, genders, mixedPairs: true });
+      for (const { plan, firstGame } of night) {
+        for (const m of plan.matches) {
+          const four = [...m.a, ...m.b];
+          if (four.some((p) => firstGame.has(p))) expect(mixesBeginners(four, levels)).toBe(false);
+        }
+      }
+      expect(byeSpread(night, players)).toBeLessThanOrEqual(1);
+    }
+  }, 60_000);
+
   it("once everyone has results, the toggle changes nothing", () => {
     const players = names(10);
     const levels = { p1: 2, p2: 4, p3: 2, p4: 4, p5: 3, p6: 4, p7: 3, p8: 2, p9: 2, p10: 3 };
@@ -187,6 +236,42 @@ describe("group players by playing level", () => {
       const on = mexicano.planRound({ ...ctxOf(players, 2, history, standings, seed), levels, groupByLevel: true });
       expect(on).toEqual(off);
     }
+  });
+});
+
+describe("late arrivals", () => {
+  // Rounds a latecomer missed count as their share of sit-outs (engine.ts), so
+  // they join the rotation instead of sitting until their count catches up.
+  it("someone arriving at round 9 of an 18-player, 2-court night sits at most once before playing, then plays their share", () => {
+    for (const groupByLevel of [false, true]) {
+      for (let seed = 1; seed <= 30; seed++) {
+        const { players, levels } = mixedRoster(seed);
+        const night = playNight(mexicano.planRound, {
+          players: [...players, "late"],
+          courts: 2,
+          rounds: 18,
+          seed,
+          levels: { ...levels, late: 2 },
+          groupByLevel,
+          arrivals: { late: 9 },
+        });
+        const after = night.slice(8);
+        const firstGame = after.findIndex(({ plan }) => plan.matches.some((m) => [...m.a, ...m.b].includes("late")));
+        expect(firstGame).toBeGreaterThanOrEqual(0);
+        expect(firstGame).toBeLessThanOrEqual(1);
+        const games = (id: string) => after.filter(({ plan }) => plan.matches.some((m) => [...m.a, ...m.b].includes(id))).length;
+        const others = players.map(games);
+        expect(games("late")).toBeGreaterThanOrEqual(Math.min(...others));
+        expect(games("late")).toBeLessThanOrEqual(Math.max(...others));
+      }
+    }
+  }, 60_000);
+
+  it("a night where everyone is there from round 1 is unchanged by the credit", () => {
+    const players = names(10);
+    const history: HistoryRound[] = [{ number: 1, byes: ["p9", "p10"], matches: [{ a: ["p1", "p2"], b: ["p3", "p4"] }, { a: ["p5", "p6"], b: ["p7", "p8"] }] }];
+    const h = buildHistory(history);
+    expect(creditAbsences(buildHistory(history), history, players)).toEqual(h);
   });
 });
 

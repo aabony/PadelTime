@@ -303,6 +303,22 @@ if ((await genderOf(org, "George").inputValue()) !== "man") fail("bring-back sho
 if ((await levelOf(org, "George").inputValue()) !== "4") fail("bring-back should carry level over");
 await org.getByText("Mixed pairs").first().waitFor();
 log("bring back players: new competitive (Mexicano) session, grouped by level, pre-loaded with previous roster + levels");
+// A full 18-player roster comes back in one go (D1 caps statement parameters,
+// so the copy is chunked; it used to 500 from 12 players up).
+const api = async (method, path, data) => {
+  const res = await org.request.fetch(`${BASE}/api${path}`, { method, data });
+  if (!res.ok()) fail(`${method} ${path} → ${res.status()} ${await res.text()}`);
+  return res.json();
+};
+const big = await api("POST", "/sessions", { name: "Eighteen Night", format: "mexicano", courts: 2, maxPlayers: 18, groupByLevel: true });
+for (let i = 1; i <= 18; i++) await api("POST", `/sessions/${big.id}/players`, { guestName: `Guest ${i}` });
+const bigDetail = await api("GET", `/sessions/${big.id}`);
+await api("PATCH", `/sessions/${big.id}/players/${bigDetail.players[0].id}`, { action: "set_level", level: 2 });
+const again = await api("POST", "/sessions", { name: "Eighteen Again", format: "mexicano", courts: 2, maxPlayers: 18, copyPlayersFrom: big.id });
+const againDetail = await api("GET", `/sessions/${again.id}`);
+if (againDetail.players.length !== 18) fail(`bring-back should copy all 18 players (got ${againDetail.players.length})`);
+if (!againDetail.players.some((p) => p.level === 2)) fail("bring-back should copy levels on a big roster too");
+log("bring back an 18-player roster: all 18 copied with their levels");
 await org.goto(`${BASE}/app`);
 await org.getByRole("button", { name: "+ New session" }).click();
 await org.getByPlaceholder("Thursday Padel Jam").fill("Quick Start Night");

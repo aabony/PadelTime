@@ -4,7 +4,7 @@ import { americano } from "../../shared/formats/americano";
 import { formatMeta } from "../../shared/formatMeta";
 import { mulberry32 } from "../../shared/formats/types";
 import type { EngineContext } from "../../shared/formats/types";
-import { buildHistory } from "../../shared/history";
+import { buildHistory, creditAbsences } from "../../shared/history";
 import type { HistoryRound } from "../../shared/history";
 import type { SessionDetail } from "../../shared/types";
 import { estimateRounds } from "../../shared/timing";
@@ -57,6 +57,7 @@ function planRounds(
   totalRounds: number,
   seed: number,
   prior: HistoryRound[],
+  extra: Partial<EngineContext> = {},
 ): HistoryRound[] {
   const history = [...prior];
   const planned: HistoryRound[] = [];
@@ -66,8 +67,9 @@ function planRounds(
       players: ids,
       courts,
       roundNumber: r,
-      ...buildHistory(history),
+      ...creditAbsences(buildHistory(history), history, ids),
       standings: [],
+      ...extra,
       rng,
     };
     const plan = americano.planRound(ctx);
@@ -121,6 +123,14 @@ function blankRounds(from: number, to: number, courts: number): SheetRound[] {
   return out;
 }
 
+/** Same level grouping as the live engine (levels only reach the organizer's view). */
+function groupingFor(d: SessionDetail): Partial<EngineContext> {
+  if (!d.groupByLevel) return {};
+  const levels: Record<string, number> = {};
+  for (const p of d.players) if (p.level != null) levels[p.id] = p.level;
+  return { groupByLevel: true, levels };
+}
+
 function sessionSheet(d: SessionDetail, roundsWanted: number, seed: number): SheetData | { error: string } {
   const played = new Set<string>();
   for (const r of d.rounds) {
@@ -161,7 +171,7 @@ function sessionSheet(d: SessionDetail, roundsWanted: number, seed: number): She
       ? []
       : d.format === "mexicano"
         ? blankRounds(existing.length + 1, totalRounds, Math.min(d.courts, Math.floor(activeIds.length / 4)))
-        : planRounds(activeIds, d.courts, totalRounds, seed, prior).map((r) => ({
+        : planRounds(activeIds, d.courts, totalRounds, seed, prior, groupingFor(d)).map((r) => ({
           number: r.number,
           byes: byNumber(r.byes),
           matches: r.matches.map((m, i) => ({

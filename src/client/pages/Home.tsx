@@ -218,7 +218,12 @@ export function NewSessionModal({
         <Field label="Name">
           <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Thursday Padel Jam" autoFocus />
         </Field>
-        <StylePicker value={form.format} onChange={(format) => setForm({ ...form, format })} hint="You can switch styles later — even mid-session." />
+        <StylePicker
+          value={form.format}
+          onChange={(format) => setForm({ ...form, format })}
+          grouped={form.groupByLevel}
+          hint="You can switch styles later — even mid-session."
+        />
         <div className="grid grid-cols-[1fr_auto] gap-3">
           <Field label="When">
             <Input type="datetime-local" value={form.when} onChange={(e) => setForm({ ...form, when: e.target.value })} />

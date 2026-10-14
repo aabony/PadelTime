@@ -41,3 +41,24 @@ export function buildHistory(rounds: HistoryRound[]): History {
   }
   return h;
 }
+
+/**
+ * Rounds a player missed (arrived late, or wasn't checked in) count as their
+ * fair share of a sit-out: the fraction of the field that sat that round. A
+ * latecomer then slots into the normal rotation instead of sitting out until
+ * their sit-out count catches up with everyone else's. A night where everyone
+ * was there from round 1 is unchanged.
+ */
+export function creditAbsences(h: History, rounds: HistoryRound[], players: string[]): History {
+  for (const round of rounds) {
+    const there = new Set([...round.byes, ...round.matches.flatMap((m) => [...m.a, ...m.b])]);
+    if (there.size === 0) continue;
+    const share = round.byes.length / there.size;
+    for (const p of players) {
+      if (there.has(p)) continue;
+      h.byeCounts[p] = (h.byeCounts[p] ?? 0) + share;
+      h.lastByeRound[p] = Math.max(h.lastByeRound[p] ?? 0, round.number);
+    }
+  }
+  return h;
+}

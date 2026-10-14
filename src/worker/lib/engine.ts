@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { getFormat } from "../../shared/formats/registry";
 import type { EngineContext } from "../../shared/formats/types";
-import { buildHistory } from "../../shared/history";
+import { buildHistory, creditAbsences } from "../../shared/history";
 import { computeStandings, rankForCourts } from "../../shared/standings";
 import { normalizeLevel } from "../../shared/levels";
 import { matches, playerResults, rounds, sessionPlayers } from "../db/schema";
@@ -46,7 +46,8 @@ export async function generateNextRound(
     return { error: "The current round still has unconfirmed scores. Confirm them first, or force-generate." };
   }
 
-  const history = buildHistory(played);
+  // Late arrivals are credited for the rounds they missed, so they join the rotation.
+  const history = creditAbsences(buildHistory(played), played, eligible);
   // Ranked formats deal courts from points per match played (bye-adjusted).
   const ranked = rankForCourts(computeStandings(players.map((p) => ({ id: p.id, name: p.id })), played)).filter(
     (r) => r.played > 0,

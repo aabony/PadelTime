@@ -20,25 +20,27 @@ export function levelIn(levels: Record<string, number>, id: string): number {
 }
 
 /**
- * How badly a court of four mixes levels. A beginner sharing a court with
- * stronger players is the thing to avoid (10, +10 more if an advanced player is
- * there too); intermediate with advanced is mild (1); one level is free.
+ * How badly a court of four crosses the beginner line: a beginner sharing a
+ * court with stronger players costs 10, +10 more if an advanced player is
+ * there. Intermediate with advanced is the point of the grouping, so it's free.
  */
 export function levelMixCost(four: string[], levels: Record<string, number>): number {
   const ls = four.map((id) => levelIn(levels, id));
   const beg = ls.some((l) => isBeginner(l));
-  const adv = ls.some((l) => l >= ADVANCED);
-  const mid = ls.some((l) => !isBeginner(l) && l < ADVANCED);
-  if (beg && (adv || mid)) return 10 + (adv ? 10 : 0);
-  return adv && mid ? 1 : 0;
+  if (!beg || ls.every((l) => isBeginner(l))) return 0;
+  return 10 + (ls.some((l) => l >= ADVANCED) ? 10 : 0);
 }
 
-/** Players split into advanced, intermediate (incl. unset) and beginner tiers, each shuffled. */
-export function levelTiers(players: string[], levels: Record<string, number>, rng: () => number): string[][] {
-  const adv = players.filter((p) => levelIn(levels, p) >= ADVANCED);
-  const beg = players.filter((p) => isBeginner(levelIn(levels, p)));
-  const mid = players.filter((p) => !adv.includes(p) && !beg.includes(p));
-  return [shuffle(adv, rng), shuffle(mid, rng), shuffle(beg, rng)];
+/** Players split at the beginner line: [intermediate + advanced (advanced first), beginners]. */
+export function levelSides(players: string[], levels: Record<string, number>): [string[], string[]] {
+  const adv: string[] = [];
+  const mid: string[] = [];
+  const beg: string[] = [];
+  for (const p of players) {
+    const l = levelIn(levels, p);
+    (isBeginner(l) ? beg : l >= ADVANCED ? adv : mid).push(p);
+  }
+  return [[...adv, ...mid], beg];
 }
 
 /**
@@ -59,7 +61,7 @@ export function chooseSitOuts<T>(
   evaluate: (sitters: string[]) => { cost: number; result: T },
 ): { sitters: string[]; result: T } {
   const waitingBeginner = (p: string) => isBeginner(levelIn(levels, p)) && !ctx.playedCounts[p];
-  // Tie-break worth far less than any real mix (the smallest is 0.5).
+  // Tie-break worth far less than any real cost (the smallest is Mexicano's 0.5 for bending the ladder).
   const score = (sitters: string[]) => {
     const r = evaluate(sitters);
     return { ...r, cost: r.cost + 0.001 * sitters.filter(waitingBeginner).length };

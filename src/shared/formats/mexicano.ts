@@ -49,7 +49,8 @@ function courtGroups(ranked: string[], courtCount: number, ctx: EngineContext): 
 }
 
 // Mexicano — the competitive sibling of Americano.
-//  - Round 1 is a random draw (no standings yet), planned exactly like Americano.
+//  - Round 1 is a random draw (no standings yet), planned exactly like Americano
+//    (unless grouping by level, below).
 //  - From then on players are ranked by total points and dealt in blocks of
 //    four: the top four to court 1, the next four to court 2, and so on.
 //    Within a court the balanced split is 1st & 4th vs 2nd & 3rd, so matches
@@ -64,8 +65,9 @@ function courtGroups(ranked: string[], courtCount: number, ctx: EngineContext): 
 //    of the way down, intermediate/unset halfway, beginners three quarters) —
 //    and players tied on sit-out fairness are chosen so first games don't mix
 //    beginners with stronger players. When the ladder still can't manage that,
-//    the round is split at the beginner line (ladder order on each side).
-//    After that, results deal the courts.
+//    the round bends: the courts are split at the beginner line (ladder order on
+//    each side), or failing that players are swapped between courts. Once
+//    everyone has results, results alone deal the courts.
 //    With so many sitting (18 on 2 courts), rounds 1 and 2 are both all first
 //    games, which is why this works per player rather than on round 1 only.
 
@@ -107,17 +109,56 @@ function orderOnCourt(ctx: EngineContext, onCourt: string[], levels: Record<stri
 }
 
 /**
- * The same court order split at the beginner line: beginners' courts and
- * everyone else's, each keeping its order, the stronger group first. Null when
- * the split wouldn't fill whole courts.
+ * The courts dealt on each side of the beginner line separately: beginners'
+ * courts and everyone else's, each side in ladder order, the stronger side
+ * first. Null when the beginners on court don't fill whole courts.
  */
-function splitAtBeginnerLine(order: string[], levels: Record<string, number>): string[] | null {
+function splitAtBeginnerLine(order: string[], levels: Record<string, number>, ctx: EngineContext): string[][] | null {
   const beg = order.filter((p) => isBeginner(levelIn(levels, p)));
   const rest = order.filter((p) => !isBeginner(levelIn(levels, p)));
   if (beg.length === 0 || rest.length === 0 || beg.length % 4 !== 0) return null;
   const pos = new Map(order.map((p, i) => [p, i]));
   const meanPos = (group: string[]) => group.reduce((s, p) => s + pos.get(p)!, 0) / group.length;
-  return meanPos(beg) < meanPos(rest) ? [...beg, ...rest] : [...rest, ...beg];
+  const sides = meanPos(beg) < meanPos(rest) ? [beg, rest] : [rest, beg];
+  return sides.flatMap((side) => courtGroups(side, side.length / 4, ctx));
+}
+
+/**
+ * Swap players between courts while that lowers `cost` (with mixed pairs, only
+ * a woman for a woman or a man for a man). Courts are then put back in ladder
+ * order, and so are the players within each court.
+ */
+function untangle(groups: string[][], order: string[], cost: (g: string[][]) => number, ctx: EngineContext): string[][] {
+  const g = groups.map((four) => [...four]);
+  const sameSeat = (x: string, y: string) => !ctx.mixedPairs || !ctx.genders || ctx.genders[x] === ctx.genders[y];
+  let current = cost(g);
+  for (let improved = true; improved && current > 0; ) {
+    improved = false;
+    for (let a = 0; a < g.length; a++) {
+      for (let b = a + 1; b < g.length; b++) {
+        for (let i = 0; i < 4; i++) {
+          for (let j = 0; j < 4; j++) {
+            const x = g[a][i];
+            const y = g[b][j];
+            if (!sameSeat(x, y)) continue;
+            g[a][i] = y;
+            g[b][j] = x;
+            const c = cost(g);
+            if (c < current) {
+              current = c;
+              improved = true;
+            } else {
+              g[a][i] = x;
+              g[b][j] = y;
+            }
+          }
+        }
+      }
+    }
+  }
+  const pos = new Map(order.map((p, i) => [p, i]));
+  const meanPos = (four: string[]) => four.reduce((s, p) => s + pos.get(p)!, 0);
+  return g.map((four) => four.sort((x, y) => pos.get(x)! - pos.get(y)!)).sort((x, y) => meanPos(x) - meanPos(y));
 }
 
 function repeatPartners(a: [string, string], b: [string, string], ctx: EngineContext): number {
@@ -146,35 +187,41 @@ export const mexicano: FormatStrategy = {
     };
 
     let byes: string[];
-    let ranked: string[];
+    let groups: string[][];
     if (levels) {
       // Only first games count: courts where everyone already has results are the ladder's business.
       const hasResults = new Set(ctx.standings.map((s) => s.playerId));
-      const firstGameMix = (order: string[]) => {
+      const firstGameMix = (courts: string[][]) => {
         let cost = 0;
-        for (const four of courtGroups(order, courtCount, ctx)) {
-          if (four.some((p) => !hasResults.has(p))) cost += levelMixCost(four, levels);
-        }
+        for (const four of courts) if (four.some((p) => !hasResults.has(p))) cost += levelMixCost(four, levels);
         return cost;
       };
       const pick = chooseSitOuts(ctx, sitCount, levels, (sitters) => {
         const ladder = orderOnCourt(ctx, onCourtFor(sitters), levels);
-        const cost = firstGameMix(ladder);
-        // When the ladder can't keep a first game on one side of the beginner line,
-        // bend it for this round: split at the line, ladder order within each side.
-        const split = cost > 0 ? splitAtBeginnerLine(ladder, levels) : null;
+        const dealt = courtGroups(ladder, courtCount, ctx);
+        let best = { cost: firstGameMix(dealt), result: dealt };
+        if (best.cost === 0) return best;
+        // The ladder can't keep every first game on one side of the beginner line,
+        // so bend it for this round (a small penalty keeps the ladder preferred):
+        // split the courts at the line, or failing that swap players between courts.
+        const split = splitAtBeginnerLine(ladder, levels, ctx);
         const splitCost = split ? firstGameMix(split) + 0.5 : Infinity;
-        return splitCost < cost ? { cost: splitCost, result: split! } : { cost, result: ladder };
+        if (splitCost < best.cost) best = { cost: splitCost, result: split! };
+        if (best.cost > 0.5) {
+          const swapped = untangle(dealt, ladder, firstGameMix, ctx);
+          const swappedCost = firstGameMix(swapped) + 0.5;
+          if (swappedCost < best.cost) best = { cost: swappedCost, result: swapped };
+        }
+        return best;
       });
       byes = pick.sitters;
-      ranked = pick.result;
+      groups = pick.result;
     } else {
       byes = pickByes(ctx, sitCount);
-      ranked = orderOnCourt(ctx, onCourtFor(byes), null);
+      groups = courtGroups(orderOnCourt(ctx, onCourtFor(byes), null), courtCount, ctx);
     }
 
     const matches: PlannedMatch[] = [];
-    const groups = courtGroups(ranked, courtCount, ctx);
     for (let c = 0; c < courtCount; c++) {
       // Most balanced split first; only a fresher partnership can displace it.
       const splits = splitsFor(groups[c], ctx);

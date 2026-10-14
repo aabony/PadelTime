@@ -3,7 +3,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import * as schema from "../db/schema";
 import { gameSessions, groupMembers, groups, matches, rounds, sessionPlayers, user } from "../db/schema";
-import { buildHistory } from "../../shared/history";
+import { buildHistory, creditAbsences } from "../../shared/history";
 import { computeStandings } from "../../shared/standings";
 import type {
   MatchRow,
@@ -145,12 +145,14 @@ export function computeWarnings(players: PlayerRow[], allRounds: RoundRow[]): st
 
   const activeIds = players.filter((p) => p.status === "checked_in").map((p) => p.id);
   if (activeIds.length > 0 && allRounds.length > 0) {
-    const byes = activeIds.map((id) => history.byeCounts[id] ?? 0);
+    // Same accounting as the engine: rounds a late arrival missed count as their share of sit-outs.
+    const fair = creditAbsences(buildHistory(allRounds), allRounds, activeIds);
+    const byes = activeIds.map((id) => fair.byeCounts[id] ?? 0);
     const maxB = Math.max(...byes);
     const minB = Math.min(...byes);
     if (maxB - minB > 1) {
-      const worst = activeIds.find((id) => (history.byeCounts[id] ?? 0) === maxB);
-      if (worst) warnings.push(`${nameOf(worst)} has sat out ${maxB} rounds; others only ${minB}.`);
+      const worst = activeIds.find((id) => (fair.byeCounts[id] ?? 0) === maxB);
+      if (worst) warnings.push(`${nameOf(worst)} has sat out ${Math.round(maxB)} rounds; others only ${Math.round(minB)}.`);
     }
   }
 

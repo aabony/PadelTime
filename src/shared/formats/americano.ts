@@ -1,8 +1,8 @@
 import type { EngineContext, FormatStrategy, PlannedMatch, RoundPlan } from "./types";
 import { pairKey, shuffle } from "./types";
-import { UNSET_LEVEL } from "../levels";
+import { ADVANCED, UNSET_LEVEL, isBeginner } from "../levels";
 import { pickByes } from "./byes";
-import { chooseSitOuts, groupingLevels, levelMixCost, levelTiers } from "./levelGrouping";
+import { chooseSitOuts, groupingLevels, levelIn, levelMixCost, levelSides } from "./levelGrouping";
 
 export { pickByes };
 
@@ -19,11 +19,13 @@ export { pickByes };
 // partnership. Player counts at a padel night are small (≤ ~28), so a few
 // thousand restarts explore the space thoroughly in a few milliseconds.
 //
-// "Group players by playing level" (session toggle): every round, courts are
-// filled tier by tier — advanced, then intermediate, then beginners — so
-// beginners play beginners; partners still rotate within a tier and teams are
-// balanced by level. Players tied on sit-out fairness are chosen so the
-// beginners on court fill whole courts where possible.
+// "Group players by playing level" (session toggle): every round the courts
+// are split at the beginner line — intermediate and advanced players fill the
+// first courts together, beginners the rest — partners still rotate within
+// each side and teams are balanced by level. Players tied on sit-out fairness
+// are chosen so the beginners on court fill whole courts where possible; when
+// they can't, the court that mixes gets intermediates rather than advanced.
+// Court numbers are shuffled so the board doesn't give the levels away.
 
 const PARTNER_WEIGHT = 40;
 const OPPONENT_WEIGHT = 3;
@@ -47,14 +49,44 @@ function sameGenderTeam(t: [string, string], ctx: EngineContext): boolean {
  * + two men for as long as both pools last; the leftovers fill the rest.
  */
 export function drawOrder(active: string[], courtCount: number, ctx: EngineContext): string[] {
-  const levels = groupingLevels(ctx);
-  if (levels) {
-    // Level tiers in order; with mixed pairs, women and men are paired up inside each tier.
-    return levelTiers(active, levels, ctx.rng).flatMap((tier) =>
-      ctx.mixedPairs && ctx.genders ? genderOrder(tier, Math.ceil(tier.length / 4), ctx) : tier,
-    );
-  }
   return genderOrder(active, courtCount, ctx);
+}
+
+/**
+ * Court order for a restart when grouping by level: the intermediate/advanced
+ * side fills the first courts, beginners the rest. If one court has to straddle
+ * the line, intermediates take its non-beginner seats. With mixed pairs, each
+ * court is filled towards two women + two men from its own side.
+ */
+function groupedOrder(sides: [string[], string[]], levels: Record<string, number>, ctx: EngineContext): string[] {
+  const upper = shuffle([...sides[0]], ctx.rng);
+  const beg = shuffle([...sides[1]], ctx.rng);
+  const straddle = beg.length > 0 ? upper.length % 4 : 0;
+  if (straddle > 0) {
+    const isMid = (p: string) => levelIn(levels, p) < ADVANCED && !isBeginner(levelIn(levels, p));
+    const mids = upper.filter(isMid).slice(0, straddle);
+    const moved = new Set(mids);
+    upper.splice(0, upper.length, ...upper.filter((p) => !moved.has(p)), ...mids);
+  }
+  if (!ctx.mixedPairs || !ctx.genders) return [...upper, ...beg];
+  const g = ctx.genders;
+  const pools = [upper, beg];
+  const seats = [...upper.map(() => 0), ...beg.map(() => 1)];
+  const order: string[] = [];
+  for (let c = 0; c < seats.length; c += 4) {
+    let women = 0;
+    let men = 0;
+    for (const side of seats.slice(c, c + 4)) {
+      const pool = pools[side];
+      const want = women >= 2 ? "man" : men >= 2 ? "woman" : null;
+      const i = want ? pool.findIndex((p) => g[p] === want) : 0;
+      const p = pool.splice(Math.max(i, 0), 1)[0];
+      if (g[p] === "woman") women++;
+      else if (g[p] === "man") men++;
+      order.push(p);
+    }
+  }
+  return order;
 }
 
 function genderOrder(active: string[], courtCount: number, ctx: EngineContext): string[] {
@@ -139,24 +171,25 @@ export const americano: FormatStrategy = {
     const sitCount = ctx.players.length - courtCount * 4;
     const levels = groupingLevels(ctx);
     // Grouping by level: among players tied on sit-out fairness, sit the ones that
-    // let the level tiers fill whole courts (scored on the tier layout by counts).
+    // let beginners fill whole courts (scored on the side layout, which depends only on counts).
     const byes = levels
       ? chooseSitOuts(ctx, sitCount, levels, (sitters) => {
           const sitting = new Set(sitters);
-          const tiered = levelTiers(ctx.players.filter((p) => !sitting.has(p)), levels, () => 0).flat();
+          const layout = levelSides(ctx.players.filter((p) => !sitting.has(p)), levels).flat();
           let cost = 0;
-          for (let c = 0; c < courtCount; c++) cost += levelMixCost(tiered.slice(c * 4, c * 4 + 4), levels);
+          for (let c = 0; c < courtCount; c++) cost += levelMixCost(layout.slice(c * 4, c * 4 + 4), levels);
           return { cost, result: null };
         }).sitters
       : pickByes(ctx, sitCount);
     const byeSet = new Set(byes);
     const active = ctx.players.filter((p) => !byeSet.has(p));
+    const sides = levels ? levelSides(active, levels) : null;
 
     let best: PlannedMatch[] | null = null;
     let bestCost = Infinity;
     const restarts = Math.min(4000, 500 + active.length * 150);
     for (let i = 0; i < restarts; i++) {
-      const order = drawOrder(active, courtCount, ctx);
+      const order = sides ? groupedOrder(sides, levels!, ctx) : drawOrder(active, courtCount, ctx);
       let cost = 0;
       const matches: PlannedMatch[] = [];
       for (let c = 0; c < courtCount; c++) {
@@ -171,6 +204,11 @@ export const americano: FormatStrategy = {
         best = matches;
         if (cost === 0) break;
       }
+    }
+    if (levels && best) {
+      // Court 1 shouldn't always be the strong side: shuffle the court numbers.
+      const numbers = shuffle(best.map((m) => m.court), ctx.rng);
+      best = best.map((m, i) => ({ ...m, court: numbers[i] })).sort((x, y) => x.court - y.court);
     }
     return { matches: best ?? [], byes };
   },

@@ -302,6 +302,46 @@ describe("americano grouped by playing level", () => {
     expect(partners.size).toBe(12);
   });
 
+  it("intermediate and advanced play each other, beginners play beginners", () => {
+    const players = ["b1", "b2", "b3", "b4", "i1", "i2", "a1", "a2"];
+    const levels = { b1: 2, b2: 2, b3: 2, b4: 2, i1: 3, i2: 3, a1: 4, a2: 4 };
+    const night = playNight(americano.planRound, { players, courts: 2, rounds: 3, seed: 5, levels, groupByLevel: true });
+    for (const { plan } of night) {
+      const courts = plan.matches.map(sameCourt);
+      expect(courts).toContainEqual(new Set(["b1", "b2", "b3", "b4"]));
+      expect(courts).toContainEqual(new Set(["i1", "i2", "a1", "a2"]));
+    }
+    // Round 1's teams are balanced: one intermediate + one advanced each side
+    // (later rounds rotate partners first, which can outweigh balance).
+    const upper = night[0].plan.matches.find((m) => m.a.includes("a1") || m.b.includes("a1"))!;
+    for (const t of [upper.a, upper.b]) expect(t.some((p) => p.startsWith("a")) && t.some((p) => p.startsWith("i"))).toBe(true);
+  });
+
+  it("the beginners' court isn't always the last court, so the board doesn't give levels away", () => {
+    const players = ["b1", "b2", "b3", "b4", "a1", "a2", "a3", "a4"];
+    const levels = { b1: 2, b2: 2, b3: 2, b4: 2, a1: 4, a2: 4, a3: 4, a4: 4 };
+    const beginnerCourt = new Set<number>();
+    for (let seed = 1; seed <= 12; seed++) {
+      const plan = americano.planRound({ ...makeCtx(players, 2, [], seed), levels, groupByLevel: true });
+      beginnerCourt.add(plan.matches.find((m) => m.a.includes("b1") || m.b.includes("b1"))!.court);
+      expect(plan.matches.map((m) => m.court)).toEqual([1, 2]);
+    }
+    expect(beginnerCourt).toEqual(new Set([1, 2]));
+  });
+
+  it("with mixed pairs too: every team is one woman + one man when each side allows it", () => {
+    const genders = { bw1: "woman", bw2: "woman", bm1: "man", bm2: "man", aw1: "woman", am1: "man", uw1: "woman", um1: "man" } as const;
+    const levels = { bw1: 2, bw2: 2, bm1: 2, bm2: 2, aw1: 4, am1: 4 };
+    const players = Object.keys(genders);
+    for (let seed = 1; seed <= 8; seed++) {
+      const plan = americano.planRound({ ...makeCtx(players, 2, [], seed), levels, groupByLevel: true, genders, mixedPairs: true });
+      for (const m of plan.matches) {
+        for (const t of [m.a, m.b]) expect(genders[t[0] as keyof typeof genders]).not.toBe(genders[t[1] as keyof typeof genders]);
+        expect(mixesBeginners([...m.a, ...m.b], levels)).toBe(false);
+      }
+    }
+  });
+
   it("unset players count as intermediate, so they play with the stronger group", () => {
     const players = ["b1", "b2", "b3", "b4", "u1", "u2", "a1", "a2"];
     const levels = { b1: 2, b2: 2, b3: 2, b4: 2, a1: 4, a2: 4 };

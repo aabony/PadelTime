@@ -83,10 +83,11 @@ export function SessionPage() {
 
       {d.status !== "cancelled" && <RulesCard d={d} />}
 
-      {isOrganizer && (
+      {/* Mounted only while open, so the form starts from the session as it is now. */}
+      {isOrganizer && showSettings && (
         <SettingsModal
           d={d}
-          open={showSettings}
+          open
           onClose={() => setShowSettings(false)}
           run={run}
           busyKey={busyKey}
@@ -474,6 +475,7 @@ function SettingsModal({
           <StylePicker
             value={form.format}
             onChange={(format) => setForm({ ...form, format })}
+            grouped={form.groupByLevel}
             hint={d.rounds.length > 0 ? "A change applies from the next round dealt." : undefined}
           />
         )}
@@ -1521,7 +1523,7 @@ function MyMatchCard({
         </p>
         <p className="text-sm text-muted">
           {sitting
-            ? "Grab a drink — you're back in the next one."
+            ? "Grab a drink — sit-outs rotate fairly, so you'll be back on soon."
             : `Round ${round.number} was already dealt when you joined — warm up, you're on next.`}
         </p>
       </Card>

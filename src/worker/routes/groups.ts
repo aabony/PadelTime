@@ -252,7 +252,11 @@ groupRoutes.post("/sessions", async (c) => {
           gender: p.gender,
           level: p.level,
         }));
-      if (rows.length > 0) await db.insert(sessionPlayers).values(rows);
+      // D1 caps a statement at 100 bound parameters (9 per row here), so a big
+      // roster goes in chunks — batched, so it lands all or nothing.
+      const inserts = [];
+      for (let i = 0; i < rows.length; i += 10) inserts.push(db.insert(sessionPlayers).values(rows.slice(i, i + 10)));
+      if (inserts.length > 0) await db.batch(inserts as [(typeof inserts)[number], ...(typeof inserts)[number][]]);
     }
   }
   return c.json(result);

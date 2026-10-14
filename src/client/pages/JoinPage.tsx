@@ -108,8 +108,8 @@ export function JoinPage() {
               <p className="font-black text-navy">{live ? "The game is already on — jump in." : paused ? "The game is paused between rounds." : "Check-in is happening now."}</p>
               <p className="mt-1 text-sm text-ink">
                 {live
-                  ? `Round ${data.roundsPlayed} is on court. Join now and you're dealt in from round ${nextRound} — the organizer sees you straight away.`
-                  : `Join now and you're dealt in from round ${nextRound}.`}
+                  ? `Round ${data.roundsPlayed} is on court. Join now and you're in the rotation from round ${nextRound} — the organizer sees you straight away.`
+                  : `Join now and you're in the rotation from round ${nextRound}.`}
               </p>
             </Card>
           )}
