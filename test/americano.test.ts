@@ -342,6 +342,29 @@ describe("americano grouped by playing level", () => {
     }
   });
 
+  it("with mixed pairs, the court that straddles the beginner line takes intermediates, not advanced", () => {
+    const genders = { a1: "man", a2: "man", a3: "man", a4: "man", i1: "woman", i2: "woman", b1: "woman", b2: "woman", b3: "woman", b4: "woman", b5: "man", b6: "man" } as const;
+    const levels = { a1: 4, a2: 4, a3: 4, a4: 4, i1: 3, i2: 3, b1: 2, b2: 2, b3: 2, b4: 2, b5: 2, b6: 2 };
+    const players = Object.keys(genders);
+    for (let seed = 1; seed <= 10; seed++) {
+      const plan = americano.planRound({ ...makeCtx(players, 3, [], seed), levels, groupByLevel: true, genders, mixedPairs: true });
+      const straddle = plan.matches.find((m) => mixesBeginners([...m.a, ...m.b], levels))!;
+      expect([...straddle.a, ...straddle.b].some((p) => p.startsWith("a"))).toBe(false);
+    }
+  });
+
+  it("with mixed pairs, a court of two women + two men always gets mixed teams, round after round", () => {
+    const genders = { aw1: "woman", aw2: "woman", am1: "man", am2: "man", iw1: "woman", iw2: "woman", im1: "man", im2: "man", bw1: "woman", bw2: "woman", bm1: "man", bm2: "man" } as const;
+    const levels = Object.fromEntries(Object.keys(genders).map((p) => [p, p[0] === "a" ? 4 : p[0] === "i" ? 3 : 2]));
+    const players = Object.keys(genders);
+    const night = playNight(americano.planRound, { players, courts: 3, rounds: 8, seed: 2, levels, groupByLevel: true, genders, mixedPairs: true });
+    for (const { plan } of night) {
+      for (const m of plan.matches) {
+        for (const t of [m.a, m.b]) expect(genders[t[0] as keyof typeof genders]).not.toBe(genders[t[1] as keyof typeof genders]);
+      }
+    }
+  });
+
   it("unset players count as intermediate, so they play with the stronger group", () => {
     const players = ["b1", "b2", "b3", "b4", "u1", "u2", "a1", "a2"];
     const levels = { b1: 2, b2: 2, b3: 2, b4: 2, a1: 4, a2: 4 };

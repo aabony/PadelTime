@@ -224,7 +224,7 @@ export function NewSessionModal({
           grouped={form.groupByLevel}
           hint="You can switch styles later — even mid-session."
         />
-        <div className="grid grid-cols-[1fr_auto] gap-3">
+        <div className="grid grid-cols-[minmax(0,1fr)_6rem] gap-3">
           <Field label="When">
             <Input type="datetime-local" value={form.when} onChange={(e) => setForm({ ...form, when: e.target.value })} />
           </Field>

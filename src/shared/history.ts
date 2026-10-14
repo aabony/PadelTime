@@ -50,15 +50,18 @@ export function buildHistory(rounds: HistoryRound[]): History {
  * was there from round 1 is unchanged.
  */
 export function creditAbsences(h: History, rounds: HistoryRound[], players: string[]): History {
+  const credit: Record<string, number> = {};
   for (const round of rounds) {
     const there = new Set([...round.byes, ...round.matches.flatMap((m) => [...m.a, ...m.b])]);
     if (there.size === 0) continue;
     const share = round.byes.length / there.size;
     for (const p of players) {
       if (there.has(p)) continue;
-      h.byeCounts[p] = (h.byeCounts[p] ?? 0) + share;
+      credit[p] = (credit[p] ?? 0) + share;
       h.lastByeRound[p] = Math.max(h.lastByeRound[p] ?? 0, round.number);
     }
   }
+  // Rounded once, after summing: 3 × (1/3) must compare equal to a real sit-out.
+  for (const [p, c] of Object.entries(credit)) h.byeCounts[p] = Math.round(((h.byeCounts[p] ?? 0) + c) * 1e9) / 1e9;
   return h;
 }

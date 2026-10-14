@@ -140,7 +140,8 @@ export function JoinPage() {
             <h3 className="mb-1 text-lg font-black text-navy">How it works</h3>
             <div className="divide-y divide-line">
               <InfoRow icon={formatMeta(data.format).emoji}>
-                <b>{formatMeta(data.format).name}</b> — {formatMeta(data.format).blurb}
+                <b>{formatMeta(data.format).name}</b> —{" "}
+                {data.groupByLevel ? formatMeta(data.format).groupedBlurb : formatMeta(data.format).blurb}
               </InfoRow>
               <InfoRow icon="🎯">One game to {data.pointsPerMatch} rally points; every point you win counts for you</InfoRow>
               <InfoRow icon="📱">Enter and confirm scores from your phone; live leaderboard</InfoRow>
@@ -180,7 +181,7 @@ export function JoinPage() {
             ) : (
               <div className="flex items-center gap-3">
                 <p className="min-w-0 flex-1 text-sm font-semibold text-navy">
-                  {data.myStatus === "checked_in" && live ? "You're in ✓ — dealt in from the next round." : "You're in ✓"}
+                  {data.myStatus === "checked_in" && live ? "You're in ✓ — in the rotation from the next round." : "You're in ✓"}
                 </p>
                 <Button size="lg" onClick={openSession}>
                   Open session

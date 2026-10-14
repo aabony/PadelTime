@@ -479,7 +479,7 @@ function SettingsModal({
             hint={d.rounds.length > 0 ? "A change applies from the next round dealt." : undefined}
           />
         )}
-        <div className="grid grid-cols-[1fr_auto] gap-3">
+        <div className="grid grid-cols-[minmax(0,1fr)_6rem] gap-3">
           <Field label="When">
             <Input type="datetime-local" value={form.when} onChange={(e) => setForm({ ...form, when: e.target.value })} />
           </Field>
@@ -1070,7 +1070,7 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="font-bold text-navy">At the courts?</p>
-              <p className="text-xs text-muted">Check in and you're dealt in from the next round.</p>
+              <p className="text-xs text-muted">Check in and you're in the rotation from the next round.</p>
             </div>
             <Button busy={busyKey === "selfcheckin"} onClick={() => run("selfcheckin", () => Api.selfCheckin(d.id))}>
               ✓ I'm here
@@ -1524,7 +1524,7 @@ function MyMatchCard({
         <p className="text-sm text-muted">
           {sitting
             ? "Grab a drink — sit-outs rotate fairly, so you'll be back on soon."
-            : `Round ${round.number} was already dealt when you joined — warm up, you're on next.`}
+            : `Round ${round.number} was already dealt when you joined — sit-outs rotate fairly, so you'll be on soon.`}
         </p>
       </Card>
     );

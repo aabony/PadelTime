@@ -132,29 +132,11 @@ export async function loadRounds(db: DB, sessionId: string): Promise<RoundRow[]>
 }
 
 export function computeWarnings(players: PlayerRow[], allRounds: RoundRow[]): string[] {
+  // Things to act on first; partner repeats (often unavoidable) fill whatever room is left.
   const warnings: string[] = [];
+  const repeats: string[] = [];
   const nameOf = (id: string) => players.find((p) => p.id === id)?.name ?? "?";
   const history = buildHistory(allRounds);
-
-  for (const [key, count] of Object.entries(history.partnerCounts)) {
-    if (count > 1) {
-      const [a, b] = key.split("|");
-      warnings.push(`${nameOf(a)} & ${nameOf(b)} have partnered ${count} times.`);
-    }
-  }
-
-  const activeIds = players.filter((p) => p.status === "checked_in").map((p) => p.id);
-  if (activeIds.length > 0 && allRounds.length > 0) {
-    // Same accounting as the engine: rounds a late arrival missed count as their share of sit-outs.
-    const fair = creditAbsences(buildHistory(allRounds), allRounds, activeIds);
-    const byes = activeIds.map((id) => fair.byeCounts[id] ?? 0);
-    const maxB = Math.max(...byes);
-    const minB = Math.min(...byes);
-    if (maxB - minB > 1) {
-      const worst = activeIds.find((id) => (fair.byeCounts[id] ?? 0) === maxB);
-      if (worst) warnings.push(`${nameOf(worst)} has sat out ${Math.round(maxB)} rounds; others only ${Math.round(minB)}.`);
-    }
-  }
 
   const latest = allRounds[allRounds.length - 1];
   if (latest) {
@@ -168,7 +150,28 @@ export function computeWarnings(players: PlayerRow[], allRounds: RoundRow[]): st
       }
     }
   }
-  return warnings.slice(0, 6);
+
+  const activeIds = players.filter((p) => p.status === "checked_in").map((p) => p.id);
+  if (activeIds.length > 0 && allRounds.length > 0) {
+    // Same accounting as the engine: rounds a late arrival missed count as their share of sit-outs.
+    // Real gaps are whole rounds, so only a gap of 2+ is unfair (a late arrival's share is fractional).
+    const fair = creditAbsences(buildHistory(allRounds), allRounds, activeIds);
+    const byes = activeIds.map((id) => fair.byeCounts[id] ?? 0);
+    const maxB = Math.max(...byes);
+    const minB = Math.min(...byes);
+    if (maxB - minB >= 2) {
+      const worst = activeIds.find((id) => (fair.byeCounts[id] ?? 0) === maxB);
+      if (worst) warnings.push(`${nameOf(worst)} has sat out ${Math.round(maxB)} rounds; others only ${Math.round(minB)}.`);
+    }
+  }
+
+  for (const [key, count] of Object.entries(history.partnerCounts)) {
+    if (count > 1) {
+      const [a, b] = key.split("|");
+      repeats.push(`${nameOf(a)} & ${nameOf(b)} have partnered ${count} times.`);
+    }
+  }
+  return [...warnings, ...repeats].slice(0, 6);
 }
 
 export async function buildDetail(

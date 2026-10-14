@@ -223,6 +223,14 @@ describe("group players by playing level", () => {
     }
   }, 60_000);
 
+  it("the sitting list is in roster order, so it can't hint at levels", () => {
+    for (let seed = 1; seed <= 10; seed++) {
+      const { players, levels } = mixedRoster(seed);
+      const plan = mexicano.planRound({ ...ctxOf(players, 2, [], [], seed), levels, groupByLevel: true });
+      expect(plan.byes).toEqual(players.filter((p) => plan.byes.includes(p)));
+    }
+  });
+
   it("once everyone has results, the toggle changes nothing", () => {
     const players = names(10);
     const levels = { p1: 2, p2: 4, p3: 2, p4: 4, p5: 3, p6: 4, p7: 3, p8: 2, p9: 2, p10: 3 };
@@ -234,7 +242,8 @@ describe("group players by playing level", () => {
     for (let seed = 1; seed <= 20; seed++) {
       const off = mexicano.planRound(ctxOf(players, 2, history, standings, seed));
       const on = mexicano.planRound({ ...ctxOf(players, 2, history, standings, seed), levels, groupByLevel: true });
-      expect(on).toEqual(off);
+      expect(on.matches).toEqual(off.matches);
+      expect(new Set(on.byes)).toEqual(new Set(off.byes)); // grouped sit-outs are listed in roster order
     }
   });
 });
@@ -266,6 +275,25 @@ describe("late arrivals", () => {
       }
     }
   }, 60_000);
+
+  it("credits add up exactly: three thirds of a sit-out equal one real sit-out", () => {
+    const twelve = names(12);
+    const rounds: HistoryRound[] = [1, 2, 3].map((number) => ({
+      number,
+      byes: twelve.slice(0, 4),
+      matches: [{ a: [twelve[4], twelve[5]], b: [twelve[6], twelve[7]] }, { a: [twelve[8], twelve[9]], b: [twelve[10], twelve[11]] }],
+    }));
+    expect(creditAbsences(buildHistory(rounds), rounds, [...twelve, "late"]).byeCounts.late).toBe(1);
+  });
+
+  it("someone arriving at round 4 of 12 on 2 courts never sits two rounds running", () => {
+    for (let seed = 1; seed <= 20; seed++) {
+      const players = names(12);
+      const night = playNight(mexicano.planRound, { players: [...players, "late"], courts: 2, rounds: 12, seed, arrivals: { late: 4 } });
+      const sat = night.slice(3).map(({ plan }) => plan.byes.includes("late"));
+      expect(sat.some((s, i) => s && sat[i + 1])).toBe(false);
+    }
+  });
 
   it("a night where everyone is there from round 1 is unchanged by the credit", () => {
     const players = names(10);

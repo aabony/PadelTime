@@ -159,6 +159,8 @@ export interface JoinInfo {
   /** Gender on this session, or the one remembered from the last session played. */
   myGender: "woman" | "man" | null;
   mixedPairs: boolean;
+  /** Group players by playing level is on (levels themselves are never shared). */
+  groupByLevel: boolean;
 }
 
 // Read-only public board (TV / court display) payload.

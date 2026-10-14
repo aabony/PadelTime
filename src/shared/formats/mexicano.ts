@@ -124,37 +124,112 @@ function splitAtBeginnerLine(order: string[], levels: Record<string, number>, ct
 }
 
 /**
- * Swap players between courts while that lowers `cost` (with mixed pairs, only
- * a woman for a woman or a man for a man). Courts are then put back in ladder
- * order, and so are the players within each court.
+ * The cheapest first-game mix any split of these players into courts could
+ * reach. Players reduce to (first game?) x (advanced / intermediate / beginner)
+ * counts, so a small memoised search over courts of four is exact.
  */
-function untangle(groups: string[][], order: string[], cost: (g: string[][]) => number, ctx: EngineContext): string[][] {
+function mixLowerBound(players: string[], hasResults: Set<string>, levels: Record<string, number>): number {
+  const category = (p: string) => {
+    const l = levelIn(levels, p);
+    return (hasResults.has(p) ? 3 : 0) + (isBeginner(l) ? 2 : l >= ADVANCED ? 0 : 1);
+  };
+  const counts = [0, 0, 0, 0, 0, 0];
+  for (const p of players) counts[category(p)]++;
+  const courtCost = (c: number[]) => {
+    const firstGame = c[0] + c[1] + c[2] > 0;
+    const beginner = c[2] + c[5] > 0;
+    const stronger = c[0] + c[1] + c[3] + c[4] > 0;
+    return firstGame && beginner && stronger ? 10 + (c[0] + c[3] > 0 ? 10 : 0) : 0;
+  };
+  const memo = new Map<string, number>();
+  const solve = (left: number[]): number => {
+    if (left.every((x) => x === 0)) return 0;
+    const key = left.join();
+    const hit = memo.get(key);
+    if (hit != null) return hit;
+    // The next court always takes someone from the first non-empty category, so each split is counted once.
+    const first = left.findIndex((x) => x > 0);
+    const court = [0, 0, 0, 0, 0, 0];
+    let best = Infinity;
+    const fill = (i: number, seats: number) => {
+      if (i === 6) {
+        if (seats === 0 && court[first] > 0) best = Math.min(best, courtCost(court) + solve(left.map((x, k) => x - court[k])));
+        return;
+      }
+      for (let x = 0; x <= Math.min(seats, left[i]); x++) {
+        court[i] = x;
+        fill(i + 1, seats - x);
+      }
+      court[i] = 0;
+    };
+    fill(0, 4);
+    memo.set(key, best);
+    return best;
+  };
+  return solve(counts);
+}
+
+/**
+ * Swap players between courts while that lowers `cost` (with mixed pairs, only
+ * a woman for a woman or a man for a man), stopping at `bound`. With `deep`,
+ * when no single swap helps, two swaps are tried together — a court's cost only
+ * drops once it's fully cleared, so single swaps can stall. Courts are then put
+ * back in ladder order, and so are the players within each court.
+ */
+function untangle(
+  groups: string[][],
+  order: string[],
+  cost: (g: string[][]) => number,
+  ctx: EngineContext,
+  bound: number,
+  deep = false,
+): string[][] {
+  type Move = [number, number, number, number];
   const g = groups.map((four) => [...four]);
-  const sameSeat = (x: string, y: string) => !ctx.mixedPairs || !ctx.genders || ctx.genders[x] === ctx.genders[y];
+  const moves: Move[] = [];
+  for (let a = 0; a < g.length; a++) {
+    for (let b = a + 1; b < g.length; b++) {
+      for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) moves.push([a, i, b, j]);
+    }
+  }
+  const swap = ([a, i, b, j]: Move) => {
+    [g[a][i], g[b][j]] = [g[b][j], g[a][i]];
+  };
+  const allowed = ([a, i, b, j]: Move) =>
+    !ctx.mixedPairs || !ctx.genders || ctx.genders[g[a][i]] === ctx.genders[g[b][j]];
   let current = cost(g);
-  for (let improved = true; improved && current > 0; ) {
-    improved = false;
-    for (let a = 0; a < g.length; a++) {
-      for (let b = a + 1; b < g.length; b++) {
-        for (let i = 0; i < 4; i++) {
-          for (let j = 0; j < 4; j++) {
-            const x = g[a][i];
-            const y = g[b][j];
-            if (!sameSeat(x, y)) continue;
-            g[a][i] = y;
-            g[b][j] = x;
-            const c = cost(g);
-            if (c < current) {
-              current = c;
-              improved = true;
-            } else {
-              g[a][i] = x;
-              g[b][j] = y;
-            }
-          }
-        }
+  while (current > bound) {
+    let improved = false;
+    for (const m of moves) {
+      if (!allowed(m)) continue;
+      swap(m);
+      const c = cost(g);
+      if (c < current) {
+        current = c;
+        improved = true;
+      } else {
+        swap(m);
       }
     }
+    if (improved) continue;
+    if (!deep) break;
+    pairs: for (let x = 0; x < moves.length; x++) {
+      if (!allowed(moves[x])) continue;
+      swap(moves[x]);
+      for (let y = x + 1; y < moves.length; y++) {
+        if (!allowed(moves[y])) continue;
+        swap(moves[y]);
+        const c = cost(g);
+        if (c < current) {
+          current = c;
+          improved = true;
+          break pairs;
+        }
+        swap(moves[y]);
+      }
+      swap(moves[x]);
+    }
+    if (!improved) break;
   }
   const pos = new Map(order.map((p, i) => [p, i]));
   const meanPos = (four: string[]) => four.reduce((s, p) => s + pos.get(p)!, 0);
@@ -208,7 +283,7 @@ export const mexicano: FormatStrategy = {
         const splitCost = split ? firstGameMix(split) + 0.5 : Infinity;
         if (splitCost < best.cost) best = { cost: splitCost, result: split! };
         if (best.cost > 0.5) {
-          const swapped = untangle(dealt, ladder, firstGameMix, ctx);
+          const swapped = untangle(dealt, ladder, firstGameMix, ctx, 0);
           const swappedCost = firstGameMix(swapped) + 0.5;
           if (swappedCost < best.cost) best = { cost: swappedCost, result: swapped };
         }
@@ -216,6 +291,15 @@ export const mexicano: FormatStrategy = {
       });
       byes = pick.sitters;
       groups = pick.result;
+      // Once, on the chosen sit-outs: escape single-swap plateaus when the count bound says it's worth it.
+      const onCourt = groups.flat();
+      const bound = mixLowerBound(onCourt, hasResults, levels);
+      const now = firstGameMix(groups);
+      if (now > bound) {
+        const ladder = orderOnCourt(ctx, onCourt, levels);
+        const deeper = untangle(groups, ladder, firstGameMix, ctx, bound, true);
+        if (firstGameMix(deeper) < now) groups = deeper;
+      }
     } else {
       byes = pickByes(ctx, sitCount);
       groups = courtGroups(orderOnCourt(ctx, onCourtFor(byes), null), courtCount, ctx);

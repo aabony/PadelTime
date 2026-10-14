@@ -229,7 +229,7 @@ await late.waitForURL("**/login**");
 await otpSignIn(late, "Late", `late${run}@test.com`);
 await late.waitForURL("**/join/**", { timeout: 15000 });
 await late.getByRole("button", { name: /I'm here — deal me in/ }).click({ timeout: 15000 });
-await late.getByText("dealt in from the next round").waitFor({ timeout: 10000 });
+await late.getByText("in the rotation from the next round").waitFor({ timeout: 10000 });
 await late.getByRole("button", { name: "Open session" }).click();
 await late.waitForURL("**/app/sessions/**");
 await late.getByText("You're in from round 2").waitFor({ timeout: 10000 });

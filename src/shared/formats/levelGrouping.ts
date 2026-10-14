@@ -66,9 +66,11 @@ export function chooseSitOuts<T>(
     const r = evaluate(sitters);
     return { ...r, cost: r.cost + 0.001 * sitters.filter(waitingBeginner).length };
   };
+  // Sitters go out in roster order: the order they were picked in could hint at levels.
+  const done = () => ({ sitters: ctx.players.filter((p) => best.sitters.includes(p)), result: best.result });
   const base = pickByes(ctx, count);
   let best = { sitters: base, ...score(base) };
-  if (count <= 0 || best.cost === 0) return { sitters: best.sitters, result: best.result };
+  if (count <= 0 || best.cost === 0) return done();
 
   const fair = (id: string): [number, number] => [ctx.byeCounts[id] ?? 0, ctx.lastByeRound[id] ?? 0];
   const cmp = (a: [number, number], b: [number, number]) => a[0] - b[0] || a[1] - b[1];
@@ -76,7 +78,7 @@ export function chooseSitOuts<T>(
   const mustSit = ctx.players.filter((p) => cmp(fair(p), cut) < 0);
   const tied = ctx.players.filter((p) => cmp(fair(p), cut) === 0);
   const need = count - mustSit.length;
-  if (need <= 0 || need >= tied.length) return { sitters: best.sitters, result: best.result };
+  if (need <= 0 || need >= tied.length) return done();
 
   const consider = (sit: string[]) => {
     const sitters = [...mustSit, ...sit];
@@ -91,5 +93,5 @@ export function chooseSitOuts<T>(
     consider(byLevel.filter((p) => !playing.has(p)));
   }
   for (let i = 0; i < 300 && best.cost > 0; i++) consider(shuffle([...tied], ctx.rng).slice(0, need));
-  return { sitters: best.sitters, result: best.result };
+  return done();
 }

@@ -59,19 +59,23 @@ export function drawOrder(active: string[], courtCount: number, ctx: EngineConte
  * court is filled towards two women + two men from its own side.
  */
 function groupedOrder(sides: [string[], string[]], levels: Record<string, number>, ctx: EngineContext): string[] {
-  const upper = shuffle([...sides[0]], ctx.rng);
+  let upper = shuffle([...sides[0]], ctx.rng);
   const beg = shuffle([...sides[1]], ctx.rng);
   const straddle = beg.length > 0 ? upper.length % 4 : 0;
+  let mids: string[] = [];
   if (straddle > 0) {
     const isMid = (p: string) => levelIn(levels, p) < ADVANCED && !isBeginner(levelIn(levels, p));
-    const mids = upper.filter(isMid).slice(0, straddle);
-    const moved = new Set(mids);
-    upper.splice(0, upper.length, ...upper.filter((p) => !moved.has(p)), ...mids);
+    const reserved = upper.filter(isMid).slice(0, straddle);
+    const moved = new Set(reserved);
+    // Advanced players can't fill all straddle seats when mids run short: top up from the rest.
+    upper = upper.filter((p) => !moved.has(p));
+    mids = [...reserved, ...upper.splice(upper.length - (straddle - reserved.length), straddle - reserved.length)];
   }
-  if (!ctx.mixedPairs || !ctx.genders) return [...upper, ...beg];
+  if (!ctx.mixedPairs || !ctx.genders) return [...upper, ...mids, ...beg];
   const g = ctx.genders;
-  const pools = [upper, beg];
-  const seats = [...upper.map(() => 0), ...beg.map(() => 1)];
+  // Seats: full upper courts from `upper`, the straddling court's upper seats from `mids` only.
+  const pools = [upper, beg, mids];
+  const seats = [...upper.map(() => 0), ...mids.map(() => 2), ...beg.map(() => 1)];
   const order: string[] = [];
   for (let c = 0; c < seats.length; c += 4) {
     let women = 0;
@@ -138,13 +142,27 @@ function teamsCost(a: [string, string], b: [string, string], ctx: EngineContext)
   return cost;
 }
 
-function bestSplit(four: string[], ctx: EngineContext): { a: [string, string]; b: [string, string]; cost: number } {
+/**
+ * Cheapest team split of a court. `mixedOnly` (grouping by level, where the
+ * same foursome can meet often): a court of two women + two men always gets
+ * mixed teams, even at the price of a repeat partnership.
+ */
+function bestSplit(
+  four: string[],
+  ctx: EngineContext,
+  mixedOnly = false,
+): { a: [string, string]; b: [string, string]; cost: number } {
   const [p0, p1, p2, p3] = four;
-  const options: [[string, string], [string, string]][] = [
+  let options: [[string, string], [string, string]][] = [
     [[p0, p1], [p2, p3]],
     [[p0, p2], [p1, p3]],
     [[p0, p3], [p1, p2]],
   ];
+  if (mixedOnly && ctx.mixedPairs && ctx.genders) {
+    const women = four.filter((p) => ctx.genders![p] === "woman").length;
+    const men = four.filter((p) => ctx.genders![p] === "man").length;
+    if (women === 2 && men === 2) options = options.filter(([a, b]) => !sameGenderTeam(a, ctx) && !sameGenderTeam(b, ctx));
+  }
   let best = options[0];
   let bestCost = Infinity;
   for (const [a, b] of options) {
@@ -194,7 +212,7 @@ export const americano: FormatStrategy = {
       const matches: PlannedMatch[] = [];
       for (let c = 0; c < courtCount; c++) {
         const four = order.slice(c * 4, c * 4 + 4);
-        const split = bestSplit(four, ctx);
+        const split = bestSplit(four, ctx, !!sides);
         matches.push({ court: c + 1, a: split.a, b: split.b });
         cost += split.cost;
         if (cost >= bestCost) break; // prune hopeless orderings early

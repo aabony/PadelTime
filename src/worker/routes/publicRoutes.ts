@@ -94,6 +94,7 @@ publicRoutes.get("/join/:code", async (c) => {
     myStatus: (mine?.status as PlayerStatus) ?? null,
     myGender: parseGender(mine?.gender) ?? (u ? await rememberedGender(db, u.id) : null),
     mixedPairs: session.mixedPairs,
+    groupByLevel: session.groupByLevel,
   };
   return c.json(info);
 });
