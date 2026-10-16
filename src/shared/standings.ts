@@ -1,10 +1,10 @@
 import type { MatchRow, RoundRow, StandingRow } from "./types";
 
 // Individual standings from confirmed matches only. Every player on a team is
-// credited with the team's points (Americano rule). The table ranks by points
-// per game, so sitting out (or arriving late) never costs you — but you need at
-// least half as many games as the busiest player to be ranked; anyone with
-// fewer (left early, arrived very late) keeps their scores, listed below.
+// credited with the team's points (Americano rule). The table ranks by total
+// points — but you need at least half as many games as the busiest player to be
+// ranked; anyone with fewer (left early, arrived very late) keeps their scores,
+// listed below.
 
 /** Points per game played; -1 for someone who hasn't played. */
 export function pointsPerGame(row: { points: number; played: number }): number {
@@ -68,7 +68,6 @@ export function computeStandings(
   rows.sort(
     (a, b) =>
       Number(b.ranked) - Number(a.ranked) ||
-      pointsPerGame(b) - pointsPerGame(a) ||
       b.points - a.points ||
       b.wins - a.wins ||
       b.diff - a.diff ||

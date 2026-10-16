@@ -297,7 +297,7 @@ await org.waitForURL("**/app/sessions/**");
 await org.getByText("George").first().waitFor({ timeout: 10000 });
 if ((await org.locator("ul > li").count()) < 8) fail("copied roster should have 8 players");
 await org.getByText("Mexicano").first().waitFor();
-await org.getByText("First games are grouped by playing level.").waitFor();
+await org.getByText("beginners play beginners for their first two games").waitFor();
 await org.getByText("🎚️ Grouped by level").waitFor();
 if ((await genderOf(org, "George").inputValue()) !== "man") fail("bring-back should carry gender over");
 if ((await levelOf(org, "George").inputValue()) !== "4") fail("bring-back should carry level over");

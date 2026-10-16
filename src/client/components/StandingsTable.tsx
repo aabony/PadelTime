@@ -33,11 +33,11 @@ export function StandingsTable({
           <tr className="whitespace-nowrap text-left text-xs uppercase tracking-wider text-muted">
             <th className="py-2 pr-2 font-semibold">#</th>
             <th className="py-2 pr-2 font-semibold">Player</th>
-            <th className="py-2 pr-2 text-right font-semibold" title="Points per game — the ranking">
-              Avg
-            </th>
-            <th className="py-2 pr-2 text-right font-semibold" title="Total points">
+            <th className="py-2 pr-2 text-right font-semibold" title="Total points — the ranking">
               Pts
+            </th>
+            <th className="py-2 pr-2 text-right font-semibold" title="Points per game">
+              Avg
             </th>
             {!compact && <th className="py-2 pr-2 text-right font-semibold">W-L{""}</th>}
             {!compact && <th className="py-2 pr-2 text-right font-semibold">+/-</th>}
@@ -70,9 +70,9 @@ export function StandingsTable({
                 {!row.ranked && row.played > 0 && <span className="block text-[11px] font-medium text-faint">too few games to rank</span>}
               </td>
               <td className={cls("tabular py-2 pr-2 text-right text-base font-black", row.ranked ? "text-navy" : "text-muted")}>
-                {perGame(row)}
+                {row.points}
               </td>
-              <td className="tabular py-2 pr-2 text-right text-muted">{row.points}</td>
+              <td className="tabular py-2 pr-2 text-right text-muted">{perGame(row)}</td>
               {!compact && (
                 <td className="tabular py-2 pr-2 text-right text-muted">
                   {row.wins}-{row.losses}

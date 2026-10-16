@@ -231,6 +231,33 @@ describe("group players by playing level", () => {
     }
   });
 
+  it("one game doesn't outrank the levels: 7–7 beginners stay below intermediates who lost 6–8 (Wednesday's shape)", () => {
+    // Everyone has one game: intermediates 8, 8, 6, 6; beginners drew 7–7 among themselves.
+    const players = ["i1", "i2", "b1", "b2", "b3", "b4", "i3", "i4"];
+    const levels = { i1: 3, i2: 3, i3: 3, i4: 3, b1: 2, b2: 2, b3: 2, b4: 2 };
+    const points = { i1: 8, i2: 8, b1: 7, b2: 7, b3: 7, b4: 7, i3: 6, i4: 6 };
+    const standings = players.map((p) => ({ playerId: p, points: points[p as keyof typeof points], played: 1 }));
+    for (let seed = 1; seed <= 10; seed++) {
+      const plan = mexicano.planRound({ ...ctxOf(players, 2, [], standings, seed), levels, groupByLevel: true });
+      expect(new Set([...courtOf(plan, 1).a, ...courtOf(plan, 1).b])).toEqual(new Set(["i1", "i2", "i3", "i4"]));
+      expect(new Set([...courtOf(plan, 2).a, ...courtOf(plan, 2).b])).toEqual(new Set(["b1", "b2", "b3", "b4"]));
+    }
+    // Without grouping, the same one-game standings deal by results: beginners reach court 1.
+    const plain = mexicano.planRound(ctxOf(players, 2, [], standings));
+    expect([...courtOf(plain, 1).a, ...courtOf(plain, 1).b].some((p) => p.startsWith("b"))).toBe(true);
+  });
+
+  it("after two games results decide: a beginner averaging 7 goes above an intermediate averaging 5.5", () => {
+    const players = ["i1", "i2", "b1", "b2", "b3", "b4", "i3", "i4"];
+    const levels = { i1: 3, i2: 3, i3: 3, i4: 3, b1: 2, b2: 2, b3: 2, b4: 2 };
+    const points = { i1: 17, i2: 16, b1: 14, b2: 14, b3: 14, b4: 14, i3: 11, i4: 11 };
+    const standings = players.map((p) => ({ playerId: p, points: points[p as keyof typeof points], played: 2 }));
+    const plan = mexicano.planRound({ ...ctxOf(players, 2, [], standings), levels, groupByLevel: true });
+    const top = [...courtOf(plan, 1).a, ...courtOf(plan, 1).b];
+    expect(top).toEqual(expect.arrayContaining(["i1", "i2"]));
+    expect(top.filter((p) => p.startsWith("b"))).toHaveLength(2);
+  });
+
   it("once everyone has results, the toggle changes nothing", () => {
     const players = names(10);
     const levels = { p1: 2, p2: 4, p3: 2, p4: 4, p5: 3, p6: 4, p7: 3, p8: 2, p9: 2, p10: 3 };

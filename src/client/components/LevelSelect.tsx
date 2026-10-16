@@ -9,10 +9,13 @@ export function LevelSelect({
   value,
   onChange,
   busy = false,
+  compact = false,
 }: {
   value: number | null;
   onChange: (level: number | null) => void;
   busy?: boolean;
+  /** Short labels (🌱 Beg) for tight tables. */
+  compact?: boolean;
 }) {
   const meta = levelMeta(value);
   return (
@@ -27,10 +30,10 @@ export function LevelSelect({
         meta ? "border-line bg-canvas text-navy" : "border-dashed border-amber-dark/50 bg-white text-amber-dark",
       )}
     >
-      <option value="">— level —</option>
+      <option value="">{compact ? "— lvl —" : "— level —"}</option>
       {LEVELS.map((l) => (
         <option key={l.value} value={l.value}>
-          {l.emoji} {l.label}
+          {l.emoji} {compact ? l.short : l.label}
         </option>
       ))}
     </select>

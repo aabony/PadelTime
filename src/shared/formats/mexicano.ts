@@ -59,17 +59,23 @@ function courtGroups(ranked: string[], courtCount: number, ctx: EngineContext): 
 //    players at the bottom shouldn't also be the ones sitting out.
 //  - Players with no results yet (late arrivals) start on the bottom court.
 //  - "Group players by playing level" (session toggle, organizer-set levels):
-//    a player's FIRST game is placed by level instead — by level alone while
-//    nobody has results, otherwise next to the players on court at their own
-//    level (or, if there are none, slotted into the ladder: advanced a quarter
-//    of the way down, intermediate/unset halfway, beginners three quarters) —
-//    and players tied on sit-out fairness are chosen so first games don't mix
-//    beginners with stronger players. When the ladder still can't manage that,
-//    the round bends: the courts are split at the beginner line (ladder order on
-//    each side), or failing that players are swapped between courts. Once
-//    everyone has results, results alone deal the courts.
+//    a player's first TWO games are placed by level instead of results — one
+//    short game (often against their own level) says too little. By level alone
+//    while nobody has two results, otherwise next to the settled players on
+//    court at their own level (or, if there are none, slotted into the ladder:
+//    advanced a quarter of the way down, intermediate/unset halfway, beginners
+//    three quarters); among themselves, by their result so far.
+//    The FIRST game is also kept on one side of the beginner line: players tied
+//    on sit-out fairness are chosen so first games don't mix beginners with
+//    stronger players, and when the ladder still can't manage that the round
+//    bends — the courts are split at the beginner line (ladder order on each
+//    side), or failing that players are swapped between courts. After two
+//    games, results alone deal the courts.
 //    With so many sitting (18 on 2 courts), rounds 1 and 2 are both all first
 //    games, which is why this works per player rather than on round 1 only.
+
+/** Grouping by level: games before a player's results (rather than their level) place them. */
+const SETTLED_AFTER = 2;
 
 /** Where a player without results slots into the ladder, as a fraction of the way down. */
 function ladderSlot(level: number): number {
@@ -80,11 +86,15 @@ function ladderSlot(level: number): number {
 /**
  * Court order for the players on court. Ranked players keep their standings
  * order. Players without results go to the bottom — unless grouping by level,
- * where they're placed by level (see above). Ties are broken at random.
+ * where players with fewer than two results are placed by level (see above).
+ * Ties are broken at random.
  */
 function orderOnCourt(ctx: EngineContext, onCourt: string[], levels: Record<string, number> | null): string[] {
-  const rank = new Map(ctx.standings.map((s, i) => [s.playerId, i]));
-  const ranked = ctx.standings.length;
+  // Without grouping every result counts; with it, only players with two or more (a missing count counts as settled).
+  const settled = ctx.standings.filter((s) => !levels || (s.played ?? SETTLED_AFTER) >= SETTLED_AFTER);
+  const rank = new Map(settled.map((s, i) => [s.playerId, i]));
+  const ranked = settled.length;
+  const perGame = new Map(ctx.standings.map((s) => [s.playerId, s.played ? s.points / s.played : 0]));
   // A newcomer sits next to the players on court at their own level (exact level,
   // else same side of the beginner line), so their first game is with them.
   const meanRank = (match: (level: number) => boolean): number | null => {
@@ -104,8 +114,9 @@ function orderOnCourt(ctx: EngineContext, onCourt: string[], levels: Record<stri
     );
   };
   const tier = (id: string) => (rank.has(id) ? 0 : 1);
+  const result = (id: string) => (rank.has(id) ? 0 : (perGame.get(id) ?? -1));
   // Shuffle first so exact ties land in random order; the sort is stable.
-  return shuffle([...onCourt], ctx.rng).sort((x, y) => key(x) - key(y) || tier(x) - tier(y));
+  return shuffle([...onCourt], ctx.rng).sort((x, y) => key(x) - key(y) || tier(x) - tier(y) || result(y) - result(x));
 }
 
 /**

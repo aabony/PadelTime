@@ -25,7 +25,7 @@ const round = (number: number, matches: MatchRow[], byes: string[] = []): RoundR
 });
 const order = (rows: { name: string }[]) => rows.map((r) => r.name);
 
-describe("standings rank by points per game", () => {
+describe("standings rank by total points", () => {
   it("needs half as many games as the busiest player, rounded up", () => {
     expect(minGamesToRank([{ played: 4 }, { played: 1 }])).toBe(2);
     expect(minGamesToRank([{ played: 5 }])).toBe(3);
@@ -39,11 +39,11 @@ describe("standings rank by points per game", () => {
       round(1, [game(["a", "b"], ["c", "d"], 10, 6)]),
       round(2, [game(["a", "c"], ["b", "d"], 9, 7)]),
     ]);
-    expect(order(rows)).toEqual(["a", "b", "c", "d"]); // 19, 17, 15, 13 — and per game the same
+    expect(order(rows)).toEqual(["a", "b", "c", "d"]); // 19, 17, 15, 13
     expect(rows.every((r) => r.ranked)).toBe(true);
   });
 
-  it("someone who sat out isn't beaten by a bigger total from an extra game", () => {
+  it("ranks by total points, not points per game", () => {
     // x: 3 games, 30 points (10/game). y: 2 games, 24 points (12/game).
     const rows = computeStandings(players("x", "y", "p", "q", "r", "s"), [
       round(1, [game(["x", "y"], ["p", "q"], 12, 4)], ["r", "s"]),
@@ -53,7 +53,8 @@ describe("standings rank by points per game", () => {
     const x = rows.find((r) => r.name === "x")!;
     const y = rows.find((r) => r.name === "y")!;
     expect(x.points).toBeGreaterThan(y.points);
-    expect(order(rows).indexOf("y")).toBeLessThan(order(rows).indexOf("x"));
+    expect(y.points / y.played).toBeGreaterThan(x.points / x.played);
+    expect(order(rows).indexOf("x")).toBeLessThan(order(rows).indexOf("y"));
   });
 
   it("someone who left after one big win keeps their score but can't top the table", () => {
@@ -81,7 +82,7 @@ describe("standings rank by points per game", () => {
     const late = rows.find((r) => r.name === "late")!;
     expect(late.played).toBe(2);
     expect(late.ranked).toBe(true);
-    expect(rows[0].name).toBe("late"); // 14.0 a game beats everyone else
+    expect(rows.indexOf(late)).toBeLessThan(rows.findIndex((r) => !r.ranked) === -1 ? rows.length : rows.findIndex((r) => !r.ranked));
   });
 
   it("players with no games yet are unranked, at the bottom", () => {

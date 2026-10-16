@@ -33,7 +33,7 @@ export const FORMAT_META: Record<FormatKey, FormatMeta> = {
     blurb:
       "Round 1 is a random draw. After that the standings deal the courts: top four on court 1, next four on court 2… 1st & 4th vs 2nd & 3rd, so every match stays close.",
     groupedBlurb:
-      "First games are grouped by playing level. After that the standings deal the courts: top four on court 1, next four on court 2… 1st & 4th vs 2nd & 3rd, so every match stays close.",
+      "Each player's first two games are grouped by playing level. After that the standings deal the courts: top four on court 1, next four on court 2… 1st & 4th vs 2nd & 3rd, so every match stays close.",
   },
 };
 

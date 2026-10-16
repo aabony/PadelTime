@@ -1,6 +1,6 @@
 import type { DB } from "./detail";
 import { loadPlayers, loadRounds, loadSessionByCode } from "./detail";
-import { computeStandings, pointsPerGame } from "../../shared/standings";
+import { computeStandings } from "../../shared/standings";
 import { formatMeta } from "../../shared/formatMeta";
 
 // Link previews (WhatsApp, iMessage, Slack…) read the HTML, not the app, so
@@ -21,7 +21,7 @@ export async function previewFor(db: DB, kind: "join" | "board", code: string): 
   const standings = computeStandings(players, rounds).filter((s) => s.ranked);
   const podium = standings
     .slice(0, 3)
-    .map((s, i) => `${["🥇", "🥈", "🥉"][i]} ${s.name} ${pointsPerGame(s).toFixed(1)}/game`)
+    .map((s, i) => `${["🥇", "🥈", "🥉"][i]} ${s.name} ${s.points}`)
     .join(" · ");
   const inCount = players.filter((p) => p.status === "confirmed" || p.status === "checked_in").length;
   const current = rounds[rounds.length - 1];

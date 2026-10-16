@@ -38,8 +38,8 @@ async function winnersFor(db: DB, sessionIds: string[]): Promise<Map<string, str
     .from(playerResults)
     .where(inArray(playerResults.sessionId, sessionIds))
     .groupBy(playerResults.sessionId, playerResults.playerId);
-  // Same rule as the standings: best points per game among players with at
-  // least half as many games as the busiest player.
+  // Same rule as the standings: most points among players with at least half
+  // as many games as the busiest player.
   const bySession = new Map<string, { playerId: string; points: number; played: number }[]>();
   for (const r of sums) {
     const rows = bySession.get(r.sessionId) ?? [];
@@ -51,7 +51,7 @@ async function winnersFor(db: DB, sessionIds: string[]): Promise<Map<string, str
     const min = minGamesToRank(rows);
     const best = rows
       .filter((r) => r.played >= min)
-      .sort((a, b) => pointsPerGame(b) - pointsPerGame(a) || b.points - a.points)[0];
+      .sort((a, b) => b.points - a.points || pointsPerGame(b) - pointsPerGame(a))[0];
     if (best) top.set(sessionId, best);
   }
   const playerIds = [...top.values()].map((t) => t.playerId);

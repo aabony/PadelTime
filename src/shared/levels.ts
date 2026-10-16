@@ -2,7 +2,7 @@
 // players. Three coarse levels on purpose. Only used when the session has
 // "Group players by playing level" on: beginners together, intermediate and
 // advanced together — every round in Casual (Americano, which also balances
-// teams by level), for each player's first game in Competitive (Mexicano).
+// teams by level), for each player's first two games in Competitive (Mexicano).
 //
 // Stored values reuse the earlier 1–4 scale so rows saved by the old feature
 // still read sensibly: 1 ("Newbie") now reads as Beginner.

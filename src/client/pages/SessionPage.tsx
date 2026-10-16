@@ -5,6 +5,7 @@ import { fmtTimeRange, fromLocalInputValue, toLocalInputValue } from "../lib/for
 import { SESSION_STATUS_LABEL } from "../../shared/types";
 import type { MatchRow, PlayerRow, RoundRow, SessionDetail } from "../../shared/types";
 import { estimateRounds } from "../../shared/timing";
+import { resultsText } from "../../shared/share";
 import {
   Avatar,
   Badge,
@@ -136,37 +137,49 @@ function ShareIcon() {
   );
 }
 
-// The standard share button: opens the phone's share sheet (WhatsApp, iMessage…)
-// and falls back to copying the invite link on desktop.
-function ShareButton({ d }: { d: SessionDetail }) {
+/**
+ * Share opens the phone's share sheet (WhatsApp, iMessage…) and falls back to
+ * copying on desktop. While the night is on it shares the invite link; once
+ * it's finished, the results (podium, table and a link to the results page).
+ */
+function useShare(d: SessionDetail) {
   const [copied, setCopied] = useState(false);
-  const joinUrl = `${window.location.origin}/join/${d.inviteCode}`;
+  const results = d.status === "complete";
   const share = async () => {
+    const payload = results
+      ? { title: `${d.name} — results`, text: resultsText(d, `${window.location.origin}/board/${d.inviteCode}`) }
+      : { title: d.name, text: `Join "${d.name}" on PadelTime`, url: `${window.location.origin}/join/${d.inviteCode}` };
     if (typeof navigator.share === "function") {
       try {
-        await navigator.share({ title: d.name, text: `Join "${d.name}" on PadelTime`, url: joinUrl });
+        await navigator.share(payload);
         return;
       } catch (e) {
         if ((e as Error).name === "AbortError") return; // closed the sheet — nothing to do
       }
     }
+    const copy = payload.url ?? payload.text;
     try {
-      await navigator.clipboard.writeText(joinUrl);
+      await navigator.clipboard.writeText(copy);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
-      window.prompt("Copy this link:", joinUrl);
+      window.prompt("Copy this:", copy);
     }
   };
+  return { share, copied, results };
+}
+
+function ShareButton({ d }: { d: SessionDetail }) {
+  const { share, copied, results } = useShare(d);
   return (
     <button
       type="button"
       onClick={share}
-      title="Share the invite link with players"
+      title={results ? "Share the results" : "Share the invite link with players"}
       className="flex h-10 items-center gap-1.5 rounded-full bg-navy px-3.5 text-xs font-bold text-white shadow-md hover:bg-royal"
     >
       {copied ? (
-        "✓ Link copied"
+        results ? "✓ Results copied" : "✓ Link copied"
       ) : (
         <>
           <ShareIcon />
@@ -178,7 +191,7 @@ function ShareButton({ d }: { d: SessionDetail }) {
 }
 
 function Hero({ d, isOrganizer, onSettings }: { d: SessionDetail; isOrganizer: boolean; onSettings: () => void }) {
-  const shareable = ["open", "checkin", "active"].includes(d.status);
+  const shareable = ["open", "checkin", "active", "complete"].includes(d.status);
   return (
     <div>
       {/* Back arrow, then the action row with Share on the far right. On phones the
@@ -311,25 +324,14 @@ function LifecycleStepper({ d, isOrganizer, run, busyKey }: ViewProps) {
 // ---------------------------------------------------------------------------
 // Rules
 
-function RuleGroup({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="pt-3">
-      <p className="mb-0.5 text-[11px] font-bold uppercase tracking-wider text-faint">{label}</p>
-      <div className="divide-y divide-line">{children}</div>
-    </div>
-  );
-}
-
 function RulesCard({ d }: { d: SessionDetail }) {
   // Open before the session starts (new players read them); folded once play is under way.
   const [open, setOpen] = useState(["draft", "open", "checkin"].includes(d.status));
-  const est = estimateRounds(d.durationMin, d.pointsPerMatch);
-  const half = Math.ceil(d.pointsPerMatch / 2);
-  // Example finishing scores for this points setting, e.g. 14–10, 16–8, even 12–12 for 24.
   const n = d.pointsPerMatch;
+  const half = Math.ceil(n / 2);
   const lo = Math.floor(n / 2);
-  const examples = [2, 4].filter((k) => lo - k >= 0).map((k) => `${n - lo + k}–${lo - k}`);
-  const lastExample = n % 2 === 0 ? `even ${lo}–${lo}` : `or ${n - lo}–${lo}`;
+  // Two finishing scores for this points setting, e.g. 9–5 or 7–7 for 14.
+  const example = `${n - lo + 2}–${lo - 2} or ${n - lo}–${lo}`;
   return (
     <Card className={cls("transition-colors", !open && "hover:border-line-strong")}>
       <button
@@ -350,81 +352,39 @@ function RulesCard({ d }: { d: SessionDetail }) {
         </span>
       </button>
       {open && (
-        <div className="mt-3 border-t border-line">
-          <RuleGroup label="Format">
-            {d.format === "mexicano" ? (
-              <>
-                <InfoRow icon="🎲">
-                  <b>{d.groupByLevel ? "First games are grouped by playing level." : "Round 1 is a random draw."}</b> Then
-                  points per match played deal the courts (sitting out never costs you a court): top four on court 1,
-                  next four on court 2, and so on.
-                </InfoRow>
-                <InfoRow icon="🏆">
-                  <b>Play your level.</b> On each court it's 1st & 4th vs 2nd & 3rd, so matches stay close. Win and you
-                  move up; lose and you drop a court.
-                </InfoRow>
-              </>
-            ) : (
-              <>
-                <InfoRow icon="🔄">
-                  <b>New partner every round.</b> Pairings rotate for maximum variety — it's you against the field, not
-                  fixed teams.
-                </InfoRow>
-              </>
-            )}
-            {d.groupByLevel && (
-              <InfoRow icon="🎚️">
-                <b>Grouped by playing level.</b> Beginners play beginners, intermediate and advanced play each other
-                {d.format === "mexicano" ? " for everyone's first game — after that, results decide." : " — partners still rotate within each group."}
-              </InfoRow>
-            )}
-            {d.mixedPairs && (
-              <InfoRow icon="👩👨">
-                <b>Mixed pairs.</b> Every team is one woman and one man whenever the numbers allow.
-              </InfoRow>
-            )}
-            <InfoRow icon="🏟️">
-              {d.courts} court{d.courts === 1 ? "" : "s"} per round. Extra players sit out, and sit-outs rotate so
-              everyone rests about equally.
-            </InfoRow>
-          </RuleGroup>
-
-          <RuleGroup label="Scoring">
-            <InfoRow icon="🎯">
-              <b>One game to {n} total rally points.</b> Every rally scores a point — no deuce, no advantage.
-            </InfoRow>
-            <InfoRow icon="🔢">
-              <b>The two scores always add up to {n}</b> — {[...examples, lastExample].join(", ")} all end the match.
-              Every match is exactly {n} rallies, so the courts finish around the same time.
-            </InfoRow>
-          </RuleGroup>
-
-          <RuleGroup label="Serving">
-            <InfoRow icon="🎾">
-              <b>Serve changes every 4 points.</b> Each player serves 4 in a row — the top team's first player, then
-              the bottom team's first, then each team's second player — and round again until the match is done.
-            </InfoRow>
-            <InfoRow icon="📐">
-              Serve diagonally, starting from the right-hand side and alternating sides each point. Underhand after one
-              bounce, hit below the waist, two attempts — a normal padel serve.
-            </InfoRow>
-            <InfoRow icon="↔️">
-              The team on top of the court card serves first. Switch ends halfway, when the score adds up to {half}.
-            </InfoRow>
-          </RuleGroup>
-
-          <RuleGroup label="Winning">
+        <div className="mt-3 divide-y divide-line border-t border-line">
+          {d.format === "mexicano" ? (
             <InfoRow icon="🏆">
-              <b>Most points per game wins</b> — so sitting out never costs you. You need at least half as many games as
-              the busiest player to be ranked. Ties are allowed.
+              <b>Play your level.</b> After each round the top four (points per game) play on court 1, the next four on
+              court 2 — 1st & 4th vs 2nd & 3rd, so games stay close.
             </InfoRow>
-            {est && (
-              <InfoRow icon="⏱">
-                {d.durationMin} min of court time fits roughly <b>{est} rounds</b> — rounds keep coming as long as you
-                want to play.
-              </InfoRow>
-            )}
-          </RuleGroup>
+          ) : (
+            <InfoRow icon="🔄">
+              <b>New partner every round</b> — it's you against the field.
+            </InfoRow>
+          )}
+          {d.groupByLevel && (
+            <InfoRow icon="🎚️">
+              <b>Grouped by level</b> — beginners play beginners
+              {d.format === "mexicano"
+                ? " for their first two games, then results decide."
+                : ", intermediate and advanced play each other."}
+            </InfoRow>
+          )}
+          {d.mixedPairs && (
+            <InfoRow icon="👩👨">
+              <b>Mixed pairs</b> — one woman + one man per team when possible.
+            </InfoRow>
+          )}
+          <InfoRow icon="🎯">
+            <b>Games to {n} points.</b> Every rally scores; the game ends when the scores add up to {n} (e.g. {example}).
+          </InfoRow>
+          <InfoRow icon="🎾">
+            <b>Serve 4 points each</b>, top team first, then pass it on. Switch ends at {half}.
+          </InfoRow>
+          <InfoRow icon="🏁">
+            <b>Most points wins.</b> Sit-outs rotate fairly; ties are allowed.
+          </InfoRow>
         </div>
       )}
     </Card>
@@ -651,7 +611,7 @@ function LevelHint({ d, players }: { d: SessionDetail; players: PlayerRow[] }) {
       🎚️ Levels: <b className={set < players.length ? "text-amber-dark" : "text-navy"}>{set}</b> of {players.length} set
       {set < players.length && " (unset counts as intermediate)"} ·{" "}
       {d.format === "mexicano"
-        ? "first games put beginners together and intermediate/advanced together."
+        ? "each player's first two games put beginners together and intermediate/advanced together."
         : "beginners play beginners, intermediate and advanced play each other."}{" "}
       Only you see levels.
     </p>
@@ -1281,8 +1241,8 @@ function LiveRosterCard({ d, isOrganizer, run, busyKey }: ViewProps) {
             <tr className="text-left text-xs uppercase tracking-wider text-muted">
               <th className="py-2 pr-2 font-semibold">#</th>
               <th className="py-2 pr-2 font-semibold">Player</th>
-              <th className="py-2 pr-2 text-right font-semibold" title="Points per game — the ranking">
-                Avg
+              <th className="py-2 pr-2 text-right font-semibold" title="Total points — the ranking">
+                Pts
               </th>
               <th className="hidden py-2 pr-2 text-right font-semibold sm:table-cell">W-L</th>
               <th className="hidden py-2 pr-2 text-right font-semibold sm:table-cell">+/-</th>
@@ -1308,7 +1268,8 @@ function LiveRosterCard({ d, isOrganizer, run, busyKey }: ViewProps) {
                       {row.ranked ? i + 1 : "–"}
                     </span>
                   </td>
-                  <td className="py-2 pr-2">
+                  {/* w-full + max-w-0: the player column takes what's left, so points never scroll off. */}
+                  <td className="w-full max-w-0 py-2 pr-2">
                     <div className="flex items-center gap-2">
                       <Avatar name={p.name} size="sm" ring={me} />
                       <div className="min-w-0">
@@ -1317,26 +1278,28 @@ function LiveRosterCard({ d, isOrganizer, run, busyKey }: ViewProps) {
                           {p.isGuest && <span className="ml-1.5 text-xs font-medium text-faint">guest</span>}
                           {me && <span className="ml-1.5 text-xs font-bold text-royal">you</span>}
                         </p>
-                        <div className="flex flex-wrap items-center gap-1 text-[11px] text-muted">
-                          {isOrganizer ? (
+                        {isOrganizer && (
+                          <div className="flex flex-wrap items-center gap-1">
                             <GenderSelect
                               value={p.gender}
                               busy={busyKey === `g-${p.id}`}
                               onChange={(gender) => run(`g-${p.id}`, () => Api.playerAction(d.id, p.id, "set_gender", { gender }))}
                             />
-                          ) : (
-                            <GenderBadge gender={p.gender} />
-                          )}
-                          {isOrganizer && d.groupByLevel && (
-                            <LevelSelect
-                              value={p.level}
-                              busy={busyKey === `lvl-${p.id}`}
-                              onChange={(level) => run(`lvl-${p.id}`, () => Api.playerAction(d.id, p.id, "set_level", { level }))}
-                            />
-                          )}
-                          {/* Each fact stays on one line; the line wraps between them. */}
+                            {d.groupByLevel && (
+                              <LevelSelect
+                                compact
+                                value={p.level}
+                                busy={busyKey === `lvl-${p.id}`}
+                                onChange={(level) => run(`lvl-${p.id}`, () => Api.playerAction(d.id, p.id, "set_level", { level }))}
+                              />
+                            )}
+                          </div>
+                        )}
+                        {/* Each fact stays whole; the line wraps between them. */}
+                        <div className="mt-0.5 flex flex-wrap items-center gap-x-1 text-[11px] text-muted">
+                          {!isOrganizer && <GenderBadge gender={p.gender} />}
                           <span>{p.status === "checked_in" ? "playing" : "not checked in"}</span>
-                          {row.played > 0 && <span className="whitespace-nowrap">· {row.points} pts in {row.played}</span>}
+                          {row.played > 0 && <span className="whitespace-nowrap">· {perGame(row)} per game</span>}
                           {row.played > 0 && !row.ranked && <span className="whitespace-nowrap">· too few games to rank</span>}
                           {row.byes > 0 && <span className="whitespace-nowrap">· sat out {row.byes}</span>}
                           <span className="whitespace-nowrap sm:hidden">
@@ -1349,7 +1312,7 @@ function LiveRosterCard({ d, isOrganizer, run, busyKey }: ViewProps) {
                     </div>
                   </td>
                   <td className={cls("tabular py-2 pr-2 text-right text-base font-black", row.ranked ? "text-navy" : "text-muted")}>
-                    {perGame(row)}
+                    {row.points}
                   </td>
                   <td className="tabular hidden py-2 pr-2 text-right text-muted sm:table-cell">
                     {row.wins}-{row.losses}
@@ -1678,6 +1641,7 @@ function RoundHistory({ rounds, nameOf }: { rounds: RoundRow[]; nameOf: (id: str
 
 function CompleteView({ d, isOrganizer, run, busyKey }: ViewProps) {
   const nameOf = useNameOf(d);
+  const { share, copied } = useShare(d);
   const podium = d.standings.filter((r) => r.ranked).slice(0, 3);
   return (
     <div className="space-y-4">
@@ -1690,22 +1654,32 @@ function CompleteView({ d, isOrganizer, run, busyKey }: ViewProps) {
           </div>
           <p className="mt-2 text-2xl font-black text-navy">{podium[0].name}</p>
           <p className="text-sm text-muted">
-            {perGame(podium[0])} per game · {podium[0].points} points in {podium[0].played}
+            {podium[0].points} points · {perGame(podium[0])} per game
           </p>
           {podium.length > 1 && (
             <div className="mt-4 flex justify-center gap-6 text-sm font-semibold text-ink">
               {podium[1] && (
                 <span>
-                  🥈 {podium[1].name} · {perGame(podium[1])}
+                  🥈 {podium[1].name} · {podium[1].points}
                 </span>
               )}
               {podium[2] && (
                 <span>
-                  🥉 {podium[2].name} · {perGame(podium[2])}
+                  🥉 {podium[2].name} · {podium[2].points}
                 </span>
               )}
             </div>
           )}
+          <Button className="mt-5 w-full" onClick={share}>
+            {copied ? (
+              "✓ Results copied — paste them in your group chat"
+            ) : (
+              <>
+                <ShareIcon />
+                Share results
+              </>
+            )}
+          </Button>
         </Card>
       )}
       <Card>

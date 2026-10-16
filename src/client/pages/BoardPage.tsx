@@ -56,7 +56,7 @@ export function BoardPage() {
             </div>
             <p className="text-5xl font-black text-navy">{champion.name}</p>
             <p className="mt-1 text-muted">
-              {perGame(champion)} per game · {champion.points} points in {champion.played}
+              {champion.points} points · {perGame(champion)} per game
             </p>
           </div>
         )}
