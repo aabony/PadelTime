@@ -51,16 +51,32 @@ export interface Recommendation {
   courts: number;
   points: number;
   rounds: number | null;
+  /** Everyone gets the same number of games (so a total-points table is fair). */
+  equalGames: boolean;
+  /** Games each when equal; null when they can't be (or no duration is set). */
+  gamesEach: number | null;
+  /** Stop after this round for equal games, when that's one round short of what fits; else null. */
+  stopAfter: number | null;
 }
+
+/** Points values the suggestion picks from, longest game first. */
+export const POINT_OPTIONS = [24, 21, 18, 16, 14, 12, 10] as const;
 
 export type Priority = "playing" | "social";
 
 /**
  * What to run. Playing: every court you can fill. Social: courts chosen so
  * roughly 30% of the group sits each round (never more than 40%) — a sit-out
- * lasts one round, so shorter games keep those breaks short. Either way the
- * points are the highest that still fit 6+ rounds in the booking (6 rounds ≈
- * everyone meets most of the group): 90 min → 16 points, 2 hours → 24.
+ * lasts one round, so shorter games keep those breaks short.
+ *
+ * Points: when some players sit out, the game length is chosen so everyone gets
+ * the same number of games (the table ranks by total points), at least 5
+ * rounds and 3 games each, and as many points played per player as possible — e.g. 12 players on
+ * 2 courts in 90 min → 18-point games, 6 rounds, 4 games each. If no length
+ * fits exactly, one round short of what fits is allowed (stopAfter); failing
+ * that, games can't come out even. When nobody sits, the highest points that
+ * still fit 6+ rounds (6 rounds ≈ everyone meets most of the group): 90 min →
+ * 16 points, 2 hours → 24.
  */
 export function recommendSetup(
   players: number,
@@ -86,7 +102,55 @@ export function recommendSetup(
   const options = [24, 21, 16, 12];
   const fits = (p: number, n: number) => (estimateRounds(durationMin, p) ?? 0) >= n;
   const points = !durationMin ? 24 : (options.find((p) => fits(p, 6)) ?? 12);
-  return { courts, points, rounds: estimateRounds(durationMin, points) };
+  const rounds = estimateRounds(durationMin, points);
+  const fallback = (equalGames: boolean): Recommendation => ({
+    courts,
+    points,
+    rounds,
+    equalGames,
+    gamesEach: equalGames && rounds != null ? rounds : null,
+    stopAfter: null,
+  });
+  if (!durationMin) return fallback(players === courts * 4);
+  if (players === courts * 4) return fallback(true); // nobody sits: games are always equal
+
+  const equalAt = (p: number, r: number) => {
+    if (r < 5) return null;
+    const split = rosterSplit(players, courts, r);
+    return split.playMin === split.playMax && split.playMin >= 3 ? { points: p, rounds: r, games: split.playMin } : null;
+  };
+  const best = (stopEarly: boolean) => {
+    let pick: { points: number; rounds: number; games: number } | null = null;
+    for (const p of POINT_OPTIONS) {
+      const fit = estimateRounds(durationMin, p) ?? 0;
+      const option = equalAt(p, stopEarly ? fit - 1 : fit);
+      if (option && (!pick || option.games * option.points > pick.games * pick.points)) pick = option;
+    }
+    return pick;
+  };
+  const exact = best(false);
+  const early = exact ? null : best(true);
+  const pick = exact ?? early;
+  if (!pick) return fallback(false);
+  return {
+    courts,
+    points: pick.points,
+    rounds: pick.rounds,
+    equalGames: true,
+    gamesEach: pick.games,
+    stopAfter: early ? pick.rounds : null,
+  };
+}
+
+/**
+ * Roster sizes to steer away from. splitGroups: exactly half sit each round, so
+ * the rotation alternates two fixed groups who never play each other (16 on 2
+ * courts). longWaits: more than half sit, so people sit 2–3 rounds in a row.
+ */
+export function rosterWarnings(players: number, courts: number): { splitGroups: boolean; longWaits: boolean } {
+  const onCourt = Math.max(0, Math.min(courts, Math.floor(players / 4))) * 4;
+  const sitting = players - onCourt;
+  return { splitGroups: onCourt > 0 && sitting === onCourt, longWaits: onCourt > 0 && sitting > onCourt };
 }
 
 export interface RosterSplit {
@@ -115,9 +179,14 @@ export function rosterSplit(players: number, courts: number, rounds: number): Ro
   return { courtsUsed, sittingPerRound, sitMin, sitMax, playMin: rounds - sitMax, playMax: rounds - sitMin };
 }
 
-/** Roster size that keeps everyone on court for 60–100% of rounds: 3 courts → 12–20 players. */
+/**
+ * Roster size that balances play and rest: a few sitting each round, everyone
+ * on court at least ~57% of the time, short of the split-in-half point. From
+ * simulated nights, 10–14 suits 2 courts; 3 courts → 14–21.
+ */
 export function sweetSpot(courts: number): { min: number; max: number } {
-  return { min: courts * 4, max: Math.floor((courts * 4) / 0.6) };
+  const onCourt = courts * 4;
+  return { min: onCourt + 2, max: Math.floor((onCourt * 7) / 4) };
 }
 
 /** Rounds that fit in the booked court time (at least 1 when a duration is set). */

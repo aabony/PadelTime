@@ -1,5 +1,14 @@
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { SETUP_MINUTES, estimateRounds, minutesPerMatch, rosterSplit, sweetSpot } from "../../shared/timing";
+import {
+  POINT_OPTIONS,
+  SETUP_MINUTES,
+  estimateRounds,
+  minutesPerMatch,
+  recommendSetup,
+  rosterSplit,
+  rosterWarnings,
+  sweetSpot,
+} from "../../shared/timing";
 import { Button, Card, Stepper, cls } from "../components/ui";
 import { Logo } from "../App";
 
@@ -51,6 +60,11 @@ export function PlanPage() {
   const tone = toneOf(split.sitMin, split.sitMax);
   const onCourtPct = Math.round((onCourt / players) * 100);
   const spot = sweetSpot(courts);
+  // The game length that gives everyone the same number of games, and roster sizes to avoid.
+  const rec = recommendSetup(players, courts, duration);
+  const warn = rosterWarnings(players, courts);
+  // Your three scoring options, plus the suggested one when it's something else (e.g. 18).
+  const chips: number[] = (SCORING as readonly number[]).includes(points) ? [...SCORING] : [...SCORING, points].sort((a, b) => a - b);
 
   return (
     <div className="min-h-dvh bg-canvas pb-16">
@@ -78,8 +92,12 @@ export function PlanPage() {
               <Stepper label="courts" value={courts} min={1} max={12} onChange={(v) => set({ courts: v })} />
             </Row>
             <Row label="Game scoring" hint={`~${mpm} min per game`}>
-              <div role="radiogroup" aria-label="Game scoring" className="grid grid-cols-3 gap-1 rounded-full bg-canvas p-1">
-                {SCORING.map((p) => (
+              <div
+                role="radiogroup"
+                aria-label="Game scoring"
+                className={cls("grid gap-1 rounded-full bg-canvas p-1", chips.length === 4 ? "grid-cols-4" : "grid-cols-3")}
+              >
+                {chips.map((p) => (
                   <button
                     key={p}
                     type="button"
@@ -177,6 +195,41 @@ export function PlanPage() {
             {VERDICT[tone].text}
           </p>
 
+          {rec && rec.equalGames && rec.gamesEach != null && split.sittingPerRound > 0 && (
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-line px-3 py-2.5 text-sm" data-testid="equal-games">
+              <span className="text-ink">
+                {rec.points === points ? "✓ " : "💡 "}
+                <b className="text-navy">Equal games:</b> {rec.points}-point games →{" "}
+                {rec.stopAfter != null ? `stop after round ${rec.stopAfter}` : `${rec.rounds} rounds`}, everyone plays {rec.gamesEach}.
+              </span>
+              {rec.points !== points && (
+                <button
+                  type="button"
+                  onClick={() => set({ points: rec.points })}
+                  className="rounded-full bg-royal px-3 py-1 text-xs font-bold text-white hover:bg-royal-dark"
+                >
+                  Use {rec.points} points
+                </button>
+              )}
+            </div>
+          )}
+          {rec && !rec.equalGames && split.sittingPerRound > 0 && (
+            <p className="mt-3 text-xs font-semibold text-amber-dark">
+              ⚠️ Games can't come out even for {players} players — some get one more game than others.
+            </p>
+          )}
+          {warn.splitGroups && (
+            <p className="mt-2 text-xs font-semibold text-amber-dark">
+              ⚠️ {players} players on {split.courtsUsed} court{split.courtsUsed === 1 ? "" : "s"} splits into two groups of {onCourt} who
+              never play each other — one more or one fewer avoids it.
+            </p>
+          )}
+          {warn.longWaits && (
+            <p className="mt-2 text-xs font-semibold text-amber-dark">
+              ⚠️ More than half sit out each round — expect 2–3 rounds in a row off court and short games.
+            </p>
+          )}
+
           <Button
             className="mt-4 w-full"
             size="lg"
@@ -206,6 +259,8 @@ function Row({ label, hint, children }: { label: string; hint?: string; children
 function snapScoring(raw: string | null): number {
   const n = parseInt(raw ?? "", 10);
   if (!Number.isFinite(n)) return 16;
+  // The suggestion's values (e.g. 18) stand as they are; anything else snaps to 12/16/24.
+  if ((POINT_OPTIONS as readonly number[]).includes(n)) return n;
   return SCORING.reduce((best, p) => (Math.abs(p - n) < Math.abs(best - n) ? p : best), SCORING[0]);
 }
 

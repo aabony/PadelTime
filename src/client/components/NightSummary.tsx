@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { SETUP_MINUTES, planNight, recommendSetup, sweetSpot } from "../../shared/timing";
+import { SETUP_MINUTES, planNight, recommendSetup, rosterWarnings, sweetSpot } from "../../shared/timing";
 import type { Priority, Recommendation } from "../../shared/timing";
 import { cls } from "./ui";
 
@@ -41,6 +41,7 @@ export function NightSummary({
   const rec = recommendSetup(players, courts, durationMin, priority);
   const differs = rec && (rec.points !== points || rec.courts !== p.courtsUsed);
   const recPlan = rec ? planNight(players, rec.courts, durationMin, rec.points) : null;
+  const warn = rosterWarnings(players, courts);
   return (
     <div className="rounded-2xl bg-canvas px-4 py-3 text-sm text-ink">
       <p>
@@ -98,8 +99,17 @@ export function NightSummary({
         <p className="mt-2 flex flex-wrap items-center gap-2 text-xs">
           <span className="font-semibold text-navy">
             💡 Suggested: {rec.courts} court{rec.courts === 1 ? "" : "s"} · {rec.points}-point games
-            {recPlan.rounds != null && <> → {recPlan.rounds} rounds</>}
-            {recPlan.sitting > 0 ? (
+            {rec.stopAfter != null ? (
+              <> → stop after round {rec.stopAfter}</>
+            ) : (
+              rec.rounds != null && <> → {rec.rounds} rounds</>
+            )}
+            {rec.gamesEach != null && rec.rounds != null && recPlan.sitting > 0 ? (
+              <>
+                {" "}
+                — everyone plays {rec.gamesEach} and sits out {rec.rounds - rec.gamesEach}
+              </>
+            ) : recPlan.sitting > 0 ? (
               <>
                 , {recPlan.sitting} sit each round (≈ {recPlan.minutesPerMatch} min breaks)
               </>
@@ -120,10 +130,33 @@ export function NightSummary({
           )}
         </p>
       ) : (
-        rec && <p className="mt-2 text-xs font-semibold text-mint-dark">✓ This is the suggested setup for {priority === "social" ? "socialising" : "playing time"}.</p>
+        rec &&
+        rec.equalGames && (
+          <p className="mt-2 text-xs font-semibold text-mint-dark">
+            ✓ This is the suggested setup for {priority === "social" ? "socialising" : "playing time"}
+            {rec.gamesEach != null && recPlan && recPlan.sitting > 0 && <> — everyone plays {rec.gamesEach}</>}.
+          </p>
+        )
       )}
+      {warn.splitGroups && (
+        <p className="mt-2 text-xs font-semibold text-amber-dark">
+          ⚠️ {players} players on {p.courtsUsed} court{p.courtsUsed === 1 ? "" : "s"} splits into two groups of {p.onCourt} who never
+          play each other — one more or one fewer avoids it.
+        </p>
+      )}
+      {warn.longWaits && (
+        <p className="mt-2 text-xs font-semibold text-amber-dark">
+          ⚠️ More than half sit out each round — expect 2–3 rounds in a row off court and short games.
+        </p>
+      )}
+      {rec && !rec.equalGames && durationMin ? (
+        <p className="mt-2 text-xs font-semibold text-amber-dark">
+          ⚠️ Games can't come out even for {players} players — some get one more game than others.
+        </p>
+      ) : null}
       <p className="mt-1 text-xs text-muted">
-        Sweet spot for {courts} court{courts === 1 ? "" : "s"}: {spot.min}–{spot.max} players (everyone plays 60–100% of rounds).
+        Sweet spot for {courts} court{courts === 1 ? "" : "s"}: {spot.min}–{spot.max} players — a few rest each round,
+        nobody waits long.
       </p>
     </div>
   );

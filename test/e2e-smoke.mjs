@@ -403,6 +403,18 @@ await org.getByRole("button", { name: "Decrease courts" }).click();
 await org.getByRole("button", { name: "Increase players" }).click();
 await roundSplit.filter({ hasText: "8 on court · 4 off" }).waitFor();
 log("night planner: players / courts / scoring dials update the on-court / off-court split");
+// 12 players on 2 courts in 90 min: 18-point games give everyone exactly 4 games.
+await org.getByTestId("equal-games").filter({ hasText: "18-point games → 6 rounds, everyone plays 4" }).waitFor();
+await org.getByRole("button", { name: "Use 18 points" }).click();
+await org.getByText(/^6 rounds/).first().waitFor();
+await onCourtBox.filter({ hasText: /^On court4 games/ }).waitFor();
+if ((await org.getByRole("radio", { name: "18", exact: true }).getAttribute("aria-checked")) !== "true") fail("the 18 chip should be selected");
+// 16 players → the split-in-two warning.
+for (let i = 0; i < 4; i++) await org.getByRole("button", { name: "Increase players" }).click();
+await org.getByText(/splits into two groups of 8/).waitFor();
+for (let i = 0; i < 4; i++) await org.getByRole("button", { name: "Decrease players" }).click();
+await roundSplit.filter({ hasText: "8 on court · 4 off" }).waitFor();
+log("night planner: suggests equal-games points (12 players → 18 points, 4 games each) and flags 16 players");
 await org.getByRole("button", { name: /Create this session/ }).click();
 await org.waitForURL("**/app?new=1**", { timeout: 15000 });
 await org.getByRole("heading", { name: "New session" }).waitFor({ timeout: 10000 });
@@ -410,9 +422,9 @@ const newForm = org.locator("form", { hasText: "Create session" });
 const formVal = (label) =>
   newForm.getByLabel(label, { exact: true }).inputValue().catch((e) => `err:${e.message.split("\n")[0]}`);
 const [courtsVal, pointsVal, maxVal] = [await formVal("Courts"), await formVal("Points"), await formVal("Max players")];
-if (courtsVal !== "2" || pointsVal !== "24" || maxVal !== "12")
-  fail(`planner prefill expected courts 2 / points 24 / max 12, got ${courtsVal} / ${pointsVal} / ${maxVal}`);
-log("night planner → 'Create a session' opens the form prefilled (2 courts · 24 points · 12 max)");
+if (courtsVal !== "2" || pointsVal !== "18" || maxVal !== "12")
+  fail(`planner prefill expected courts 2 / points 18 / max 12, got ${courtsVal} / ${pointsVal} / ${maxVal}`);
+log("night planner → 'Create a session' opens the form prefilled (2 courts · 18 points · 12 max)");
 
 // --- Signed-out planner hand-off: sign in first, then land on the prefilled form ----
 const visitorCtx = await newContext({ ...contextOpts, viewport: { width: 390, height: 844 } });
