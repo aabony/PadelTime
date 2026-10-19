@@ -1,4 +1,4 @@
-import { FORMAT_KEYS, FORMAT_META } from "../../shared/formatMeta";
+import { FORMAT_KEYS, FORMAT_META, blurbFor } from "../../shared/formatMeta";
 import type { FormatKey } from "../../shared/types";
 import { cls } from "./ui";
 
@@ -8,12 +8,15 @@ export function StylePicker({
   onChange,
   hint,
   grouped = false,
+  teams = false,
 }: {
   value: FormatKey;
   onChange: (key: FormatKey) => void;
   hint?: string;
   /** "Group players by playing level" is ticked: describe the grouped version. */
   grouped?: boolean;
+  /** "Keep teams together" is ticked: describe the team version. */
+  teams?: boolean;
 }) {
   return (
     <div>
@@ -37,9 +40,10 @@ export function StylePicker({
                 {m.emoji} {m.style}
               </p>
               <p className="text-xs font-bold text-royal">
+                {teams && "Team "}
                 {m.name} · {m.tagline}
               </p>
-              <p className="mt-1 text-xs leading-snug text-muted">{grouped ? m.groupedBlurb : m.blurb}</p>
+              <p className="mt-1 text-xs leading-snug text-muted">{blurbFor(key, { groupByLevel: grouped, fixedTeams: teams })}</p>
             </button>
           );
         })}

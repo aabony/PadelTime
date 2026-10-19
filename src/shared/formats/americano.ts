@@ -2,6 +2,7 @@ import type { EngineContext, FormatStrategy, PlannedMatch, RoundPlan } from "./t
 import { pairKey, shuffle } from "./types";
 import { ADVANCED, UNSET_LEVEL, isBeginner } from "../levels";
 import { pickByes } from "./byes";
+import { planFixedTeams } from "./teams";
 import { chooseSitOuts, groupingLevels, levelIn, levelMixCost, levelSides } from "./levelGrouping";
 
 export { pickByes };
@@ -182,6 +183,7 @@ export const americano: FormatStrategy = {
   defaultPoints: 24,
 
   planRound(ctx: EngineContext): RoundPlan {
+    if (ctx.teams) return planFixedTeams(ctx, "rotate");
     const courtCount = Math.min(ctx.courts, Math.floor(ctx.players.length / 4));
     if (courtCount === 0) {
       return { matches: [], byes: [...ctx.players] };

@@ -289,7 +289,7 @@ await org.getByText("Past sessions").waitFor({ timeout: 10000 });
 await org.getByRole("button", { name: "+ New session" }).click();
 await org.getByPlaceholder("Thursday Padel Jam").fill("Bring Back Night");
 await org.getByRole("button", { name: /Competitive/ }).click(); // Mexicano
-await org.getByRole("checkbox", { name: /Mixed pairs/ }).check();
+await org.getByRole("checkbox", { name: /^👩👨 Mixed pairs/ }).check();
 await org.getByRole("checkbox", { name: /Group players by playing level/ }).check();
 await org.locator("select").selectOption({ index: 1 });
 await org.getByRole("button", { name: "Create session", exact: true }).click();
@@ -348,6 +348,81 @@ await org.getByText("too few games to rank").first().waitFor();
 const leaverName = dd.players.find((p) => p.id === leaver).name;
 if ((await org.locator("p.text-2xl", { hasText: leaverName }).count()) !== 0) fail("leaver must not be the champion");
 log("drop-out after one 16–0 win: score kept, listed as 'too few games to rank', not on the podium");
+
+// --- Keep teams together: pair two in the roster, the app pairs the rest ----
+const ft = await api("POST", "/sessions", { name: "Teams Night", format: "americano", courts: 2, pointsPerMatch: 16, fixedTeams: true });
+for (const g of ["Ana", "Ben", "Cat", "Dan", "Eve", "Fin", "Gus", "Hal"]) await api("POST", `/sessions/${ft.id}/players`, { guestName: g });
+let fd = await api("GET", `/sessions/${ft.id}`);
+if (!fd.fixedTeams) fail("session should keep teams together");
+const idOf = (name) => fd.players.find((p) => p.name === name).id;
+await org.goto(`${BASE}/app/sessions/${ft.id}`);
+await org.getByText("🤝 Fixed teams").waitFor({ timeout: 10000 });
+await org.getByText(/Teams: 0 paired · 8 players paired for you/).waitFor();
+const partnerSelect = (pg, name) => pg.locator("li", { hasText: name }).getByRole("combobox", { name: `${name}'s partner` });
+await partnerSelect(org, "Ana").selectOption({ label: "🤝 Ben" });
+await org.getByText(/Teams: 1 paired · 6 players paired for you/).waitFor({ timeout: 10000 });
+if ((await partnerSelect(org, "Ben").inputValue()) !== idOf("Ana")) fail("Ben's select should show Ana once Ana picks Ben");
+await shot(org, "14-teams-roster");
+log("keep teams together: organizer pairs Ana with Ben in the roster; the hint counts who the app will pair");
+
+await api("POST", `/sessions/${ft.id}/status`, { action: "start" });
+fd = await api("GET", `/sessions/${ft.id}`);
+const partnerAtStart = new Map(fd.players.map((p) => [p.id, p.partnerId]));
+if (fd.players.some((p) => !p.partnerId)) fail("everyone should be paired once round 1 is dealt");
+if (partnerAtStart.get(idOf("Ana")) !== idOf("Ben")) fail("Ana and Ben should stay a team");
+const teamKey = (t) => [...t].sort().join("|");
+const matchups = new Set();
+for (let r = 1; r <= 3; r++) {
+  if (r > 1) await api("POST", `/sessions/${ft.id}/rounds`, {});
+  fd = await api("GET", `/sessions/${ft.id}`);
+  for (const m of fd.rounds.at(-1).matches) {
+    for (const t of [m.a, m.b]) if (partnerAtStart.get(t[0]) !== t[1]) fail(`round ${r}: ${t} isn't a fixed team`);
+    const key = [teamKey(m.a), teamKey(m.b)].sort().join("~");
+    if (matchups.has(key)) fail(`round ${r}: a rematch while unplayed match-ups remain`);
+    matchups.add(key);
+    const anaWins = [...m.a, ...m.b].includes(idOf("Ana"));
+    const aHasAna = m.a.includes(idOf("Ana"));
+    await api("POST", `/matches/${m.id}/score`, anaWins ? (aHasAna ? { scoreA: 10, scoreB: 6 } : { scoreA: 6, scoreB: 10 }) : { scoreA: 8, scoreB: 8 });
+  }
+}
+fd = await api("GET", `/sessions/${ft.id}`);
+if (fd.teamStandings?.length !== 4) fail(`4 team rows expected, got ${JSON.stringify(fd.teamStandings)}`);
+if (fd.teamStandings[0].name !== "Ana & Ben" || fd.teamStandings[0].points !== 30) fail(`Ana & Ben should lead with 30: ${JSON.stringify(fd.teamStandings[0])}`);
+if (fd.warnings.some((w) => /partnered/.test(w))) fail(`no partner-repeat warnings with fixed teams: ${fd.warnings}`);
+await org.goto(`${BASE}/app/sessions/${ft.id}`);
+await org.getByRole("heading", { name: "Team standings" }).waitFor({ timeout: 10000 });
+await org.locator("td", { hasText: "Ana & Ben" }).first().waitFor();
+await shot(org, "15-teams-live");
+log("3 rounds: partners never split, every team met every other team once, team standings lead with 'Ana & Ben — 30'");
+
+// Dropping a player frees their partner, who's paired with the next newcomer.
+const cat = idOf("Cat");
+const catPartner = partnerAtStart.get(cat);
+await api("PATCH", `/sessions/${ft.id}/players/${cat}`, { action: "drop" });
+fd = await api("GET", `/sessions/${ft.id}`);
+if (fd.players.find((p) => p.id === catPartner).partnerId !== null) fail("dropping Cat should unpair Cat's partner");
+await api("POST", `/sessions/${ft.id}/players`, { guestName: "Ivy" });
+fd = await api("GET", `/sessions/${ft.id}`);
+const ivy = idOf("Ivy");
+if (fd.players.find((p) => p.id === ivy).status !== "checked_in") await api("PATCH", `/sessions/${ft.id}/players/${ivy}`, { action: "checkin" });
+await api("POST", `/sessions/${ft.id}/rounds`, {});
+fd = await api("GET", `/sessions/${ft.id}`);
+if (fd.players.find((p) => p.id === ivy).partnerId !== catPartner) fail("Ivy should be paired with Cat's old partner");
+for (const m of fd.rounds.at(-1).matches) await api("POST", `/matches/${m.id}/score`, { scoreA: 9, scoreB: 7 });
+log("drop Cat → Cat's partner is unpaired, then paired with newcomer Ivy for the next round");
+
+await api("POST", `/sessions/${ft.id}/status`, { action: "complete" });
+await org.goto(`${BASE}/app/sessions/${ft.id}`);
+await org.getByText("Final result").waitFor({ timeout: 10000 });
+const champ = (await org.locator("p.text-2xl").first().textContent())?.trim();
+if (!champ?.includes(" & ")) fail(`the champion should be a team, got "${champ}"`);
+const board = await (await org.request.get(`${BASE}/api/board/${fd.inviteCode}`)).json();
+if (!board.teamStandings?.[0]?.name.includes(" & ")) fail("the TV board should list teams");
+const me = await api("GET", "/me");
+const winner = me.sessions.find((s) => s.id === ft.id)?.winnerName;
+if (!winner?.includes(" & ")) fail(`past-session winner should name both partners, got "${winner}"`);
+await shot(org, "16-teams-final");
+log(`final: champion "${champ}" on the podium, TV board and past-sessions list name the team`);
 await org.goto(`${BASE}/app`);
 await org.getByRole("button", { name: "+ New session" }).click();
 await org.getByPlaceholder("Thursday Padel Jam").fill("Quick Start Night");

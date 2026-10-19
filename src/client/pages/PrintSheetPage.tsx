@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { americano } from "../../shared/formats/americano";
+import { autoPair } from "../../shared/formats/teams";
 import { formatMeta } from "../../shared/formatMeta";
 import { mulberry32 } from "../../shared/formats/types";
 import type { EngineContext } from "../../shared/formats/types";
@@ -48,6 +49,8 @@ interface SheetData {
   points: number;
   rounds: SheetRound[];
   format: "americano" | "mexicano";
+  /** Keep teams together: the pairs, by player number. */
+  teams?: [number, number][];
 }
 
 /** Plan rounds prior.length+1 … totalRounds, honouring everything already played. */
@@ -123,12 +126,30 @@ function blankRounds(from: number, to: number, courts: number): SheetRound[] {
   return out;
 }
 
-/** Same level grouping as the live engine (levels only reach the organizer's view). */
-function groupingFor(d: SessionDetail): Partial<EngineContext> {
-  if (!d.groupByLevel) return {};
+/**
+ * Same level grouping as the live engine (levels only reach the organizer's
+ * view), and with Keep teams together the session's pairs, plus the players
+ * without one paired up the way the engine will.
+ */
+function groupingFor(d: SessionDetail, ids: string[], seed: number): Partial<EngineContext> {
   const levels: Record<string, number> = {};
   for (const p of d.players) if (p.level != null) levels[p.id] = p.level;
-  return { groupByLevel: true, levels };
+  const extra: Partial<EngineContext> = d.groupByLevel ? { groupByLevel: true, levels } : {};
+  if (!d.fixedTeams) return extra;
+  const here = new Set(ids);
+  const byId = new Map(d.players.map((p) => [p.id, p]));
+  const paired = (id: string) => {
+    const partner = byId.get(byId.get(id)?.partnerId ?? "");
+    return !!partner && partner.partnerId === id && here.has(partner.id);
+  };
+  const genders: Record<string, "woman" | "man"> = {};
+  for (const p of d.players) if (p.gender) genders[p.id] = p.gender;
+  const teams: [string, string][] = ids.filter((id) => paired(id) && id < byId.get(id)!.partnerId!).map((id) => [id, byId.get(id)!.partnerId!]);
+  const fresh = autoPair(
+    ids.filter((id) => !paired(id)),
+    { levels, groupByLevel: d.groupByLevel, genders, mixedPairs: d.mixedPairs, rng: mulberry32((seed || 1) + 7) },
+  );
+  return { ...extra, teams: [...teams, ...fresh] };
 }
 
 function sessionSheet(d: SessionDetail, roundsWanted: number, seed: number): SheetData | { error: string } {
@@ -165,13 +186,14 @@ function sessionSheet(d: SessionDetail, roundsWanted: number, seed: number): She
     matches: r.matches.map((m) => ({ a: m.a, b: m.b })),
   }));
   const activeIds = roster.filter((p) => p.status !== "dropped").map((p) => p.id);
+  const extra = groupingFor(d, activeIds, seed);
   const totalRounds = Math.max(roundsWanted, existing.length);
   const planned: SheetRound[] =
     activeIds.length < 4
       ? []
       : d.format === "mexicano"
         ? blankRounds(existing.length + 1, totalRounds, Math.min(d.courts, Math.floor(activeIds.length / 4)))
-        : planRounds(activeIds, d.courts, totalRounds, seed, prior, groupingFor(d)).map((r) => ({
+        : planRounds(activeIds, d.courts, totalRounds, seed, prior, extra).map((r) => ({
           number: r.number,
           byes: byNumber(r.byes),
           matches: r.matches.map((m, i) => ({
@@ -193,6 +215,7 @@ function sessionSheet(d: SessionDetail, roundsWanted: number, seed: number): She
     points: d.pointsPerMatch,
     rounds: [...existing, ...planned],
     format: d.format,
+    teams: extra.teams?.map((t) => [num(t[0]), num(t[1])].sort((a, b) => a - b) as [number, number]).sort((a, b) => a[0] - b[0]),
   };
 }
 
@@ -350,6 +373,11 @@ export function PrintSheetPage() {
                   </div>
                 ))}
               </div>
+              {sheet.teams && sheet.teams.length > 0 && (
+                <p className={cls("border-t border-zinc-300 px-2 font-semibold", dense ? "py-0.5 text-[9px]" : "py-1 text-[10px]")}>
+                  <b>TEAMS (all night):</b> {sheet.teams.map(([a, b]) => `#${a} & #${b}`).join(" · ")}
+                </p>
+              )}
             </div>
 
             {/* Schedule */}
@@ -432,12 +460,19 @@ export function PrintSheetPage() {
             <p className="mt-1.5 text-[9px] leading-tight text-zinc-500">
               “—” = sitting that round out. Game to {sheet.points} total points, no deuce.{" "}
               <b>Winner:</b> most total points (you need at least half as many games as the busiest player).{" "}
-              {sheet.format === "mexicano" && (
-                <>
-                  <b>Mexicano:</b> after each round rank everyone by points — top four to court 1, next four to court 2,
-                  1st & 4th vs 2nd & 3rd. Fill the blank rounds in as you go.{" "}
-                </>
-              )}
+              {sheet.teams && <b>Fixed teams: partners play together all night. </b>}
+              {sheet.format === "mexicano" &&
+                (sheet.teams ? (
+                  <>
+                    <b>Mexicano:</b> after each round rank the teams by points — top two teams to court 1, next two to
+                    court 2. Fill the blank rounds in as you go.{" "}
+                  </>
+                ) : (
+                  <>
+                    <b>Mexicano:</b> after each round rank everyone by points — top four to court 1, next four to court 2,
+                    1st & 4th vs 2nd & 3rd. Fill the blank rounds in as you go.{" "}
+                  </>
+                ))}
               <b>Serve changes every 4
               points</b> (teams alternate, each player serves 4 in a row); the first-listed pair serves first. Both partners
               write their team's score in their own row each round; highest total wins — padeltime.

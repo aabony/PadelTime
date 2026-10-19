@@ -31,8 +31,10 @@ import { StylePicker } from "../components/StylePicker";
 import { GenderBadge, GenderSelect, GenderToggle } from "../components/GenderSelect";
 import { LevelSelect } from "../components/LevelSelect";
 import { GroupByLevelToggle } from "../components/GroupByLevelToggle";
+import { TeamsToggle } from "../components/TeamsToggle";
+import { PartnerSelect } from "../components/PartnerSelect";
 import { NightSummary } from "../components/NightSummary";
-import { FORMAT_META, formatMeta } from "../../shared/formatMeta";
+import { FORMAT_META, blurbFor, formatMeta } from "../../shared/formatMeta";
 
 type Run = (key: string, fn: () => Promise<unknown>) => Promise<void>;
 type ViewProps = { d: SessionDetail; isOrganizer: boolean; run: Run; busyKey: string | null };
@@ -147,7 +149,7 @@ function useShare(d: SessionDetail) {
   const results = d.status === "complete";
   const share = async () => {
     const payload = results
-      ? { title: `${d.name} — results`, text: resultsText(d, `${window.location.origin}/board/${d.inviteCode}`) }
+      ? { title: `${d.name} — results`, text: resultsText({ name: d.name, standings: d.teamStandings ?? d.standings }, `${window.location.origin}/board/${d.inviteCode}`) }
       : { title: d.name, text: `Join "${d.name}" on PadelTime`, url: `${window.location.origin}/join/${d.inviteCode}` };
     if (typeof navigator.share === "function") {
       try {
@@ -225,6 +227,7 @@ function Hero({ d, isOrganizer, onSettings }: { d: SessionDetail; isOrganizer: b
             </Badge>
             {d.mixedPairs && <Badge tone="zinc">👩👨 Mixed pairs</Badge>}
             {d.groupByLevel && <Badge tone="zinc">🎚️ Grouped by level</Badge>}
+            {d.fixedTeams && <Badge tone="zinc">🤝 Fixed teams</Badge>}
           </div>
           {isOrganizer && (
             <button
@@ -353,7 +356,14 @@ function RulesCard({ d }: { d: SessionDetail }) {
       </button>
       {open && (
         <div className="mt-3 divide-y divide-line border-t border-line">
-          {d.format === "mexicano" ? (
+          {d.fixedTeams ? (
+            <InfoRow icon="🤝">
+              <b>Same partner all night.</b>{" "}
+              {d.format === "mexicano"
+                ? "After each round the top two teams (points per game) play on court 1, the next two on court 2 — winners play winners."
+                : "Your team meets a different team every round."}
+            </InfoRow>
+          ) : d.format === "mexicano" ? (
             <InfoRow icon="🏆">
               <b>Play your level.</b> After each round the top four (points per game) play on court 1, the next four on
               court 2 — 1st & 4th vs 2nd & 3rd, so games stay close.
@@ -367,7 +377,7 @@ function RulesCard({ d }: { d: SessionDetail }) {
             <InfoRow icon="🎚️">
               <b>Grouped by level</b> — beginners play beginners
               {d.format === "mexicano"
-                ? " for their first two games, then results decide."
+                ? ` for their first ${d.fixedTeams ? "game" : "two games"}, then results decide.`
                 : ", intermediate and advanced play each other."}
             </InfoRow>
           )}
@@ -383,7 +393,7 @@ function RulesCard({ d }: { d: SessionDetail }) {
             <b>Serve 4 points each</b>, top team first, then pass it on. Switch ends at {half}.
           </InfoRow>
           <InfoRow icon="🏁">
-            <b>Most points wins.</b> Sit-outs rotate fairly; ties are allowed.
+            <b>Most points wins{d.fixedTeams ? " — as a team" : ""}.</b> Sit-outs rotate fairly{d.fixedTeams ? " (partners sit together)" : ""}; ties are allowed.
           </InfoRow>
         </div>
       )}
@@ -420,6 +430,7 @@ function SettingsModal({
     format: d.format,
     mixedPairs: d.mixedPairs,
     groupByLevel: d.groupByLevel,
+    fixedTeams: d.fixedTeams,
   });
   const pointsLocked = d.rounds.length > 0;
   const num = (v: string, fallback: number) => {
@@ -437,6 +448,7 @@ function SettingsModal({
             value={form.format}
             onChange={(format) => setForm({ ...form, format })}
             grouped={form.groupByLevel}
+            teams={form.fixedTeams}
             hint={d.rounds.length > 0 ? "A change applies from the next round dealt." : undefined}
           />
         )}
@@ -486,6 +498,7 @@ function SettingsModal({
           </span>
         </label>
         <GroupByLevelToggle checked={form.groupByLevel} onChange={(groupByLevel) => setForm({ ...form, groupByLevel })} />
+        <TeamsToggle checked={form.fixedTeams} onChange={(fixedTeams) => setForm({ ...form, fixedTeams })} />
         {pointsLocked && (
           <p className="text-xs text-muted">Points per match are locked once a round has been dealt. Max players and courts can change any time.</p>
         )}
@@ -505,6 +518,7 @@ function SettingsModal({
                 format: form.format,
                 mixedPairs: form.mixedPairs,
                 groupByLevel: form.groupByLevel,
+                fixedTeams: form.fixedTeams,
               });
               onClose();
             })
@@ -618,6 +632,52 @@ function LevelHint({ d, players }: { d: SessionDetail; players: PlayerRow[] }) {
   );
 }
 
+/** The partner who plays with this player, if both still link to each other. */
+function partnerOf(d: SessionDetail, p: PlayerRow): PlayerRow | undefined {
+  const q = p.partnerId ? d.players.find((x) => x.id === p.partnerId) : undefined;
+  return q && q.partnerId === p.id && q.status !== "dropped" ? q : undefined;
+}
+
+/** Keep teams together: who's paired, who'll be paired for you, who can't play. */
+function PairingHint({ d }: { d: SessionDetail }) {
+  // Before check-in everyone who's in counts; from check-in on, only who's here.
+  const live = d.status === "checkin" || d.status === "active";
+  const here = d.players.filter((p) => (live ? p.status === "checked_in" : p.status === "confirmed" || p.status === "checked_in"));
+  const hereIds = new Set(here.map((p) => p.id));
+  const teams = here.filter((p) => {
+    const q = partnerOf(d, p);
+    return q && hereIds.has(q.id) && p.id < q.id;
+  }).length;
+  const waiting = here.filter((p) => {
+    const q = partnerOf(d, p);
+    return q && !hereIds.has(q.id);
+  });
+  const singles = here.filter((p) => !partnerOf(d, p)).length;
+  const how = d.mixedPairs
+    ? "woman + man where possible"
+    : d.groupByLevel
+      ? "same level together"
+      : here.some((p) => p.level != null)
+        ? "stronger with weaker, by level"
+        : "at random — set levels to balance them";
+  return (
+    <p className="-mt-1 mb-3 rounded-xl bg-canvas px-3 py-2 text-xs text-muted">
+      🤝 Teams: <b className="text-navy">{teams}</b> paired
+      {singles > 1 && (
+        <>
+          {" "}
+          · <b className="text-navy">{singles - (singles % 2)}</b> player{singles - (singles % 2) === 1 ? "" : "s"} paired for you when the
+          round is dealt ({how})
+        </>
+      )}
+      {singles % 2 === 1 && " · 1 without a partner sits out (odd number)"}
+      {waiting.length > 0 &&
+        ` · ${waiting.map((p) => p.name).join(", ")} wait${waiting.length === 1 ? "s" : ""} for their partner to ${live ? "check in" : "join"}`}
+      . Pick a partner below to pair people yourself.
+    </p>
+  );
+}
+
 function playerStatusBadge(p: PlayerRow) {
   switch (p.status) {
     case "checked_in":
@@ -652,6 +712,7 @@ function PlayersCard({ d, isOrganizer, run, busyKey, checkinMode = false }: View
         {d.counts.waitlist > 0 && ` · ${d.counts.waitlist} waitlisted`}
       </p>
       {isOrganizer && d.groupByLevel && visible.length > 0 && <LevelHint d={d} players={visible} />}
+      {isOrganizer && d.fixedTeams && visible.length > 0 && <PairingHint d={d} />}
 
       {visible.length === 0 && <p className="py-4 text-center text-sm text-muted">Nobody yet — share the invite link or add names below.</p>}
       <ul className="divide-y divide-line">
@@ -684,14 +745,25 @@ function PlayersCard({ d, isOrganizer, run, busyKey, checkinMode = false }: View
                     busy={busyKey === `g-${p.id}`}
                     onChange={(gender) => run(`g-${p.id}`, () => Api.playerAction(d.id, p.id, "set_gender", { gender }))}
                   />
-                  {d.groupByLevel && (
+                  {(d.groupByLevel || d.fixedTeams) && (
                     <LevelSelect
                       value={p.level}
                       busy={busyKey === `lvl-${p.id}`}
                       onChange={(level) => run(`lvl-${p.id}`, () => Api.playerAction(d.id, p.id, "set_level", { level }))}
                     />
                   )}
+                  {d.fixedTeams && (
+                    <PartnerSelect
+                      player={p}
+                      players={d.players}
+                      busy={busyKey === `pt-${p.id}`}
+                      onChange={(partnerId) => run(`pt-${p.id}`, () => Api.playerAction(d.id, p.id, "set_partner", { partnerId }))}
+                    />
+                  )}
                 </span>
+              )}
+              {!isOrganizer && d.fixedTeams && partnerOf(d, p) && (
+                <span className="block truncate text-xs text-muted">🤝 with {partnerOf(d, p)!.name}</span>
               )}
               {isOrganizer && <MergeHint d={d} p={p} run={run} busyKey={busyKey} />}
             </span>
@@ -947,7 +1019,7 @@ function CheckinView({ d, isOrganizer, run, busyKey }: ViewProps) {
               </span>
             }
           />
-          <StandingsTable standings={d.standings} highlightId={d.myPlayerId} compact />
+          <StandingsTable standings={d.teamStandings ?? d.standings} highlightId={d.myPlayerId} compact />
         </Card>
       )}
       <InviteCard d={d} />
@@ -1150,7 +1222,8 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
           </div>
           <p className="mt-3 text-xs text-muted">
             {formatMeta(d.format).emoji} <b className="text-navy">{formatMeta(d.format).style}</b> style ·{" "}
-            {formatMeta(d.format).name}: {d.groupByLevel ? formatMeta(d.format).groupedBlurb : formatMeta(d.format).blurb}{" "}
+            {d.fixedTeams && "Team "}
+            {formatMeta(d.format).name}: {blurbFor(d.format, d)}{" "}
             <button
               type="button"
               className="font-bold text-royal hover:underline"
@@ -1166,6 +1239,13 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
             Late arrivals can join with the invite link at any time; player changes apply from the next round. Pause
             between rounds for a fresh check-in.
           </p>
+        </Card>
+      )}
+
+      {d.teamStandings && d.teamStandings.length > 0 && (
+        <Card>
+          <SectionHeader title="Team standings" />
+          <StandingsTable standings={d.teamStandings} highlightId={d.myPlayerId} compact />
         </Card>
       )}
 
@@ -1234,6 +1314,7 @@ function LiveRosterCard({ d, isOrganizer, run, busyKey }: ViewProps) {
         {d.counts.confirmed > 0 && ` · ${d.counts.confirmed} not checked in`}
       </p>
       {isOrganizer && d.groupByLevel && <LevelHint d={d} players={d.players.filter((p) => p.status !== "dropped" && p.status !== "waitlist")} />}
+      {isOrganizer && d.fixedTeams && <PairingHint d={d} />}
 
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
@@ -1285,12 +1366,20 @@ function LiveRosterCard({ d, isOrganizer, run, busyKey }: ViewProps) {
                               busy={busyKey === `g-${p.id}`}
                               onChange={(gender) => run(`g-${p.id}`, () => Api.playerAction(d.id, p.id, "set_gender", { gender }))}
                             />
-                            {d.groupByLevel && (
+                            {(d.groupByLevel || d.fixedTeams) && (
                               <LevelSelect
                                 compact
                                 value={p.level}
                                 busy={busyKey === `lvl-${p.id}`}
                                 onChange={(level) => run(`lvl-${p.id}`, () => Api.playerAction(d.id, p.id, "set_level", { level }))}
+                              />
+                            )}
+                            {d.fixedTeams && (
+                              <PartnerSelect
+                                player={p}
+                                players={d.players}
+                                busy={busyKey === `pt-${p.id}`}
+                                onChange={(partnerId) => run(`pt-${p.id}`, () => Api.playerAction(d.id, p.id, "set_partner", { partnerId }))}
                               />
                             )}
                           </div>
@@ -1299,6 +1388,9 @@ function LiveRosterCard({ d, isOrganizer, run, busyKey }: ViewProps) {
                         <div className="mt-0.5 flex flex-wrap items-center gap-x-1 text-[11px] text-muted">
                           {!isOrganizer && <GenderBadge gender={p.gender} />}
                           <span>{p.status === "checked_in" ? "playing" : "not checked in"}</span>
+                          {!isOrganizer && d.fixedTeams && partnerOf(d, p) && (
+                            <span className="whitespace-nowrap">· 🤝 with {partnerOf(d, p)!.name}</span>
+                          )}
                           {row.played > 0 && <span className="whitespace-nowrap">· {perGame(row)} per game</span>}
                           {row.played > 0 && !row.ranked && <span className="whitespace-nowrap">· too few games to rank</span>}
                           {row.byes > 0 && <span className="whitespace-nowrap">· sat out {row.byes}</span>}
@@ -1642,7 +1734,8 @@ function RoundHistory({ rounds, nameOf }: { rounds: RoundRow[]; nameOf: (id: str
 function CompleteView({ d, isOrganizer, run, busyKey }: ViewProps) {
   const nameOf = useNameOf(d);
   const { share, copied } = useShare(d);
-  const podium = d.standings.filter((r) => r.ranked).slice(0, 3);
+  const table = d.teamStandings ?? d.standings;
+  const podium = table.filter((r) => r.ranked).slice(0, 3);
   return (
     <div className="space-y-4">
       {podium.length > 0 && (
@@ -1650,7 +1743,15 @@ function CompleteView({ d, isOrganizer, run, busyKey }: ViewProps) {
           <p className="text-xs font-bold uppercase tracking-widest text-muted">Final result</p>
           <p className="mt-2 text-3xl">🏆</p>
           <div className="mt-1 flex justify-center">
-            <Avatar name={podium[0].name} size="lg" ring />
+            {podium[0].members ? (
+              <span className="flex -space-x-3">
+                {podium[0].members.map((id) => (
+                  <Avatar key={id} name={nameOf(id)} size="lg" ring />
+                ))}
+              </span>
+            ) : (
+              <Avatar name={podium[0].name} size="lg" ring />
+            )}
           </div>
           <p className="mt-2 text-2xl font-black text-navy">{podium[0].name}</p>
           <p className="text-sm text-muted">
@@ -1684,7 +1785,7 @@ function CompleteView({ d, isOrganizer, run, busyKey }: ViewProps) {
       )}
       <Card>
         <SectionHeader title="Standings" />
-        <StandingsTable standings={d.standings.filter((s) => s.played > 0)} highlightId={d.myPlayerId} />
+        <StandingsTable standings={table.filter((s) => s.played > 0)} highlightId={d.myPlayerId} />
       </Card>
       <RoundHistory rounds={d.rounds} nameOf={nameOf} />
       {isOrganizer && (

@@ -46,7 +46,7 @@ async function winnersFor(db: DB, sessionIds: string[]): Promise<Map<string, str
     rows.push({ playerId: r.playerId, points: Number(r.pts), played: Number(r.games) });
     bySession.set(r.sessionId, rows);
   }
-  const top = new Map<string, { playerId: string }>();
+  const top = new Map<string, { playerId: string; points: number }>();
   for (const [sessionId, rows] of bySession) {
     const min = minGamesToRank(rows);
     const best = rows
@@ -56,16 +56,30 @@ async function winnersFor(db: DB, sessionIds: string[]): Promise<Map<string, str
   }
   const playerIds = [...top.values()].map((t) => t.playerId);
   if (playerIds.length === 0) return new Map();
-  const names = await db
-    .select({ id: sessionPlayers.id, guest: sessionPlayers.guestName, uname: user.name })
-    .from(sessionPlayers)
-    .leftJoin(user, eq(sessionPlayers.userId, user.id))
-    .where(inArray(sessionPlayers.id, playerIds));
-  const nameById = new Map(names.map((n) => [n.id, n.uname ?? n.guest ?? "Player"]));
+  const nameRows = (ids: string[]) =>
+    db
+      .select({ id: sessionPlayers.id, guest: sessionPlayers.guestName, uname: user.name, partnerId: sessionPlayers.partnerId, teams: gameSessions.fixedTeams })
+      .from(sessionPlayers)
+      .leftJoin(user, eq(sessionPlayers.userId, user.id))
+      .innerJoin(gameSessions, eq(sessionPlayers.sessionId, gameSessions.id))
+      .where(inArray(sessionPlayers.id, ids));
+  const names = await nameRows(playerIds);
+  // Fixed teams: the winner is the pair — name the partner too when they finished level.
+  const partnerIds = names
+    .filter((n) => n.teams && n.partnerId)
+    .map((n) => n.partnerId!)
+    .filter((id) => !playerIds.includes(id));
+  const partners = partnerIds.length > 0 ? await nameRows(partnerIds) : [];
+  const nameById = new Map([...names, ...partners].map((n) => [n.id, n.uname ?? n.guest ?? "Player"]));
+  const rowById = new Map(names.map((n) => [n.id, n]));
   const out = new Map<string, string>();
   for (const [sessionId, t] of top) {
     const name = nameById.get(t.playerId);
-    if (name) out.set(sessionId, name);
+    if (!name) continue;
+    const row = rowById.get(t.playerId);
+    const partner = row?.teams && row.partnerId ? bySession.get(sessionId)?.find((r) => r.playerId === row.partnerId) : undefined;
+    const partnerName = partner && partner.points === t.points ? nameById.get(partner.playerId) : undefined;
+    out.set(sessionId, partnerName ? `${name} & ${partnerName}` : name);
   }
   return out;
 }
@@ -148,6 +162,7 @@ async function createSession(
         format: format.key,
         mixedPairs: body.mixedPairs === true,
         groupByLevel: body.groupByLevel === true,
+        fixedTeams: body.fixedTeams === true,
         status: "draft",
         inviteCode: inviteCode(),
         createdBy: u.id,
@@ -252,23 +267,25 @@ groupRoutes.post("/sessions", async (c) => {
           and(eq(sessionPlayers.sessionId, sourceId), inArray(sessionPlayers.status, ["confirmed", "checked_in"])),
         );
       const ts = now();
-      const rows = players
-        .sort((a, b) => a.joinedAt - b.joinedAt)
-        .map((p, i) => ({
-          id: newId(),
-          sessionId: result.id,
-          userId: p.userId,
-          guestName: p.guestName,
-          status: "confirmed",
-          joinedAt: ts + i,
-          checkedInAt: null,
-          gender: p.gender,
-          level: p.level,
-        }));
-      // D1 caps a statement at 100 bound parameters (9 per row here), so a big
+      const sorted = players.sort((a, b) => a.joinedAt - b.joinedAt);
+      // New ids for the new session; fixed pairs come along when both partners do.
+      const newIdOf = new Map(sorted.map((p) => [p.id, newId()]));
+      const rows = sorted.map((p, i) => ({
+        id: newIdOf.get(p.id)!,
+        sessionId: result.id,
+        userId: p.userId,
+        guestName: p.guestName,
+        status: "confirmed",
+        joinedAt: ts + i,
+        checkedInAt: null,
+        gender: p.gender,
+        level: p.level,
+        partnerId: p.partnerId ? (newIdOf.get(p.partnerId) ?? null) : null,
+      }));
+      // D1 caps a statement at 100 bound parameters (10 per row here), so a big
       // roster goes in chunks — batched, so it lands all or nothing.
       const inserts = [];
-      for (let i = 0; i < rows.length; i += 10) inserts.push(db.insert(sessionPlayers).values(rows.slice(i, i + 10)));
+      for (let i = 0; i < rows.length; i += 9) inserts.push(db.insert(sessionPlayers).values(rows.slice(i, i + 9)));
       if (inserts.length > 0) await db.batch(inserts as [(typeof inserts)[number], ...(typeof inserts)[number][]]);
     }
   }

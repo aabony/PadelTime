@@ -1,7 +1,7 @@
 import { and, desc, eq, isNotNull, like } from "drizzle-orm";
 import { Hono } from "hono";
 import type { BoardData, JoinInfo, PlayerStatus, SessionStatus } from "../../shared/types";
-import { computeStandings } from "../../shared/standings";
+import { computeStandings, computeTeamStandings } from "../../shared/standings";
 import { groupMembers, sessionPlayers, verification } from "../db/schema";
 import type { DB } from "../lib/detail";
 import { loadPlayers, loadRounds, loadSessionByCode } from "../lib/detail";
@@ -95,6 +95,10 @@ publicRoutes.get("/join/:code", async (c) => {
     myGender: parseGender(mine?.gender) ?? (u ? await rememberedGender(db, u.id) : null),
     mixedPairs: session.mixedPairs,
     groupByLevel: session.groupByLevel,
+    fixedTeams: session.fixedTeams,
+    myPartner: mine?.partnerId
+      ? ((await loadPlayers(db, session.id)).find((p) => p.id === mine.partnerId)?.name ?? null)
+      : null,
   };
   return c.json(info);
 });
@@ -209,6 +213,7 @@ publicRoutes.get("/board/:code", async (c) => {
       const p = players.find((x) => x.id === s.playerId);
       return s.played > 0 || p?.status === "checked_in";
     }),
+    teamStandings: session.fixedTeams ? computeTeamStandings(players, rounds) : undefined,
   };
   return c.json(board);
 });

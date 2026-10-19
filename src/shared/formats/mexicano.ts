@@ -2,6 +2,7 @@ import type { EngineContext, FormatStrategy, PlannedMatch, RoundPlan } from "./t
 import { pairKey, shuffle } from "./types";
 import { americano } from "./americano";
 import { pickByes } from "./byes";
+import { planFixedTeams } from "./teams";
 import { chooseSitOuts, groupingLevels, levelIn, levelMixCost } from "./levelGrouping";
 import { ADVANCED, isBeginner } from "../levels";
 
@@ -258,6 +259,7 @@ export const mexicano: FormatStrategy = {
   defaultPoints: 24,
 
   planRound(ctx: EngineContext): RoundPlan {
+    if (ctx.teams) return planFixedTeams(ctx, "ladder");
     const levels = groupingLevels(ctx);
     // Nothing on the board and nothing to group by → a random draw.
     if (ctx.standings.length === 0 && !levels) return americano.planRound(ctx);

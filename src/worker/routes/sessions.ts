@@ -1,4 +1,4 @@
-import { and, eq, isNull, or } from "drizzle-orm";
+import { and, eq, inArray, isNull, or } from "drizzle-orm";
 import { Hono } from "hono";
 import { gameSessions, matches, rounds, sessionPlayers } from "../db/schema";
 import type { DB, SessionRow } from "../lib/detail";
@@ -83,6 +83,7 @@ sessionRoutes.patch("/sessions/:id", async (c) => {
   }
   if (typeof body.mixedPairs === "boolean") patch.mixedPairs = body.mixedPairs;
   if (typeof body.groupByLevel === "boolean") patch.groupByLevel = body.groupByLevel;
+  if (typeof body.fixedTeams === "boolean") patch.fixedTeams = body.fixedTeams;
 
   // Max players can change any time (extra people turn up mid-session); the
   // points per match are locked once a round has been dealt, since every
@@ -239,6 +240,15 @@ sessionRoutes.post("/sessions/:id/players", async (c) => {
   return c.json({ ok: true });
 });
 
+/** Clears the fixed-partner links of these players, on both sides. */
+async function unpair(db: DB, sessionId: string, ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  await db
+    .update(sessionPlayers)
+    .set({ partnerId: null })
+    .where(and(eq(sessionPlayers.sessionId, sessionId), or(inArray(sessionPlayers.id, ids), inArray(sessionPlayers.partnerId, ids))));
+}
+
 sessionRoutes.patch("/sessions/:id/players/:pid", async (c) => {
   const u = c.get("user");
   if (!u) return c.json({ error: "Sign in required" }, 401);
@@ -283,6 +293,7 @@ sessionRoutes.patch("/sessions/:id/players/:pid", async (c) => {
         )
         .limit(1);
       const satOut = (await loadRounds(db, session.id)).some((r) => r.byes.includes(player.id));
+      await unpair(db, session.id, [player.id]); // their partner is paired again next round
       if (played || satOut) {
         await db
           .update(sessionPlayers)
@@ -309,6 +320,29 @@ sessionRoutes.patch("/sessions/:id/players/:pid", async (c) => {
     case "set_gender":
       await db.update(sessionPlayers).set({ gender: parseGender(body.gender) }).where(eq(sessionPlayers.id, player.id));
       break;
+    case "set_partner": {
+      // Keep teams together: link both rows (each side's previous partner becomes unpaired).
+      const partnerId = typeof body.partnerId === "string" && body.partnerId ? body.partnerId : null;
+      if (partnerId === player.id) return c.json({ error: "Pick someone else" }, 400);
+      let partner: typeof player | undefined;
+      if (partnerId) {
+        [partner] = await db
+          .select()
+          .from(sessionPlayers)
+          .where(and(eq(sessionPlayers.id, partnerId), eq(sessionPlayers.sessionId, session.id)))
+          .limit(1);
+        if (!partner) return c.json({ error: "Player not found" }, 404);
+        if (partner.status === "dropped") return c.json({ error: "That player has left" }, 400);
+      }
+      await unpair(db, session.id, partner ? [player.id, partner.id] : [player.id]);
+      if (partner) {
+        await db.batch([
+          db.update(sessionPlayers).set({ partnerId: partner.id }).where(eq(sessionPlayers.id, player.id)),
+          db.update(sessionPlayers).set({ partnerId: player.id }).where(eq(sessionPlayers.id, partner.id)),
+        ]);
+      }
+      break;
+    }
     case "set_level":
       // Organizer-only (this route is guarded by canManage); players never set or see levels.
       await db.update(sessionPlayers).set({ level: parseLevel(body.level) }).where(eq(sessionPlayers.id, player.id));
@@ -340,6 +374,8 @@ sessionRoutes.patch("/sessions/:id/players/:pid", async (c) => {
         .limit(1);
       if (played) return c.json({ error: "This player already has matches — merge the other way round" }, 400);
       await db.delete(sessionPlayers).where(eq(sessionPlayers.id, player.id));
+      // A partner chosen for the account entry moves to the guest entry (unless it already has one).
+      const takePartner = !guest.partnerId && player.partnerId ? player.partnerId : null;
       await db
         .update(sessionPlayers)
         .set({
@@ -347,8 +383,15 @@ sessionRoutes.patch("/sessions/:id/players/:pid", async (c) => {
           guestName: null,
           gender: guest.gender ?? player.gender,
           level: guest.level ?? player.level,
+          partnerId: guest.partnerId ?? takePartner,
         })
         .where(eq(sessionPlayers.id, guest.id));
+      if (player.partnerId) {
+        await db
+          .update(sessionPlayers)
+          .set({ partnerId: takePartner ? guest.id : null })
+          .where(and(eq(sessionPlayers.id, player.partnerId), eq(sessionPlayers.partnerId, player.id)));
+      }
       break;
     }
     default:
@@ -422,6 +465,7 @@ sessionRoutes.post("/sessions/:id/leave", async (c) => {
     .update(sessionPlayers)
     .set({ status: "dropped", checkedInAt: null })
     .where(eq(sessionPlayers.id, me.id));
+  await unpair(db, session.id, [me.id]);
   await promoteWaitlist(db, session);
   return c.json({ ok: true });
 });

@@ -6,7 +6,7 @@ import { fmtTimeRange } from "../lib/format";
 import { Badge, Button, Card, ErrorNote, InfoRow, PageSpinner, ProgressBar, StatCell } from "../components/ui";
 import { Logo } from "../App";
 import { statusTone } from "./Home";
-import { formatMeta } from "../../shared/formatMeta";
+import { blurbFor, formatMeta } from "../../shared/formatMeta";
 import { GenderToggle } from "../components/GenderSelect";
 import type { Gender } from "../../shared/genders";
 
@@ -128,6 +128,21 @@ export function JoinPage() {
             </p>
           </Card>
 
+          {!over && joined && data.fixedTeams && (
+            <Card className="mt-4">
+              <h3 className="text-lg font-black text-navy">🤝 Your partner</h3>
+              <p className="text-sm text-muted">
+                {data.myPartner ? (
+                  <>
+                    You play with <b className="text-navy">{data.myPartner}</b> all night.
+                  </>
+                ) : (
+                  `Teams stay together all night. The organizer pairs you, or you're paired when the ${data.roundsPlayed > 0 ? "next" : "first"} round is dealt.`
+                )}
+              </p>
+            </Card>
+          )}
+
           {!over && data.mixedPairs && (
             <Card className="mt-4">
               <h3 className="text-lg font-black text-navy">You are…</h3>
@@ -140,10 +155,13 @@ export function JoinPage() {
             <h3 className="mb-1 text-lg font-black text-navy">How it works</h3>
             <div className="divide-y divide-line">
               <InfoRow icon={formatMeta(data.format).emoji}>
-                <b>{formatMeta(data.format).name}</b> —{" "}
-                {data.groupByLevel ? formatMeta(data.format).groupedBlurb : formatMeta(data.format).blurb}
+                <b>
+                  {data.fixedTeams && "Team "}
+                  {formatMeta(data.format).name}
+                </b>{" "}
+                — {blurbFor(data.format, data)}
               </InfoRow>
-              <InfoRow icon="🎯">One game to {data.pointsPerMatch} rally points; every point you win counts for you</InfoRow>
+              <InfoRow icon="🎯">One game to {data.pointsPerMatch} rally points; every point you win counts for {data.fixedTeams ? "your team" : "you"}</InfoRow>
               <InfoRow icon="📱">Enter and confirm scores from your phone; live leaderboard</InfoRow>
               <InfoRow icon="🔑">No password — a one-time code by email</InfoRow>
             </div>

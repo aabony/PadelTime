@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
 import { getFormat } from "../../shared/formats/registry";
+import { autoPair } from "../../shared/formats/teams";
 import type { EngineContext } from "../../shared/formats/types";
 import { buildHistory, creditAbsences } from "../../shared/history";
 import { computeStandings, rankForCourts } from "../../shared/standings";
@@ -31,8 +32,8 @@ export async function generateNextRound(
   const levels: Record<string, number> = {};
   const genders: Record<string, "woman" | "man"> = {};
   for (const p of players) {
-    // Levels only matter when the session groups by level; otherwise the engine never sees them.
-    const level = session.groupByLevel ? normalizeLevel(p.level) : null;
+    // Levels deal courts only when the session groups by level (and balance auto-paired teams).
+    const level = normalizeLevel(p.level);
     if (level != null) levels[p.id] = level;
     if (p.gender === "woman" || p.gender === "man") genders[p.id] = p.gender;
   }
@@ -65,9 +66,13 @@ export async function generateNextRound(
     mixedPairs: session.mixedPairs,
     rng: Math.random,
   };
+  if (session.fixedTeams) ctx.teams = await fixTeams(db, players, eligible, { ...ctx, levels });
 
   const plan = format.planRound(ctx);
   if (plan.matches.length === 0) {
+    if (session.fixedTeams) {
+      return { error: "Keep teams together needs two full teams checked in — check in both partners, or change the pairings." };
+    }
     return { error: "Not enough players to fill a court." };
   }
 
@@ -94,6 +99,34 @@ export async function generateNextRound(
     })),
   );
   return { roundNumber: ctx.roundNumber };
+}
+
+/**
+ * Keep teams together: the session's pairs, plus checked-in players without a
+ * partner paired up now (and saved, so the teams stay fixed from here on).
+ */
+async function fixTeams(
+  db: DB,
+  players: (typeof sessionPlayers.$inferSelect)[],
+  eligible: string[],
+  ctx: Pick<EngineContext, "levels" | "groupByLevel" | "genders" | "mixedPairs" | "rng">,
+): Promise<[string, string][]> {
+  const byId = new Map(players.map((p) => [p.id, p]));
+  const paired = (id: string) => {
+    const p = byId.get(id);
+    const partner = p?.partnerId ? byId.get(p.partnerId) : undefined;
+    return !!p && p.status !== "dropped" && !!partner && partner.partnerId === p.id && partner.status !== "dropped";
+  };
+  const teams: [string, string][] = players.filter((p) => paired(p.id) && p.id < p.partnerId!).map((p) => [p.id, p.partnerId!]);
+  const fresh = autoPair(eligible.filter((id) => !paired(id)), ctx);
+  if (fresh.length > 0) {
+    const updates = fresh.flatMap(([a, b]) => [
+      db.update(sessionPlayers).set({ partnerId: b }).where(eq(sessionPlayers.id, a)),
+      db.update(sessionPlayers).set({ partnerId: a }).where(eq(sessionPlayers.id, b)),
+    ]);
+    await db.batch(updates as [(typeof updates)[number], ...(typeof updates)[number][]]);
+  }
+  return [...teams, ...fresh];
 }
 
 export type MatchDbRow = typeof matches.$inferSelect;

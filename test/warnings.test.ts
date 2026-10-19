@@ -23,4 +23,25 @@ describe("organizer warnings", () => {
     );
     expect(computeWarnings(players, rounds)[0]).toBe("Court 1 score is disputed.");
   });
+
+  it("fixed teams: no partner-repeat noise, and the odd player out is named once (not as a sit-out gap)", () => {
+    const pair = (x: PlayerRow, partnerId: string) => ({ ...x, partnerId });
+    const players = [pair(player("a"), "b"), pair(player("b"), "a"), pair(player("c"), "d"), pair(player("d"), "c"), { ...player("e"), partnerId: null }];
+    const rounds = Array.from({ length: 4 }, (_, i) => round(i + 1, ["e"], [match(["a", "b"], ["c", "d"])]));
+    expect(computeWarnings(players, rounds, true)).toEqual(["e has no partner (odd number) and sits out until someone joins or you re-pair."]);
+    // Without the switch the same night reads as repeats and an unfair sit-out.
+    expect(computeWarnings(players, rounds).some((w) => w.includes("partnered"))).toBe(true);
+  });
+
+  it("fixed teams: a player whose partner isn't checked in is told why they sit", () => {
+    const players = [
+      { ...player("a"), partnerId: "b" },
+      { ...player("b"), partnerId: "a", status: "confirmed" },
+      ...["c", "d", "e", "f"].map((id, i) => ({ ...player(id), partnerId: ["d", "c", "f", "e"][i] })),
+    ] as PlayerRow[];
+    const rounds = [round(1, ["a"], [match(["c", "d"], ["e", "f"])])];
+    expect(computeWarnings(players, rounds, true)).toEqual([
+      "a's partner b isn't checked in — a sits out until they are, or pair a with someone else.",
+    ]);
+  });
 });

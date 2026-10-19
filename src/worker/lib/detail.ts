@@ -4,7 +4,7 @@ import type { DrizzleD1Database } from "drizzle-orm/d1";
 import * as schema from "../db/schema";
 import { gameSessions, groupMembers, groups, matches, rounds, sessionPlayers, user } from "../db/schema";
 import { buildHistory, creditAbsences } from "../../shared/history";
-import { computeStandings } from "../../shared/standings";
+import { computeStandings, computeTeamStandings } from "../../shared/standings";
 import type {
   MatchRow,
   MatchStatus,
@@ -84,6 +84,7 @@ export async function loadPlayers(db: DB, sessionId: string): Promise<PlayerRow[
       joinedAt: sp.joinedAt,
       gender: (sp.gender as PlayerRow["gender"]) ?? null,
       level: normalizeLevel(sp.level),
+      partnerId: sp.partnerId ?? null,
     }))
     .sort((a, b) => a.joinedAt - b.joinedAt);
 }
@@ -131,7 +132,7 @@ export async function loadRounds(db: DB, sessionId: string): Promise<RoundRow[]>
   });
 }
 
-export function computeWarnings(players: PlayerRow[], allRounds: RoundRow[]): string[] {
+export function computeWarnings(players: PlayerRow[], allRounds: RoundRow[], fixedTeams = false): string[] {
   // Things to act on first; partner repeats (often unavoidable) fill whatever room is left.
   const warnings: string[] = [];
   const repeats: string[] = [];
@@ -152,20 +153,49 @@ export function computeWarnings(players: PlayerRow[], allRounds: RoundRow[]): st
   }
 
   const activeIds = players.filter((p) => p.status === "checked_in").map((p) => p.id);
-  if (activeIds.length > 0 && allRounds.length > 0) {
+  // Fixed teams: players who can't play (no partner here) are warned about by
+  // name, and left out of the sit-out comparison below — it's not the rotation.
+  const benched = new Set<string>();
+  if (fixedTeams) {
+    const here = new Set(activeIds);
+    const byId = new Map(players.map((p) => [p.id, p]));
+    const partnerOf = (id: string) => {
+      const partner = byId.get(byId.get(id)?.partnerId ?? "");
+      return partner && partner.partnerId === id && partner.status !== "dropped" ? partner : undefined;
+    };
+    for (const id of activeIds) {
+      const partner = partnerOf(id);
+      if (partner && !here.has(partner.id)) {
+        benched.add(id);
+        warnings.push(`${nameOf(id)}'s partner ${partner.name} isn't checked in — ${nameOf(id)} sits out until they are, or pair ${nameOf(id)} with someone else.`);
+      }
+    }
+    const singles = activeIds.filter((id) => !partnerOf(id));
+    if (singles.length % 2 === 1 && allRounds.length > 0) {
+      if (singles.length === 1) benched.add(singles[0]);
+      warnings.push(
+        singles.length === 1
+          ? `${nameOf(singles[0])} has no partner (odd number) and sits out until someone joins or you re-pair.`
+          : `An odd number of players have no partner — one sits out each round until someone joins.`,
+      );
+    }
+  }
+
+  const rotating = activeIds.filter((id) => !benched.has(id));
+  if (rotating.length > 0 && allRounds.length > 0) {
     // Same accounting as the engine: rounds a late arrival missed count as their share of sit-outs.
     // Real gaps are whole rounds, so only a gap of 2+ is unfair (a late arrival's share is fractional).
     const fair = creditAbsences(buildHistory(allRounds), allRounds, activeIds);
-    const byes = activeIds.map((id) => fair.byeCounts[id] ?? 0);
+    const byes = rotating.map((id) => fair.byeCounts[id] ?? 0);
     const maxB = Math.max(...byes);
     const minB = Math.min(...byes);
     if (maxB - minB >= 2) {
-      const worst = activeIds.find((id) => (fair.byeCounts[id] ?? 0) === maxB);
+      const worst = rotating.find((id) => (fair.byeCounts[id] ?? 0) === maxB);
       if (worst) warnings.push(`${nameOf(worst)} has sat out ${Math.round(maxB)} rounds; others only ${Math.round(minB)}.`);
     }
   }
 
-  for (const [key, count] of Object.entries(history.partnerCounts)) {
+  for (const [key, count] of fixedTeams ? [] : Object.entries(history.partnerCounts)) {
     if (count > 1) {
       const [a, b] = key.split("|");
       repeats.push(`${nameOf(a)} & ${nameOf(b)} have partnered ${count} times.`);
@@ -224,6 +254,7 @@ export async function buildDetail(
     pointsPerMatch: session.pointsPerMatch,
     mixedPairs: session.mixedPairs,
     groupByLevel: session.groupByLevel,
+    fixedTeams: session.fixedTeams,
     inviteCode: session.inviteCode,
     myRole,
     myPlayerId,
@@ -231,7 +262,8 @@ export async function buildDetail(
     players: myRole === "organizer" ? players : players.map((p) => ({ ...p, level: null })),
     rounds: roundRows,
     standings,
-    warnings: myRole === "organizer" ? computeWarnings(players, roundRows) : [],
+    teamStandings: session.fixedTeams ? computeTeamStandings(players, roundRows) : undefined,
+    warnings: myRole === "organizer" ? computeWarnings(players, roundRows, session.fixedTeams) : [],
     counts,
     createdAt: session.createdAt,
   };

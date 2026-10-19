@@ -37,6 +37,8 @@ export interface EngineContext {
   genders?: Record<string, "woman" | "man">;
   /** Prefer teams of one woman + one man whenever the numbers allow. */
   mixedPairs?: boolean;
+  /** Keep teams together: the fixed pairs (either format then plans by team). */
+  teams?: [string, string][];
   /** Random source, injectable for deterministic tests. */
   rng: () => number;
 }

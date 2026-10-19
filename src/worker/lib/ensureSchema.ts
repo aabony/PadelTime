@@ -44,4 +44,10 @@ async function apply(db: Env["DB"]): Promise<void> {
     await db.prepare("ALTER TABLE game_sessions ADD COLUMN group_by_level integer NOT NULL DEFAULT 0").run();
     await record("0006_group_by_level.sql");
   }
+  // Each column checked on its own, so a half-applied run finishes next time.
+  const hasTeams = sessions.has("fixed_teams");
+  const hasPartner = (await columns("session_players")).has("partner_id");
+  if (!hasTeams) await db.prepare("ALTER TABLE game_sessions ADD COLUMN fixed_teams integer NOT NULL DEFAULT 0").run();
+  if (!hasPartner) await db.prepare("ALTER TABLE session_players ADD COLUMN partner_id text").run();
+  if (!hasTeams || !hasPartner) await record("0007_fixed_teams.sql");
 }

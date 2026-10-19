@@ -74,6 +74,8 @@ export interface PlayerRow {
   gender: "woman" | "man" | null;
   /** Organizer-set level (2 beginner, 3 intermediate, 4 advanced). Only ever sent to the organizer; null for everyone else. */
   level: number | null;
+  /** Fixed partner's session_player id when the session keeps teams together. */
+  partnerId: string | null;
 }
 
 export interface MatchRow {
@@ -111,6 +113,8 @@ export interface StandingRow {
   byes: number;
   /** Has at least half as many games as the busiest player, so counts in the ranking. */
   ranked: boolean;
+  /** Team rows (keep teams together): the two players' ids; playerId is then the team key. */
+  members?: string[];
 }
 
 export interface SessionDetail {
@@ -131,12 +135,16 @@ export interface SessionDetail {
   mixedPairs: boolean;
   /** Group players by playing level (organizer-set levels). */
   groupByLevel: boolean;
+  /** Keep teams together: partners play the whole night as a pair. */
+  fixedTeams: boolean;
   inviteCode: string;
   myRole: "organizer" | "player" | "none";
   myPlayerId: string | null;
   players: PlayerRow[];
   rounds: RoundRow[];
   standings: StandingRow[];
+  /** One row per team when the session keeps teams together. */
+  teamStandings?: StandingRow[];
   warnings: string[]; // populated for organizers only
   counts: { confirmed: number; waitlist: number; checkedIn: number };
   createdAt: number;
@@ -163,6 +171,10 @@ export interface JoinInfo {
   mixedPairs: boolean;
   /** Group players by playing level is on (levels themselves are never shared). */
   groupByLevel: boolean;
+  /** Keep teams together is on. */
+  fixedTeams: boolean;
+  /** Your fixed partner's name, if you have one. */
+  myPartner: string | null;
 }
 
 // Read-only public board (TV / court display) payload.
@@ -175,6 +187,8 @@ export interface BoardData {
   players: { id: string; name: string }[];
   rounds: RoundRow[];
   standings: StandingRow[];
+  /** One row per team when the session keeps teams together. */
+  teamStandings?: StandingRow[];
 }
 
 export interface ApiError {

@@ -1,6 +1,6 @@
 import type { DB } from "./detail";
 import { loadPlayers, loadRounds, loadSessionByCode } from "./detail";
-import { computeStandings } from "../../shared/standings";
+import { computeStandings, computeTeamStandings } from "../../shared/standings";
 import { formatMeta } from "../../shared/formatMeta";
 
 // Link previews (WhatsApp, iMessage, Slack…) read the HTML, not the app, so
@@ -18,7 +18,7 @@ export async function previewFor(db: DB, kind: "join" | "board", code: string): 
   const players = await loadPlayers(db, session.id);
   const rounds = await loadRounds(db, session.id);
   const format = formatMeta(session.format);
-  const standings = computeStandings(players, rounds).filter((s) => s.ranked);
+  const standings = (session.fixedTeams ? computeTeamStandings(players, rounds) : computeStandings(players, rounds)).filter((s) => s.ranked);
   const podium = standings
     .slice(0, 3)
     .map((s, i) => `${["🥇", "🥈", "🥉"][i]} ${s.name} ${s.points}`)
@@ -36,6 +36,7 @@ export async function previewFor(db: DB, kind: "join" | "board", code: string): 
     const bits = [
       `${format.name} · ${session.pointsPerMatch}-point games`,
       session.mixedPairs ? "mixed pairs" : null,
+      session.fixedTeams ? "fixed teams" : null,
       session.venue,
       `${inCount}/${session.maxPlayers} players in`,
       session.status === "active" ? `round ${current?.number ?? 1} on court — join and you're dealt in next round` : "tap to sign up",

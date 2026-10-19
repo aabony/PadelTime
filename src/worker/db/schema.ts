@@ -112,6 +112,8 @@ export const gameSessions = sqliteTable(
     mixedPairs: integer("mixed_pairs", { mode: "boolean" }).notNull().default(false),
     /** Group players by organizer-set playing level (beginners together, intermediate/advanced together). */
     groupByLevel: integer("group_by_level", { mode: "boolean" }).notNull().default(false),
+    /** Keep teams together: partners play the whole night as a pair. */
+    fixedTeams: integer("fixed_teams", { mode: "boolean" }).notNull().default(false),
     status: text("status").notNull().default("draft"),
     inviteCode: text("invite_code").notNull().unique(),
     createdBy: text("created_by")
@@ -139,6 +141,8 @@ export const sessionPlayers = sqliteTable(
     level: integer("level"),
     /** "woman" | "man" | null — drives the mixed-pairs option. */
     gender: text("gender"),
+    /** Fixed partner (a session_players id) when the session keeps teams together; both rows point at each other. */
+    partnerId: text("partner_id"),
   },
   (t) => [
     index("ix_sp_session").on(t.sessionId),

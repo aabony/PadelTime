@@ -7,6 +7,7 @@ import type { FormatKey, SessionStatus, SessionSummary } from "../../shared/type
 import { StylePicker } from "../components/StylePicker";
 import { NightSummary } from "../components/NightSummary";
 import { GroupByLevelToggle } from "../components/GroupByLevelToggle";
+import { TeamsToggle } from "../components/TeamsToggle";
 import { Badge, Button, Card, EmptyState, ErrorNote, Field, Input, Modal, PageSpinner, ProgressBar, cls } from "../components/ui";
 
 export const statusTone = (s: SessionStatus) =>
@@ -180,6 +181,7 @@ export function NewSessionModal({
     format: "americano" as FormatKey,
     mixedPairs: false,
     groupByLevel: false,
+    fixedTeams: false,
   });
   const num = (v: string, fallback: number) => {
     const n = parseInt(v, 10);
@@ -202,6 +204,7 @@ export function NewSessionModal({
         format: form.format,
         mixedPairs: form.mixedPairs,
         groupByLevel: form.groupByLevel,
+        fixedTeams: form.fixedTeams,
         copyPlayersFrom: form.copyPlayersFrom || null,
       });
       onClose();
@@ -222,6 +225,7 @@ export function NewSessionModal({
           value={form.format}
           onChange={(format) => setForm({ ...form, format })}
           grouped={form.groupByLevel}
+          teams={form.fixedTeams}
           hint="You can switch styles later — even mid-session."
         />
         <div className="grid grid-cols-[minmax(0,1fr)_6rem] gap-3">
@@ -270,6 +274,7 @@ export function NewSessionModal({
           </span>
         </label>
         <GroupByLevelToggle checked={form.groupByLevel} onChange={(groupByLevel) => setForm({ ...form, groupByLevel })} />
+        <TeamsToggle checked={form.fixedTeams} onChange={(fixedTeams) => setForm({ ...form, fixedTeams })} />
         {previous.length > 0 && (
           <Field label="Bring back the players from" hint="Everyone from that session is added to this one — no re-inviting.">
             <select

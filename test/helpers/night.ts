@@ -22,6 +22,8 @@ export interface NightOptions {
   mixedPairs?: boolean;
   /** Round a player arrives in (default 1): they're only checked in from then on. */
   arrivals?: Record<string, number>;
+  /** Keep teams together: the fixed pairs. */
+  teams?: [string, string][];
 }
 
 export interface NightRound {
@@ -52,6 +54,7 @@ export function playNight(planner: Planner, o: NightOptions): NightRound[] {
       groupByLevel: o.groupByLevel,
       genders: o.genders,
       mixedPairs: o.mixedPairs,
+      teams: o.teams,
       rng,
     };
     const plan = planner(ctx);

@@ -26,13 +26,16 @@ export function StandingsTable({
   if (standings.length === 0) {
     return <p className="py-6 text-center text-sm text-muted">No players yet.</p>;
   }
+  // Team rows (fixed teams) carry their members; "you" marks your team.
+  const teams = standings.some((r) => r.members);
+  const isMe = (row: StandingRow) => !!highlightId && (row.playerId === highlightId || !!row.members?.includes(highlightId));
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
           <tr className="whitespace-nowrap text-left text-xs uppercase tracking-wider text-muted">
             <th className="py-2 pr-2 font-semibold">#</th>
-            <th className="py-2 pr-2 font-semibold">Player</th>
+            <th className="py-2 pr-2 font-semibold">{teams ? "Team" : "Player"}</th>
             <th className="py-2 pr-2 text-right font-semibold" title="Total points — the ranking">
               Pts
             </th>
@@ -50,7 +53,7 @@ export function StandingsTable({
               key={row.playerId}
               className={cls(
                 "border-t border-line",
-                row.playerId === highlightId && "bg-lime-soft",
+                isMe(row) && "bg-lime-soft",
                 !row.ranked && "text-muted",
               )}
             >
@@ -66,7 +69,7 @@ export function StandingsTable({
               </td>
               <td className={cls("py-2 pr-2 font-semibold", row.ranked ? "text-navy" : "text-muted")}>
                 {row.name}
-                {row.playerId === highlightId && <span className="ml-1.5 text-xs font-bold text-royal">you</span>}
+                {isMe(row) && <span className="ml-1.5 text-xs font-bold text-royal">you</span>}
                 {!row.ranked && row.played > 0 && <span className="block text-[11px] font-medium text-faint">too few games to rank</span>}
               </td>
               <td className={cls("tabular py-2 pr-2 text-right text-base font-black", row.ranked ? "text-navy" : "text-muted")}>

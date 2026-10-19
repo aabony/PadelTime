@@ -21,7 +21,8 @@ export function BoardPage() {
   const current = data.rounds[data.rounds.length - 1];
   const done = data.status === "complete";
   const paused = data.status === "checkin" && data.rounds.length > 0;
-  const champion = done ? (data.standings.find((r) => r.ranked) ?? null) : null;
+  const table = data.teamStandings ?? data.standings;
+  const champion = done ? (table.find((r) => r.ranked) ?? null) : null;
 
   return (
     <div className="min-h-dvh bg-canvas px-6 py-8">
@@ -52,7 +53,15 @@ export function BoardPage() {
           <div className="mb-8 rounded-3xl border border-lime bg-lime-soft p-8 text-center">
             <p className="text-lg text-ink">🏆 Champion</p>
             <div className="my-2 flex justify-center">
-              <Avatar name={champion.name} size="lg" ring />
+              {champion.members ? (
+                <span className="flex -space-x-3">
+                  {champion.members.map((id) => (
+                    <Avatar key={id} name={nameOf(id)} size="lg" ring />
+                  ))}
+                </span>
+              ) : (
+                <Avatar name={champion.name} size="lg" ring />
+              )}
             </div>
             <p className="text-5xl font-black text-navy">{champion.name}</p>
             <p className="mt-1 text-muted">
@@ -101,7 +110,7 @@ export function BoardPage() {
 
           <section className="rounded-3xl border border-line bg-white p-6">
             <h2 className="mb-4 text-xl font-black text-navy">Leaderboard</h2>
-            <StandingsTable standings={data.standings} compact />
+            <StandingsTable standings={table} compact />
           </section>
         </div>
 
