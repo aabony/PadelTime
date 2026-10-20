@@ -24,10 +24,10 @@ export async function generateNextRound(
   const format = getFormat(session.format);
   if (!format) return { error: `Unknown format "${session.format}".` };
 
-  const players = await db
-    .select()
-    .from(sessionPlayers)
-    .where(eq(sessionPlayers.sessionId, session.id));
+  // Roster order (who joined first), as the session page shows it: the odd player out is the last to join.
+  const players = (await db.select().from(sessionPlayers).where(eq(sessionPlayers.sessionId, session.id))).sort(
+    (a, b) => a.joinedAt - b.joinedAt,
+  );
   const eligible = players.filter((p) => p.status === "checked_in").map((p) => p.id);
   const levels: Record<string, number> = {};
   const genders: Record<string, "woman" | "man"> = {};

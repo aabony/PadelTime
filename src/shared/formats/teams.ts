@@ -47,10 +47,9 @@ export function autoPair(
   const inPool = new Set(pool);
   const sorted = strongestFirst(shuffled.filter((p) => inPool.has(p)));
 
-  // How good a team is: level gap when grouping, else distance from an even team.
+  // How good a team is (pairCost below): level gap when grouping, else distance from an even team.
   const all = [...mixers, ...pool];
   const mean = all.reduce((sum, p) => sum + level(p), 0) / all.length;
-  const cost = ([a, b]: Team) => (ctx.groupByLevel ? (level(a) - level(b)) ** 2 : (level(a) + level(b) - 2 * mean) ** 2);
   // Pairing a sorted list: neighbours when grouping, else strongest with weakest — the best possible either way.
   const pairOff = (xs: string[], ys = xs): Team[] => {
     const out: Team[] = [];
@@ -61,30 +60,39 @@ export function autoPair(
   };
 
   // Players of one level are interchangeable, so trying every split by level of
-  // who partners the mixers finds the best teams.
-  const byLevel = [...new Set(sorted.filter((p) => opposite.has(p)).map(level))].map((lv) =>
-    sorted.filter((p) => opposite.has(p) && level(p) === lv),
-  );
-  const take = new Array<number>(byLevel.length).fill(0);
-  let best: Team[] = [];
+  // who partners the mixers finds the best teams. Each split is scored from level
+  // counts alone; teams are built once, for the best.
+  const levelsDown = [...new Set(sorted.map(level))];
+  const countOf = (pick: (p: string) => boolean) => levelsDown.map((lv) => sorted.filter((p) => pick(p) && level(p) === lv).length);
+  const oppCount = countOf((p) => opposite.has(p));
+  const otherCount = countOf((p) => !opposite.has(p));
+  const mixerLevels = mixers.map(level);
+  const pairCost = (a: number, b: number) => (ctx.groupByLevel ? (a - b) ** 2 : (a + b - 2 * mean) ** 2);
+  const expand = (counts: number[]) => levelsDown.flatMap((lv, j) => new Array<number>(counts[j]).fill(lv));
+  const take = new Array<number>(levelsDown.length).fill(0);
+  let bestTake = [...take];
   let bestCost = Infinity;
-  const visit = (i: number, left: number) => {
-    if (i === byLevel.length) {
+  const visit = (j: number, left: number) => {
+    if (j === levelsDown.length) {
       if (left > 0) return;
-      const chosen = byLevel.flatMap((ps, j) => ps.slice(0, take[j]));
-      const picked = new Set(chosen);
-      const teams = [...pairOff(mixers, chosen), ...pairOff(sorted.filter((p) => !picked.has(p)))];
-      const total = teams.reduce((sum, t) => sum + cost(t), 0);
-      if (total < bestCost - 1e-9) [best, bestCost] = [teams, total];
+      const chosen = expand(take);
+      const rest = expand(take.map((t, i) => oppCount[i] - t + otherCount[i]));
+      let total = 0;
+      for (let i = 0; i < k; i++) total += pairCost(mixerLevels[i], chosen[ctx.groupByLevel ? i : k - 1 - i]);
+      if (ctx.groupByLevel) for (let i = 0; i + 1 < rest.length; i += 2) total += pairCost(rest[i], rest[i + 1]);
+      else for (let i = 0, e = rest.length - 1; i < e; i++, e--) total += pairCost(rest[i], rest[e]);
+      if (total < bestCost - 1e-9) [bestTake, bestCost] = [[...take], total];
       return;
     }
-    for (let c = Math.min(byLevel[i].length, left); c >= 0; c--) {
-      take[i] = c;
-      visit(i + 1, left - c);
+    for (let c = Math.min(oppCount[j], left); c >= 0; c--) {
+      take[j] = c;
+      visit(j + 1, left - c);
     }
   };
   visit(0, k);
-  return best;
+  const chosen = levelsDown.flatMap((lv, j) => sorted.filter((p) => opposite.has(p) && level(p) === lv).slice(0, bestTake[j]));
+  const picked = new Set(chosen);
+  return [...pairOff(mixers, chosen), ...pairOff(sorted.filter((p) => !picked.has(p)))];
 }
 
 /** Times two teams have met (each pairing across the net counts the same for a fixed team). */
@@ -129,6 +137,9 @@ function freshRoundPossible(teams: Team[], played: Set<string>): boolean {
   return search();
 }
 
+/** A round that forces a rematch next round: nearly as bad as one now, so it's put off rather than walked into. */
+const AHEAD = 9.5;
+
 /** Casual: pair up teams so they meet new opponents (and similar teams when grouping by level). */
 function rotateCourts(
   playing: Team[],
@@ -156,7 +167,7 @@ function rotateCourts(
       courts.push([t1, t2]);
     }
     // Looking one round ahead: a fresh round now that forces a rematch next time is worse.
-    if (ahead && rematch + cost < bestCost && rematch < 10 && !ahead(courts)) rematch += 5;
+    if (ahead && rematch + cost < bestCost && rematch < 10 && !ahead(courts)) rematch += AHEAD;
     cost += rematch;
     if (cost < bestCost) {
       [bestCost, bestRematch] = [cost, rematch];
@@ -259,25 +270,31 @@ export function planFixedTeams(ctx: EngineContext, mode: "rotate" | "ladder"): R
     const tied = sorted.filter((t) => vs(t) === 0);
     return choose(tied, sitCount - below.length, ctx.rng).map((chosen) => [...below, ...chosen]);
   };
-  // What a sit-out choice costs, next to rematches (10 each): sitting out again
-  // straight after a sit-out (3 for a second in a row, 9 for a third, 18 for a
-  // fourth — worse than a rematch), a loose choice (a hair), and the same group on court as one
-  // cycle ago. When
-  // the teams split into whole groups (8 teams, 4 on court: two halves), the plain
-  // rotation brings the same groups back cycle after cycle and they'd never meet;
-  // that last cost swaps about half of a returning group for others.
+  // What a sit-out choice costs, next to rematches (10 each):
+  //  - a run of sit-outs longer than the night's natural rhythm (1 round between
+  //    games when at most half sit, 2 when two thirds sit…): 3 for one round over,
+  //    9 for two, 18 for three — so one or two extra rounds can dodge a rematch;
+  //  - a loose choice: a hair;
+  //  - the same group on court as one cycle ago. When the teams split into whole
+  //    groups (8 teams, 4 on court: two halves), the plain rotation brings the same
+  //    groups back cycle after cycle and they'd never meet; this swaps about half
+  //    of a returning group for others.
+  const perRound = courtCount * 2;
+  const natural = Math.max(1, Math.ceil(teams.length / perRound) - 1);
   const sittingFor = (t: Team) =>
     history
       ? history.length + 1 - Math.max(...t.map((p) => lastOnCourt.get(p) ?? 0))
       : t.some((p) => ctx.lastByeRound[p] === ctx.roundNumber - 1)
         ? 2
         : 1;
-  const perRound = courtCount * 2;
   const cycle = teams.length % perRound === 0 ? teams.length / perRound : 0;
   const cycleAgo = new Set(cycle > 1 ? (history?.at(-cycle) ?? []) : []);
   const sitCost = (sit: Team[], loose: boolean) => {
     const back = teams.filter((t) => !sit.includes(t) && t.every((p) => cycleAgo.has(p))).length;
-    const streaks = sit.reduce((sum, t) => sum + 1.5 * sittingFor(t) * (sittingFor(t) - 1), 0);
+    const streaks = sit.reduce((sum, t) => {
+      const over = sittingFor(t) - natural;
+      return sum + (over > 0 ? 1.5 * over * (over + 1) : 0);
+    }, 0);
     return streaks + (loose ? 0.5 : 0) + 4 * Math.max(0, back - Math.ceil(perRound / 2));
   };
 
@@ -307,7 +324,7 @@ export function planFixedTeams(ctx: EngineContext, mode: "rotate" | "ladder"): R
       const courts = ladderCourts(teams.filter((t) => !sit.includes(t)), courtCount, ctx);
       let rematch = courts.reduce((sum, [a, b]) => sum + 10 * meetings(a, b, ctx) ** 2, 0);
       // The ladder decides who plays whom; who sits is ours, so steer clear of a forced rematch next round.
-      if (sitCount > 0 && rematch < 10 && !aheadFor(new Set(sit))(courts)) rematch += 5;
+      if (sitCount > 0 && rematch < 10 && !aheadFor(new Set(sit))(courts)) rematch += AHEAD;
       return { courts, first: rematch + extra, then: 0 };
     };
   }

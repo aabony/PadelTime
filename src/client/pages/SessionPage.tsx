@@ -448,7 +448,7 @@ function SettingsModal({
             value={form.format}
             onChange={(format) => setForm({ ...form, format })}
             grouped={form.groupByLevel}
-            teams={form.fixedTeams}
+            teams={pointsLocked ? d.fixedTeams : form.fixedTeams}
             hint={d.rounds.length > 0 ? "A change applies from the next round dealt." : undefined}
           />
         )}
@@ -914,10 +914,13 @@ function StartPreview({ d, run, busyKey }: { d: SessionDetail; run?: Run; busyKe
   const ready = d.counts.confirmed + d.counts.checkedIn;
   if (ready === 0) return null;
   const canApply = run && d.myRole === "organizer" && d.rounds.length === 0;
+  // Keep teams together: only whole teams play; the rest sit until paired.
+  const cap = roundCapacity(d, signedUp(d));
   return (
     <div className="mt-3">
       <NightSummary
-        players={ready}
+        players={d.fixedTeams ? cap.playable : ready}
+        idle={d.fixedTeams ? ready - cap.playable : 0}
         teams={d.fixedTeams}
         courts={d.courts}
         durationMin={d.durationMin}

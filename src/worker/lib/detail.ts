@@ -113,9 +113,10 @@ export async function loadRoundsFor(db: DB, sessionIds: string[]): Promise<Map<s
     const roundRows = await db.select().from(rounds).where(inArray(rounds.sessionId, ids)).orderBy(rounds.number);
     if (roundRows.length === 0) continue;
     const matchRows = await db.select().from(matches).where(inArray(matches.sessionId, ids));
+    const byRound = new Map<string, typeof matchRows>();
+    for (const m of matchRows) byRound.set(m.roundId, [...(byRound.get(m.roundId) ?? []), m]);
     for (const r of roundRows) {
-      const ms: MatchRow[] = matchRows
-        .filter((m) => m.roundId === r.id)
+      const ms: MatchRow[] = (byRound.get(r.id) ?? [])
         .sort((a, b) => a.court - b.court)
         .map((m) => ({
           id: m.id,

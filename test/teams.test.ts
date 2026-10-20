@@ -115,8 +115,8 @@ describe("keep teams together", () => {
   // Whole groups (8 teams, 4 on court: two halves; 12 on 3 courts likewise) would
   // otherwise come back cycle after cycle and never meet the other group.
   for (const [name, planner] of [["casual", americano.planRound], ["competitive", mexicano.planRound]] as const) {
-    it(`${name}: groups mix early — 8 teams on 2 courts and 12 on 3 all connect within a typical night`, () => {
-      for (const [count, courts, by] of [[8, 2, 7], [12, 3, 8]]) {
+    it(`${name}: groups mix early — 8 teams on 2 courts, 12 on 3, 12 on 2 and 6 on 1 all connect within a typical night`, () => {
+      for (const [count, courts, by] of [[8, 2, 7], [12, 3, 8], [12, 2, 9], [6, 1, 6]]) {
         const teams = teamsOf(count);
         for (let seed = 1; seed <= 8; seed++) {
           const night = playNight(planner, { players: teams.flat(), courts, rounds: by, seed, teams });
@@ -126,6 +126,17 @@ describe("keep teams together", () => {
           expect(new Set(teams.map((t) => find(key(t)))).size).toBe(1);
           expect(byeSpread(night, teams.flat())).toBeLessThanOrEqual(1);
         }
+      }
+    });
+  }
+
+  for (const [name, planner] of [["casual", americano.planRound], ["competitive", mexicano.planRound]] as const) {
+    it(`${name}: 6 teams on 1 court — no rematch in 10 rounds (15 match-ups to go round)`, () => {
+      const teams = teamsOf(6);
+      for (let seed = 1; seed <= 10; seed++) {
+        const night = playNight(planner, { players: teams.flat(), courts: 1, rounds: 10, seed, teams });
+        const met = night.flatMap(({ plan }) => plan.matches.map((m) => [key(m.a), key(m.b)].sort().join(" v ")));
+        expect(new Set(met).size).toBe(met.length);
       }
     });
   }

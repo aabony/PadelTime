@@ -17,6 +17,7 @@ export function NightSummary({
   onApply,
   applying = false,
   teams = false,
+  idle = 0,
 }: {
   players: number;
   courts: number;
@@ -28,6 +29,8 @@ export function NightSummary({
   applying?: boolean;
   /** Keep teams together: the team rotation mixes the two halves, so no split warning. */
   teams?: boolean;
+  /** Signed up but can't play (no partner here): not in the plan, sitting every round. */
+  idle?: number;
 }) {
   const [priority, setPriority] = useState<Priority>("playing");
   const p = planNight(players, courts, durationMin, points);
@@ -48,12 +51,12 @@ export function NightSummary({
   return (
     <div className="rounded-2xl bg-canvas px-4 py-3 text-sm text-ink">
       <p>
-        <span className="font-black text-navy">{players}</span> {label} → <span className="font-black text-navy">{p.courtsUsed}</span>{" "}
+        <span className="font-black text-navy">{players + idle}</span> {label} → <span className="font-black text-navy">{p.courtsUsed}</span>{" "}
         court{p.courtsUsed === 1 ? "" : "s"} per round
-        {p.sitting > 0 ? (
+        {p.sitting + idle > 0 ? (
           <>
             {" "}
-            · <span className="font-black text-navy">{p.sitting}</span> sitting each round
+            · <span className="font-black text-navy">{p.sitting + idle}</span> sitting each round
           </>
         ) : (
           <span className="text-muted"> · nobody sits out</span>
@@ -140,6 +143,11 @@ export function NightSummary({
             {rec.gamesEach != null && recPlan && recPlan.sitting > 0 && <> — everyone plays {rec.gamesEach}</>}.
           </p>
         )
+      )}
+      {idle > 0 && (
+        <p className="mt-2 text-xs font-semibold text-amber-dark">
+          ⚠️ {idle} without a partner here can't play until paired — the plan is for the {players} who can.
+        </p>
       )}
       {warn.splitGroups && !teams && (
         <p className="mt-2 text-xs font-semibold text-amber-dark">
