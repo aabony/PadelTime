@@ -12,6 +12,8 @@ export interface History {
   playedCounts: Record<string, number>;
   byeCounts: Record<string, number>;
   lastByeRound: Record<string, number>;
+  /** Who was on court in each round, oldest first. */
+  courtRounds: string[][];
 }
 
 /** Aggregate partner/opponent/bye history from played rounds (scored or not —
@@ -23,6 +25,7 @@ export function buildHistory(rounds: HistoryRound[]): History {
     playedCounts: {},
     byeCounts: {},
     lastByeRound: {},
+    courtRounds: [],
   };
   const bump = (rec: Record<string, number>, key: string, by = 1) => {
     rec[key] = (rec[key] ?? 0) + by;
@@ -38,6 +41,7 @@ export function buildHistory(rounds: HistoryRound[]): History {
       for (const x of m.a) for (const y of m.b) bump(h.opponentCounts, pairKey(x, y));
       for (const p of [...m.a, ...m.b]) bump(h.playedCounts, p);
     }
+    h.courtRounds.push(round.matches.flatMap((m) => [...m.a, ...m.b]));
   }
   return h;
 }

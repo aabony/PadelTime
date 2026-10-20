@@ -479,7 +479,7 @@ function SettingsModal({
             <Input type="number" min={4} max={64} value={form.maxPlayers} onChange={(e) => setForm({ ...form, maxPlayers: num(e.target.value, d.maxPlayers) })} />
           </Field>
           <Field label="Points">
-            <Input type="number" min={4} max={99} disabled={pointsLocked} value={form.pointsPerMatch} onChange={(e) => setForm({ ...form, pointsPerMatch: num(e.target.value, d.pointsPerMatch) })} />
+            <Input type="number" min={4} max={99} disabled={pointsLocked} value={pointsLocked ? d.pointsPerMatch : form.pointsPerMatch} onChange={(e) => setForm({ ...form, pointsPerMatch: num(e.target.value, d.pointsPerMatch) })} />
           </Field>
         </div>
         <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-line px-3.5 py-3">
@@ -498,7 +498,11 @@ function SettingsModal({
           </span>
         </label>
         <GroupByLevelToggle checked={form.groupByLevel} onChange={(groupByLevel) => setForm({ ...form, groupByLevel })} />
-        <TeamsToggle checked={form.fixedTeams} disabled={pointsLocked} onChange={(fixedTeams) => setForm({ ...form, fixedTeams })} />
+        <TeamsToggle
+          checked={pointsLocked ? d.fixedTeams : form.fixedTeams}
+          disabled={pointsLocked}
+          onChange={(fixedTeams) => setForm({ ...form, fixedTeams })}
+        />
         {pointsLocked && (
           <p className="text-xs text-muted">
             Points per match and Keep teams together are locked once a round has been dealt. Max players and courts can
@@ -517,11 +521,12 @@ function SettingsModal({
                 durationMin: form.durationMin || null,
                 courts: form.courts,
                 maxPlayers: form.maxPlayers,
-                pointsPerMatch: form.pointsPerMatch,
+                // Locked once a round is dealt (a round may have started since the form opened).
+                pointsPerMatch: pointsLocked ? d.pointsPerMatch : form.pointsPerMatch,
                 format: form.format,
                 mixedPairs: form.mixedPairs,
                 groupByLevel: form.groupByLevel,
-                fixedTeams: form.fixedTeams,
+                fixedTeams: pointsLocked ? d.fixedTeams : form.fixedTeams,
               });
               onClose();
             })
@@ -912,7 +917,7 @@ function StartPreview({ d, run, busyKey }: { d: SessionDetail; run?: Run; busyKe
   return (
     <div className="mt-3">
       <NightSummary
-        players={d.fixedTeams ? roundCapacity(d, signedUp(d)).playable : ready}
+        players={ready}
         teams={d.fixedTeams}
         courts={d.courts}
         durationMin={d.durationMin}

@@ -112,6 +112,49 @@ describe("keep teams together", () => {
     }
   });
 
+  // Whole groups (8 teams, 4 on court: two halves; 12 on 3 courts likewise) would
+  // otherwise come back cycle after cycle and never meet the other group.
+  for (const [name, planner] of [["casual", americano.planRound], ["competitive", mexicano.planRound]] as const) {
+    it(`${name}: groups mix early — 8 teams on 2 courts and 12 on 3 all connect within a typical night`, () => {
+      for (const [count, courts, by] of [[8, 2, 7], [12, 3, 8]]) {
+        const teams = teamsOf(count);
+        for (let seed = 1; seed <= 8; seed++) {
+          const night = playNight(planner, { players: teams.flat(), courts, rounds: by, seed, teams });
+          const group = new Map(teams.map((t) => [key(t), key(t)]));
+          const find = (x: string): string => (group.get(x) === x ? x : find(group.get(x)!));
+          for (const { plan } of night) for (const m of plan.matches) group.set(find(key(m.a)), find(key(m.b)));
+          expect(new Set(teams.map((t) => find(key(t)))).size).toBe(1);
+          expect(byeSpread(night, teams.flat())).toBeLessThanOrEqual(1);
+        }
+      }
+    });
+  }
+
+  it("nobody sits out more than 3 rounds in a row (6 teams on 1 court), or 2 when half sit", () => {
+    for (const [count, courts, most] of [[6, 1, 3], [4, 1, 2], [8, 2, 2], [12, 3, 2]]) {
+      const teams = teamsOf(count);
+      for (let seed = 1; seed <= 6; seed++) {
+        const night = playNight(americano.planRound, { players: teams.flat(), courts, rounds: 9, seed, teams });
+        for (const [a] of teams) {
+          let run = 0;
+          for (const { plan } of night) {
+            run = plan.byes.includes(a) ? run + 1 : 0;
+            expect(run).toBeLessThanOrEqual(most);
+          }
+        }
+      }
+    }
+  });
+
+  it("stays quick on a 64-player night (32 teams, 4 courts)", () => {
+    const teams = teamsOf(32);
+    for (const planner of [americano.planRound, mexicano.planRound]) {
+      const start = performance.now();
+      playNight(planner, { players: teams.flat(), courts: 4, rounds: 6, seed: 1, teams });
+      expect((performance.now() - start) / 6).toBeLessThan(500);
+    }
+  });
+
   it("players without a playable partner sit out", () => {
     const teams = teamsOf(4);
     const players = [...teams.flat().filter((p) => p !== "t3b"), "solo"]; // t3b isn't here; solo has no partner
@@ -155,6 +198,47 @@ describe("auto-pairing", () => {
     expect(teams).toHaveLength(3);
     for (const t of teams) expect(levels[t[0] as keyof typeof levels]).toBe(levels[t[1] as keyof typeof levels]);
     expect(teams.filter((t) => t.some((p) => p.startsWith("w"))).every((t) => t.some((p) => p.startsWith("m")))).toBe(true);
+  });
+
+  it("finds the best pairing — checked against every possible pairing on small rosters", () => {
+    const r = mulberry32(2024);
+    const pick = <T,>(xs: T[]) => xs[Math.floor(r() * xs.length)];
+    for (let trial = 0; trial < 400; trial++) {
+      const n = 2 * (1 + Math.floor(r() * 4)); // 2..8 players, even
+      const ids = Array.from({ length: n }, (_, i) => `p${i}`);
+      const levels: Record<string, number> = {};
+      const genders: Record<string, "woman" | "man"> = {};
+      for (const p of ids) {
+        const lv = pick([2, 3, 4, 0]);
+        if (lv) levels[p] = lv;
+        const g = pick(["woman", "man", "man", ""] as const);
+        if (g) genders[p] = g;
+      }
+      const groupByLevel = r() < 0.5;
+      const mixedPairs = r() < 0.6;
+      const level = (p: string) => levels[p] ?? 3;
+      const mean = ids.reduce((sum, p) => sum + level(p), 0) / n;
+      const cost = (t: string[]) => (groupByLevel ? (level(t[0]) - level(t[1])) ** 2 : (level(t[0]) + level(t[1]) - 2 * mean) ** 2);
+      const mixed = (t: string[]) => !!genders[t[0]] && !!genders[t[1]] && genders[t[0]] !== genders[t[1]];
+      const women = ids.filter((p) => genders[p] === "woman").length;
+      const men = ids.filter((p) => genders[p] === "man").length;
+      const needMixed = mixedPairs ? Math.min(women, men) : 0;
+      // Every perfect matching, best cost among those with the most mixed teams.
+      let best = Infinity;
+      const all = (left: string[], teams: string[][]) => {
+        if (left.length === 0) {
+          if (teams.filter(mixed).length >= needMixed) best = Math.min(best, teams.reduce((sum, t) => sum + cost(t), 0));
+          return;
+        }
+        for (let j = 1; j < left.length; j++) all(left.filter((_, k) => k !== 0 && k !== j), [...teams, [left[0], left[j]]]);
+      };
+      all(ids, []);
+      const got = autoPair(ids, { levels, genders, groupByLevel, mixedPairs, rng: mulberry32(trial) });
+      expect(got).toHaveLength(n / 2);
+      expect(new Set(got.flat()).size).toBe(n);
+      if (mixedPairs) expect(got.filter(mixed).length).toBe(needMixed);
+      expect(got.reduce((sum, t) => sum + cost(t), 0)).toBeLessThanOrEqual(best + 1e-9);
+    }
   });
 
   it("mixed pairs: teams as even as the genders allow", () => {

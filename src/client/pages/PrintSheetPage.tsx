@@ -192,7 +192,7 @@ function sessionSheet(d: SessionDetail, roundsWanted: number, seed: number): She
     activeIds.length < 4
       ? []
       : d.format === "mexicano"
-        ? blankRounds(existing.length + 1, totalRounds, Math.min(d.courts, Math.floor(activeIds.length / 4)))
+        ? blankRounds(existing.length + 1, totalRounds, Math.min(d.courts, Math.floor((extra.teams ? extra.teams.length * 2 : activeIds.length) / 4)))
         : planRounds(activeIds, d.courts, totalRounds, seed, prior, extra).map((r) => ({
           number: r.number,
           byes: byNumber(r.byes),

@@ -23,6 +23,8 @@ export interface EngineContext {
   byeCounts: Record<string, number>;
   /** Round number of each player's most recent bye (0 = never). */
   lastByeRound: Record<string, number>;
+  /** Who was on court in each round so far, oldest first. */
+  courtRounds?: string[][];
   /**
    * Court-assignment order for ranked formats like Mexicano: players with results,
    * best first (points per match played, then total points, then difference).

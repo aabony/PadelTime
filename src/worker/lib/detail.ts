@@ -66,70 +66,85 @@ export async function isGroupMember(db: DB, groupId: string, userId: string): Pr
   return !!m;
 }
 
+// D1 binds at most 100 parameters per statement: id lists go in chunks.
+const chunksOf = <T>(xs: T[], size = 90): T[][] => Array.from({ length: Math.ceil(xs.length / size) }, (_, i) => xs.slice(i * size, (i + 1) * size));
+
 export async function loadPlayers(db: DB, sessionId: string): Promise<PlayerRow[]> {
-  const rows = await db
-    .select({ sp: sessionPlayers, userName: user.name })
-    .from(sessionPlayers)
-    .leftJoin(user, eq(sessionPlayers.userId, user.id))
-    .where(eq(sessionPlayers.sessionId, sessionId));
-  return rows
-    .map(({ sp, userName }) => ({
-      id: sp.id,
-      name: userName ?? sp.guestName ?? "Player",
-      userId: sp.userId,
-      isGuest: !sp.userId,
-      status: sp.status as PlayerStatus,
-      byes: 0, // filled in after rounds load
-      checkedInAt: sp.checkedInAt,
-      joinedAt: sp.joinedAt,
-      gender: (sp.gender as PlayerRow["gender"]) ?? null,
-      level: normalizeLevel(sp.level),
-      partnerId: sp.partnerId ?? null,
-    }))
-    .sort((a, b) => a.joinedAt - b.joinedAt);
+  return (await loadPlayersFor(db, [sessionId])).get(sessionId) ?? [];
+}
+
+/** Rosters of several sessions in a few queries, each in roster order (who joined first). */
+export async function loadPlayersFor(db: DB, sessionIds: string[]): Promise<Map<string, PlayerRow[]>> {
+  const out = new Map<string, PlayerRow[]>(sessionIds.map((id) => [id, []]));
+  for (const ids of chunksOf(sessionIds)) {
+    const rows = await db
+      .select({ sp: sessionPlayers, userName: user.name })
+      .from(sessionPlayers)
+      .leftJoin(user, eq(sessionPlayers.userId, user.id))
+      .where(inArray(sessionPlayers.sessionId, ids));
+    for (const { sp, userName } of rows) {
+      out.get(sp.sessionId)?.push({
+        id: sp.id,
+        name: userName ?? sp.guestName ?? "Player",
+        userId: sp.userId,
+        isGuest: !sp.userId,
+        status: sp.status as PlayerStatus,
+        byes: 0, // filled in after rounds load
+        checkedInAt: sp.checkedInAt,
+        joinedAt: sp.joinedAt,
+        gender: (sp.gender as PlayerRow["gender"]) ?? null,
+        level: normalizeLevel(sp.level),
+        partnerId: sp.partnerId ?? null,
+      });
+    }
+  }
+  for (const players of out.values()) players.sort((a, b) => a.joinedAt - b.joinedAt);
+  return out;
 }
 
 export async function loadRounds(db: DB, sessionId: string): Promise<RoundRow[]> {
-  const roundRows = await db
-    .select()
-    .from(rounds)
-    .where(eq(rounds.sessionId, sessionId))
-    .orderBy(rounds.number);
-  if (roundRows.length === 0) return [];
-  const matchRows = await db
-    .select()
-    .from(matches)
-    .where(inArray(matches.roundId, roundRows.map((r) => r.id)));
-  return roundRows.map((r) => {
-    const ms: MatchRow[] = matchRows
-      .filter((m) => m.roundId === r.id)
-      .sort((a, b) => a.court - b.court)
-      .map((m) => ({
-        id: m.id,
-        roundId: m.roundId,
-        court: m.court,
-        a: [m.a1, m.a2],
-        b: [m.b1, m.b2],
-        scoreA: m.scoreA,
-        scoreB: m.scoreB,
-        status: m.status as MatchStatus,
-        submittedBy: m.submittedBy,
-      }));
-    let byes: string[] = [];
-    try {
-      byes = JSON.parse(r.byesJson);
-    } catch {
-      byes = [];
+  return (await loadRoundsFor(db, [sessionId])).get(sessionId) ?? [];
+}
+
+/** Rounds (with their matches) of several sessions in a few queries. */
+export async function loadRoundsFor(db: DB, sessionIds: string[]): Promise<Map<string, RoundRow[]>> {
+  const out = new Map<string, RoundRow[]>(sessionIds.map((id) => [id, []]));
+  for (const ids of chunksOf(sessionIds)) {
+    const roundRows = await db.select().from(rounds).where(inArray(rounds.sessionId, ids)).orderBy(rounds.number);
+    if (roundRows.length === 0) continue;
+    const matchRows = await db.select().from(matches).where(inArray(matches.sessionId, ids));
+    for (const r of roundRows) {
+      const ms: MatchRow[] = matchRows
+        .filter((m) => m.roundId === r.id)
+        .sort((a, b) => a.court - b.court)
+        .map((m) => ({
+          id: m.id,
+          roundId: m.roundId,
+          court: m.court,
+          a: [m.a1, m.a2],
+          b: [m.b1, m.b2],
+          scoreA: m.scoreA,
+          scoreB: m.scoreB,
+          status: m.status as MatchStatus,
+          submittedBy: m.submittedBy,
+        }));
+      let byes: string[] = [];
+      try {
+        byes = JSON.parse(r.byesJson);
+      } catch {
+        byes = [];
+      }
+      out.get(r.sessionId)?.push({
+        id: r.id,
+        number: r.number,
+        createdAt: r.createdAt,
+        byes,
+        matches: ms,
+        complete: ms.length > 0 && ms.every((m) => m.status === "confirmed"),
+      });
     }
-    return {
-      id: r.id,
-      number: r.number,
-      createdAt: r.createdAt,
-      byes,
-      matches: ms,
-      complete: ms.length > 0 && ms.every((m) => m.status === "confirmed"),
-    };
-  });
+  }
+  return out;
 }
 
 export function computeWarnings(players: PlayerRow[], allRounds: RoundRow[], fixedTeams = false): string[] {

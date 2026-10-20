@@ -5,7 +5,7 @@ import { computeTeamStandings, minGamesToRank, pointsPerGame } from "../../share
 import type { GroupRole, MeResponse, SessionStatus, SessionSummary } from "../../shared/types";
 import { gameSessions, groupMembers, groups, playerResults, sessionPlayers, user } from "../db/schema";
 import type { DB } from "../lib/detail";
-import { isGroupOrganizer, loadPlayers, loadRounds } from "../lib/detail";
+import { isGroupOrganizer, loadPlayersFor, loadRoundsFor } from "../lib/detail";
 import { asInt, inviteCode, newId, now, trimmed } from "../lib/util";
 import type { ApiCtx, AuthedUser } from "./context";
 
@@ -26,21 +26,18 @@ async function confirmedCounts(db: DB, sessionIds: string[]): Promise<Map<string
   return new Map(rows.map((r) => [r.sessionId, Number(r.n)]));
 }
 
-async function winnersFor(db: DB, sessionIds: string[]): Promise<Map<string, string>> {
+async function winnersFor(db: DB, sessions: { id: string; fixedTeams: boolean }[]): Promise<Map<string, string>> {
   const out = new Map<string, string>();
-  if (sessionIds.length === 0) return out;
   // Keep teams together: the winner is the top team of the same table as the podium.
-  const teamNights = (
-    await db
-      .select({ id: gameSessions.id })
-      .from(gameSessions)
-      .where(and(inArray(gameSessions.id, sessionIds), eq(gameSessions.fixedTeams, true)))
-  ).map((r) => r.id);
-  for (const id of teamNights) {
-    const top = computeTeamStandings(await loadPlayers(db, id), await loadRounds(db, id)).find((r) => r.ranked);
-    if (top) out.set(id, top.name);
+  const teamNights = sessions.filter((s) => s.fixedTeams).map((s) => s.id);
+  if (teamNights.length > 0) {
+    const [rosters, played] = await Promise.all([loadPlayersFor(db, teamNights), loadRoundsFor(db, teamNights)]);
+    for (const id of teamNights) {
+      const top = computeTeamStandings(rosters.get(id) ?? [], played.get(id) ?? []).find((r) => r.ranked);
+      if (top) out.set(id, top.name);
+    }
   }
-  const solo = sessionIds.filter((id) => !teamNights.includes(id));
+  const solo = sessions.filter((s) => !s.fixedTeams).map((s) => s.id);
   if (solo.length === 0) return out;
   const sums = await db
     .select({
@@ -216,7 +213,7 @@ groupRoutes.get("/me", async (c) => {
     const counts = await confirmedCounts(db, rows.map((r) => r.s.id));
     const winners = await winnersFor(
       db,
-      rows.filter((r) => r.s.status === "complete").map((r) => r.s.id),
+      rows.filter((r) => r.s.status === "complete").map((r) => r.s),
     );
     sessions = rows.map((r) =>
       toSummary(
@@ -337,7 +334,7 @@ groupRoutes.get("/groups/:id", async (c) => {
   const counts = await confirmedCounts(db, sessionRows.map((s) => s.id));
   const winners = await winnersFor(
     db,
-    sessionRows.filter((s) => s.status === "complete").map((s) => s.id),
+    sessionRows.filter((s) => s.status === "complete"),
   );
 
   const myRole: GroupRole = g.ownerId === u.id ? "organizer" : (me.role as GroupRole);
