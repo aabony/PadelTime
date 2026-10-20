@@ -83,7 +83,8 @@ function rankRows(rows: StandingRow[]): StandingRow[] {
 /**
  * Standings by team when the session keeps teams together: one row per pair
  * that has played (keyed by pairKey, named "Ana & Ben"), plus current pairs
- * that haven't yet. A player who was re-paired mid-night appears in each team
+ * who are both checked in but haven't played yet. A player who was re-paired
+ * mid-night appears in each team
  * they played in, with that team's results.
  */
 export function computeTeamStandings(
@@ -117,9 +118,12 @@ export function computeTeamStandings(
     }
     return row;
   };
+  // Current pairs who are both here show up before their first game; pairs who
+  // never made it onto a court (no-shows, the waitlist) stay off the table.
+  const here = (p: { status?: string }) => (p.status ?? "checked_in") === "checked_in";
   for (const p of players) {
     const partner = p.partnerId ? players.find((q) => q.id === p.partnerId) : undefined;
-    if (partner && partner.partnerId === p.id && p.status !== "dropped" && partner.status !== "dropped") team(p.id, partner.id);
+    if (partner && partner.partnerId === p.id && here(p) && here(partner)) team(p.id, partner.id);
   }
   // Every team that has played, before counting, so early sit-outs land on teams first seen later.
   for (const round of rounds) for (const m of round.matches) if (m.status === "confirmed") team(m.a[0], m.a[1]), team(m.b[0], m.b[1]);

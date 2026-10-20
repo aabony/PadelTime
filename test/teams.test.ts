@@ -81,6 +81,37 @@ describe("keep teams together", () => {
     expect(new Set([key(top.a), key(top.b)])).toEqual(new Set([pairKey("t0a", "t0b"), pairKey("t2a", "t2b")]));
   });
 
+  // When exactly half the teams sit, the plain rotation splits the night into two
+  // halves that never meet (4 teams on 1 court: the same match all night).
+  for (const [name, planner] of [["casual", americano.planRound], ["competitive", mexicano.planRound]] as const) {
+    it(`${name}: 4 teams on 1 court meet every other team, sit-outs stay even`, () => {
+      const teams = teamsOf(4);
+      const players = teams.flat();
+      for (let seed = 1; seed <= 10; seed++) {
+        const night = playNight(planner, { players, courts: 1, rounds: 8, seed, teams });
+        const opponents = new Map<string, Set<string>>();
+        for (const { plan } of night) {
+          for (const m of plan.matches) {
+            (opponents.get(key(m.a)) ?? opponents.set(key(m.a), new Set()).get(key(m.a))!).add(key(m.b));
+            (opponents.get(key(m.b)) ?? opponents.set(key(m.b), new Set()).get(key(m.b))!).add(key(m.a));
+          }
+        }
+        for (const t of teams) expect(opponents.get(key(t))?.size).toBe(3);
+        expect(byeSpread(night, players)).toBe(0);
+      }
+    });
+  }
+
+  it("casual: 8 teams on 2 courts mix both halves — no rematch in 9 rounds", () => {
+    const teams = teamsOf(8);
+    for (let seed = 1; seed <= 10; seed++) {
+      const night = playNight(americano.planRound, { players: teams.flat(), courts: 2, rounds: 9, seed, teams });
+      const met = night.flatMap(({ plan }) => plan.matches.map((m) => [key(m.a), key(m.b)].sort().join(" v ")));
+      expect(new Set(met).size).toBe(met.length);
+      expect(byeSpread(night, teams.flat())).toBeLessThanOrEqual(1);
+    }
+  });
+
   it("players without a playable partner sit out", () => {
     const teams = teamsOf(4);
     const players = [...teams.flat().filter((p) => p !== "t3b"), "solo"]; // t3b isn't here; solo has no partner
@@ -111,9 +142,27 @@ describe("auto-pairing", () => {
     for (const t of teams) expect(new Set(t.map((p) => genders[p as keyof typeof genders]))).toEqual(new Set(["woman", "man"]));
   });
 
-  it("leaves an odd player out", () => {
+  it("leaves the last player on the list out when the number is odd", () => {
     const teams = autoPair(["a", "b", "c", "d", "e"], { rng: rng() });
     expect(teams).toHaveLength(2);
-    expect(new Set(teams.flat()).size).toBe(4);
+    expect(new Set(teams.flat())).toEqual(new Set(["a", "b", "c", "d"]));
+  });
+
+  it("mixed pairs + grouping: partners of the same level, not the strongest men for the women", () => {
+    const genders = { w1: "woman", w2: "woman", m1: "man", m2: "man", m3: "man", m4: "man" } as const;
+    const levels = { w1: 2, w2: 2, m1: 4, m2: 4, m3: 2, m4: 2 };
+    const teams = autoPair(["w1", "w2", "m1", "m2", "m3", "m4"], { genders, levels, mixedPairs: true, groupByLevel: true, rng: rng() });
+    expect(teams).toHaveLength(3);
+    for (const t of teams) expect(levels[t[0] as keyof typeof levels]).toBe(levels[t[1] as keyof typeof levels]);
+    expect(teams.filter((t) => t.some((p) => p.startsWith("w"))).every((t) => t.some((p) => p.startsWith("m")))).toBe(true);
+  });
+
+  it("mixed pairs: teams as even as the genders allow", () => {
+    const genders = { w1: "woman", w2: "woman", m1: "man", m2: "man", m3: "man", m4: "man" } as const;
+    const levels = { w1: 4, w2: 4, m1: 4, m2: 4, m3: 2, m4: 2 };
+    const teams = autoPair(["w1", "w2", "m1", "m2", "m3", "m4"], { genders, levels, mixedPairs: true, rng: rng() });
+    const totals = teams.map((t) => levels[t[0] as keyof typeof levels] + levels[t[1] as keyof typeof levels]).sort();
+    expect(totals).toEqual([6, 6, 8]); // not 8 + 8 + 4 (the strong women with the strong men, the beginners together)
+    expect(teams.filter((t) => t.some((p) => p.startsWith("w"))).every((t) => t.some((p) => p.startsWith("m")))).toBe(true);
   });
 });

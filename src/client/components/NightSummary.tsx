@@ -16,6 +16,7 @@ export function NightSummary({
   label = "players",
   onApply,
   applying = false,
+  teams = false,
 }: {
   players: number;
   courts: number;
@@ -25,6 +26,8 @@ export function NightSummary({
   /** When given, the suggestion comes with a "Use" button. */
   onApply?: (rec: Recommendation) => void;
   applying?: boolean;
+  /** Keep teams together: the team rotation mixes the two halves, so no split warning. */
+  teams?: boolean;
 }) {
   const [priority, setPriority] = useState<Priority>("playing");
   const p = planNight(players, courts, durationMin, points);
@@ -138,7 +141,7 @@ export function NightSummary({
           </p>
         )
       )}
-      {warn.splitGroups && (
+      {warn.splitGroups && !teams && (
         <p className="mt-2 text-xs font-semibold text-amber-dark">
           ⚠️ {players} players on {p.courtsUsed} court{p.courtsUsed === 1 ? "" : "s"} splits into two groups of {p.onCourt} who never
           play each other — one more or one fewer avoids it.

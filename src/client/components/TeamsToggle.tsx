@@ -1,14 +1,26 @@
+import { cls } from "./ui";
+
 /**
  * "Keep teams together" — the session toggle, shared by the new-session form
  * and Settings.
  */
-export function TeamsToggle({ checked, onChange }: { checked: boolean; onChange: (on: boolean) => void }) {
+export function TeamsToggle({
+  checked,
+  onChange,
+  disabled = false,
+}: {
+  checked: boolean;
+  onChange: (on: boolean) => void;
+  /** Locked once a round has been dealt: team standings count every game as a team's game. */
+  disabled?: boolean;
+}) {
   return (
-    <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-line px-3.5 py-3">
+    <label className={cls("flex items-start gap-3 rounded-2xl border border-line px-3.5 py-3", disabled ? "opacity-60" : "cursor-pointer")}>
       <input
         type="checkbox"
         className="mt-0.5 size-5 accent-royal"
         checked={checked}
+        disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
       />
       <span>

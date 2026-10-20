@@ -264,6 +264,7 @@ export function NewSessionModal({
           durationMin={form.durationMin}
           points={form.pointsPerMatch}
           label="players (max)"
+          teams={form.fixedTeams}
           onApply={(rec) => setForm({ ...form, pointsPerMatch: rec.points, courts: rec.courts })}
         />
         <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-line px-3.5 py-3">

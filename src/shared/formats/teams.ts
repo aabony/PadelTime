@@ -16,10 +16,12 @@ import { UNSET_LEVEL } from "../levels";
 export type Team = [string, string];
 
 /**
- * Pairs players who don't have a partner yet. With mixed pairs, a woman and a
- * man first. With grouping by level, players of the same level together;
- * otherwise strongest with weakest, so teams come out even. Players of equal
- * level are paired at random. An odd player out stays unpaired.
+ * Pairs players who don't have a partner yet. With mixed pairs, everyone of
+ * the scarcer gender partners someone of the other first. With grouping by
+ * level, partners are as close in level as possible; otherwise teams come out
+ * as even as possible (stronger with weaker). Players of equal level are
+ * paired at random. With an odd number, the last player on the list (usually
+ * the last to arrive) stays unpaired.
  */
 export function autoPair(
   singles: string[],
@@ -28,24 +30,62 @@ export function autoPair(
   const level = (p: string) => ctx.levels?.[p] ?? UNSET_LEVEL;
   // Shuffle first so equal levels pair at random; the sort is stable.
   const strongestFirst = (xs: string[]) => shuffle([...xs], ctx.rng).sort((a, b) => level(b) - level(a));
-  const pairUp = (xs: string[]): Team[] => {
-    const out: Team[] = [];
-    if (ctx.groupByLevel) {
-      for (let i = 0; i + 1 < xs.length; i += 2) out.push([xs[i], xs[i + 1]]);
-    } else {
-      for (let i = 0, j = xs.length - 1; i < j; i++, j--) out.push([xs[i], xs[j]]);
+  const g = ctx.mixedPairs ? ctx.genders : undefined;
+  const women = g ? singles.filter((p) => g[p] === "woman") : [];
+  const men = g ? singles.filter((p) => g[p] === "man") : [];
+  const [fewer, more] = women.length <= men.length ? [women, men] : [men, women];
+  const mixers = strongestFirst(fewer);
+  const k = mixers.length;
+  const opposite = new Set(more);
+  let pool = singles.filter((p) => !mixers.includes(p));
+  if ((pool.length - k) % 2 === 1) {
+    const spare = [...pool].reverse().find((p) => !opposite.has(p) || opposite.size > k);
+    pool = pool.filter((p) => p !== spare);
+  }
+  if (k + pool.length < 2) return [];
+
+  // How good a team is: level gap when grouping, else distance from an even team.
+  const all = [...mixers, ...pool];
+  const mean = all.reduce((sum, p) => sum + level(p), 0) / all.length;
+  const cost = (a: string, b: string) => (ctx.groupByLevel ? (level(a) - level(b)) ** 2 : (level(a) + level(b) - 2 * mean) ** 2);
+
+  // `order[i]` partners mixers[i] for i < k; after that, order pairs up two by two.
+  const sorted = strongestFirst(pool);
+  const order: string[] = [];
+  const left = new Set(sorted);
+  for (const m of mixers) {
+    const choices = sorted.filter((p) => left.has(p) && opposite.has(p));
+    const pick = ctx.groupByLevel
+      ? choices.reduce((best, p) => (Math.abs(level(p) - level(m)) < Math.abs(level(best) - level(m)) ? p : best))
+      : choices[choices.length - 1];
+    order.push(pick);
+    left.delete(pick);
+  }
+  const rest = sorted.filter((p) => left.has(p));
+  if (ctx.groupByLevel) order.push(...rest);
+  else for (let i = 0, j = rest.length - 1; i <= j; i++, j--) order.push(...(i === j ? [rest[i]] : [rest[i], rest[j]]));
+
+  // Then swap any two players while that makes the teams better overall.
+  const slotOf = (pos: number) => (pos < k ? pos : k + Math.floor((pos - k) / 2));
+  const slotCost = (slot: number) =>
+    slot < k ? cost(mixers[slot], order[slot]) : cost(order[k + 2 * (slot - k)], order[k + 2 * (slot - k) + 1]);
+  for (let improved = true, pass = 0; improved && pass < 50; pass++) {
+    improved = false;
+    for (let a = 0; a < order.length; a++) {
+      for (let b = a + 1; b < order.length; b++) {
+        const slots = [...new Set([slotOf(a), slotOf(b)])];
+        if (slots.length === 1) continue;
+        if ((a < k || b < k) && !(opposite.has(order[a]) && opposite.has(order[b]))) continue;
+        const before = slots.reduce((sum, s) => sum + slotCost(s), 0);
+        [order[a], order[b]] = [order[b], order[a]];
+        if (slots.reduce((sum, s) => sum + slotCost(s), 0) < before - 1e-9) improved = true;
+        else [order[a], order[b]] = [order[b], order[a]];
+      }
     }
-    return out;
-  };
-  if (!ctx.mixedPairs || !ctx.genders) return pairUp(strongestFirst(singles));
-  const g = ctx.genders;
-  const women = strongestFirst(singles.filter((p) => g[p] === "woman"));
-  const men = strongestFirst(singles.filter((p) => g[p] === "man"));
-  const k = Math.min(women.length, men.length);
-  const teams: Team[] = [];
-  for (let i = 0; i < k; i++) teams.push([women[i], ctx.groupByLevel ? men[i] : men[k - 1 - i]]);
-  const rest = [...women.slice(k), ...men.slice(k), ...singles.filter((p) => !g[p])];
-  return teams.concat(pairUp(strongestFirst(rest)));
+  }
+  const teams: Team[] = mixers.map((m, i) => [m, order[i]]);
+  for (let i = k; i + 1 < order.length; i += 2) teams.push([order[i], order[i + 1]]);
+  return teams;
 }
 
 /** Times two teams have met (each pairing across the net counts the same for a fixed team). */
@@ -157,6 +197,29 @@ function ladderCourts(playing: Team[], courtCount: number, ctx: EngineContext): 
   return courts;
 }
 
+/** Ways to choose `need` of `from`: all of them when few, else a random sample. */
+function choose<T>(from: T[], need: number, rng: () => number, cap = 40): T[][] {
+  const out: T[][] = [];
+  let count = 1;
+  for (let i = 0; i < need; i++) count = (count * (from.length - i)) / (i + 1);
+  if (count <= cap) {
+    const pick = (start: number, chosen: T[]) => {
+      if (chosen.length === need) return void out.push(chosen);
+      for (let i = start; i < from.length; i++) pick(i + 1, [...chosen, from[i]]);
+    };
+    pick(0, []);
+    return out;
+  }
+  const seen = new Set<string>();
+  for (let tries = 0; out.length < cap && tries < cap * 4; tries++) {
+    const idx = shuffle(from.map((_, i) => i), rng).slice(0, need).sort((a, b) => a - b);
+    if (seen.has(idx.join())) continue;
+    seen.add(idx.join());
+    out.push(idx.map((i) => from[i]));
+  }
+  return out;
+}
+
 /** Plans a round for fixed teams (ctx.teams): who sits, then who plays whom. */
 export function planFixedTeams(ctx: EngineContext, mode: "rotate" | "ladder"): RoundPlan {
   const here = new Set(ctx.players);
@@ -173,56 +236,74 @@ export function planFixedTeams(ctx: EngineContext, mode: "rotate" | "ladder"): R
   const sitCount = teams.length - courtCount * 2;
   const cmp = (fx: number[], fy: number[]) => fx[0] - fy[0] || fx[1] - fy[1];
   const byFairness = shuffle([...teams], ctx.rng).sort((x, y) => cmp(fair(x), fair(y)));
-  let playing = byFairness.slice(sitCount);
-  let rotated: [Team, Team][] | null = null;
+
+  // Who may sit: every team below the cut-off, plus any of the teams tied at it.
+  // Strict ties match on sit-outs and on when they last sat (the plain rotation);
+  // loose ties on sit-outs alone — any of those can sit without anyone sitting
+  // more than anyone else. When exactly half the teams sit, the strict rotation
+  // splits the night into two halves that never meet; loose ties mix them.
+  const sitOptions = (key: (t: Team) => number[], loose: boolean): Team[][] => {
+    if (sitCount === 0) return [[]];
+    const sorted = shuffle([...teams], ctx.rng).sort((x, y) => cmp(key(x), key(y)));
+    const cut = key(sorted[sitCount - 1]);
+    const vs = (t: Team) => (loose ? key(t)[0] - cut[0] : cmp(key(t), cut));
+    const below = sorted.filter((t) => vs(t) < 0);
+    const tied = sorted.filter((t) => vs(t) === 0);
+    return choose(tied, sitCount - below.length, ctx.rng).map((chosen) => [...below, ...chosen]);
+  };
+  // Sitting out twice in a row costs a little, and a loose choice a hair more
+  // than the plain rotation: both only win when they mean fewer rematches.
+  const satLast = (t: Team) => t.some((p) => ctx.lastByeRound[p] === ctx.roundNumber - 1);
+  const sitCost = (sit: Team[], loose: boolean) => 3 * sit.filter(satLast).length + (loose ? 0.5 : 0);
+
+  let best: { sit: Team[]; courts: [Team, Team][]; cost: number };
   if (mode === "rotate") {
     // Match-ups played so far, for looking one round ahead.
     const met = new Set<string>();
     for (let i = 0; i < teams.length; i++)
       for (let j = i + 1; j < teams.length; j++) if (meetings(teams[i], teams[j], ctx) > 0) met.add(matchupKey(teams[i], teams[j]));
-    // Sit-out choices for a round: everyone below the fairness cut-off sits, and
-    // any `need` of the teams exactly at it (all of them when few, else a sample).
-    const sitOptions = (key: (t: Team) => number[]): Team[][] => {
-      if (sitCount === 0) return [[]];
-      const sorted = [...teams].sort((x, y) => cmp(key(x), key(y)));
-      const cut = key(sorted[sitCount - 1]);
-      const below = sorted.filter((t) => cmp(key(t), cut) < 0);
-      const tied = sorted.filter((t) => cmp(key(t), cut) === 0);
-      const need = sitCount - below.length;
-      const out: Team[][] = [];
-      const pick = (from: number, chosen: Team[]) => {
-        if (out.length >= 40) return;
-        if (chosen.length === need) return void out.push([...below, ...chosen]);
-        for (let i = from; i < tied.length; i++) pick(i + 1, [...chosen, tied[i]]);
-      };
-      pick(0, []);
-      return out;
-    };
-    // Can next round still be all fresh match-ups, whoever the rotation sits next?
+    // Can next round still be all fresh match-ups, whoever sits next?
     const aheadFor = (sitting: Set<Team>) => (courts: [Team, Team][]) => {
       const after = new Set(met);
       for (const [t1, t2] of courts) after.add(matchupKey(t1, t2));
       const next = (t: Team) => (sitting.has(t) ? [fair(t)[0] + 1, ctx.roundNumber] : fair(t));
-      return sitOptions(next).some((sit) => freshRoundPossible(teams.filter((t) => !sit.includes(t)), after));
+      return sitOptions(next, true).some((sit) => freshRoundPossible(teams.filter((t) => !sit.includes(t)), after));
     };
-    // Teams exactly tied on fairness at the cut can swap places, so the teams on
-    // court can still meet someone new (a fixed set of four may all have met).
-    let best = rotateCourts(playing, courtCount, ctx, undefined, aheadFor(new Set(byFairness.slice(0, sitCount))));
-    for (const sit of sitOptions(fair)) {
-      if (best.cost === 0) break;
-      const option = teams.filter((t) => !sit.includes(t));
-      const tried = rotateCourts(option, courtCount, ctx, 150, aheadFor(new Set(sit)));
-      if (tried.cost < best.cost) {
-        best = tried;
-        playing = option;
+    const tryRound = (sit: Team[], extra: number, restarts?: number) => {
+      const r = rotateCourts(teams.filter((t) => !sit.includes(t)), courtCount, ctx, restarts, aheadFor(new Set(sit)));
+      return { sit, courts: r.courts, cost: r.cost + extra };
+    };
+    const base = byFairness.slice(0, sitCount);
+    best = tryRound(base, sitCost(base, false));
+    for (const loose of [false, true]) {
+      for (const sit of sitOptions(fair, loose)) {
+        if (best.cost === 0) break;
+        const extra = sitCost(sit, loose);
+        if (extra >= best.cost) continue;
+        const tried = tryRound(sit, extra, 150);
+        if (tried.cost < best.cost) best = tried;
       }
     }
-    rotated = best.courts;
+  } else {
+    const tryRound = (sit: Team[], extra: number) => {
+      const courts = ladderCourts(teams.filter((t) => !sit.includes(t)), courtCount, ctx);
+      return { sit, courts, cost: courts.reduce((sum, [a, b]) => sum + 10 * meetings(a, b, ctx) ** 2, 0) + extra };
+    };
+    const base = byFairness.slice(0, sitCount);
+    best = tryRound(base, sitCost(base, false));
+    for (const loose of [false, true]) {
+      for (const sit of sitOptions(fair, loose)) {
+        if (best.cost === 0) break;
+        const extra = sitCost(sit, loose);
+        if (extra >= best.cost) continue;
+        const tried = tryRound(sit, extra);
+        if (tried.cost < best.cost) best = tried;
+      }
+    }
   }
-  const onCourt = new Set(playing.flat());
 
-  const courts = rotated ?? ladderCourts(playing, courtCount, ctx);
-  const matches: PlannedMatch[] = courts.map(([a, b], c) => ({ court: c + 1, a, b }));
+  const matches: PlannedMatch[] = best.courts.map(([a, b], c) => ({ court: c + 1, a, b }));
+  const onCourt = new Set(best.courts.flat(2));
   // Everyone else sits: sitting teams, plus anyone without a playable partner (roster order).
   return { matches, byes: ctx.players.filter((p) => !onCourt.has(p)) };
 }

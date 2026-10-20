@@ -122,6 +122,18 @@ describe("team standings (keep teams together)", () => {
     expect(rows.at(-1)).toBe(ef);
   });
 
+  it("leaves out pairs who never got on court (not checked in, waitlisted)", () => {
+    const roster = [
+      ...people.map((p) => ({ ...p, status: "checked_in" })),
+      { id: "gus", name: "Gus", partnerId: "hal", status: "confirmed" },
+      { id: "hal", name: "Hal", partnerId: "gus", status: "checked_in" },
+      { id: "ivy", name: "Ivy", partnerId: "jo", status: "waitlist" },
+      { id: "jo", name: "Jo", partnerId: "ivy", status: "waitlist" },
+    ];
+    const rows = computeTeamStandings(roster, [round(1, [game(["ana", "ben"], ["cat", "dan"], 8, 8)], ["eve", "fay"])]);
+    expect(rows.map((r) => r.name).sort()).toEqual(["Ana & Ben", "Cat & Dan", "Eve & Fay"]);
+  });
+
   it("a re-paired player appears with each partner they played with", () => {
     const repaired = people.map((p) =>
       p.id === "ana" ? { ...p, partnerId: "dan" } : p.id === "dan" ? { ...p, partnerId: "ana" } : p.id === "ben" || p.id === "cat" ? { ...p, partnerId: null } : p,

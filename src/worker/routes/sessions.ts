@@ -83,19 +83,24 @@ sessionRoutes.patch("/sessions/:id", async (c) => {
   }
   if (typeof body.mixedPairs === "boolean") patch.mixedPairs = body.mixedPairs;
   if (typeof body.groupByLevel === "boolean") patch.groupByLevel = body.groupByLevel;
-  if (typeof body.fixedTeams === "boolean") patch.fixedTeams = body.fixedTeams;
 
-  // Max players can change any time (extra people turn up mid-session); the
+  // Max players can change any time (extra people turn up mid-session). The
   // points per match are locked once a round has been dealt, since every
-  // score on the board is relative to that total.
+  // score on the board is relative to that total; so is Keep teams together,
+  // since team standings count every game as a team's game.
   const maxPlayers = asInt(body.maxPlayers);
   if (maxPlayers != null) patch.maxPlayers = Math.min(Math.max(maxPlayers, 4), 64);
   const points = asInt(body.pointsPerMatch);
-  if (points != null && points !== session.pointsPerMatch) {
+  const teamsChange = typeof body.fixedTeams === "boolean" && body.fixedTeams !== session.fixedTeams;
+  if ((points != null && points !== session.pointsPerMatch) || teamsChange) {
     if ((await loadRounds(db, session.id)).length > 0) {
-      return c.json({ error: "Points per match can't change once a round has been dealt" }, 400);
+      return c.json(
+        { error: teamsChange ? "Keep teams together can't change once a round has been dealt" : "Points per match can't change once a round has been dealt" },
+        400,
+      );
     }
-    patch.pointsPerMatch = Math.min(Math.max(points, 4), 99);
+    if (points != null) patch.pointsPerMatch = Math.min(Math.max(points, 4), 99);
+    if (teamsChange) patch.fixedTeams = body.fixedTeams;
   }
   if (Object.keys(patch).length === 0) return c.json({ ok: true });
   patch.updatedAt = now();
@@ -241,12 +246,14 @@ sessionRoutes.post("/sessions/:id/players", async (c) => {
 });
 
 /** Clears the fixed-partner links of these players, on both sides. */
-async function unpair(db: DB, sessionId: string, ids: string[]): Promise<void> {
-  if (ids.length === 0) return;
-  await db
+const unpairQuery = (db: DB, sessionId: string, ids: string[]) =>
+  db
     .update(sessionPlayers)
     .set({ partnerId: null })
     .where(and(eq(sessionPlayers.sessionId, sessionId), or(inArray(sessionPlayers.id, ids), inArray(sessionPlayers.partnerId, ids))));
+
+async function unpair(db: DB, sessionId: string, ids: string[]): Promise<void> {
+  if (ids.length > 0) await unpairQuery(db, sessionId, ids);
 }
 
 sessionRoutes.patch("/sessions/:id/players/:pid", async (c) => {
@@ -334,12 +341,16 @@ sessionRoutes.patch("/sessions/:id/players/:pid", async (c) => {
         if (!partner) return c.json({ error: "Player not found" }, 404);
         if (partner.status === "dropped") return c.json({ error: "That player has left" }, 400);
       }
-      await unpair(db, session.id, partner ? [player.id, partner.id] : [player.id]);
+      // One batch (one transaction), so two quick changes can't leave a one-sided link.
+      const clear = unpairQuery(db, session.id, partner ? [player.id, partner.id] : [player.id]);
       if (partner) {
         await db.batch([
+          clear,
           db.update(sessionPlayers).set({ partnerId: partner.id }).where(eq(sessionPlayers.id, player.id)),
           db.update(sessionPlayers).set({ partnerId: player.id }).where(eq(sessionPlayers.id, partner.id)),
         ]);
+      } else {
+        await clear;
       }
       break;
     }

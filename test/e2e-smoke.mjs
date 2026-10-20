@@ -366,6 +366,8 @@ await shot(org, "14-teams-roster");
 log("keep teams together: organizer pairs Ana with Ben in the roster; the hint counts who the app will pair");
 
 await api("POST", `/sessions/${ft.id}/status`, { action: "start" });
+const flip = await org.request.fetch(`${BASE}/api/sessions/${ft.id}`, { method: "PATCH", data: { fixedTeams: false } });
+if (flip.status() !== 400) fail(`Keep teams together should lock once a round is dealt (got ${flip.status()})`);
 fd = await api("GET", `/sessions/${ft.id}`);
 const partnerAtStart = new Map(fd.players.map((p) => [p.id, p.partnerId]));
 if (fd.players.some((p) => !p.partnerId)) fail("everyone should be paired once round 1 is dealt");

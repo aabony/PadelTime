@@ -1,11 +1,11 @@
 import { and, desc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { getFormat } from "../../shared/formats/registry";
-import { minGamesToRank, pointsPerGame } from "../../shared/standings";
+import { computeTeamStandings, minGamesToRank, pointsPerGame } from "../../shared/standings";
 import type { GroupRole, MeResponse, SessionStatus, SessionSummary } from "../../shared/types";
 import { gameSessions, groupMembers, groups, playerResults, sessionPlayers, user } from "../db/schema";
 import type { DB } from "../lib/detail";
-import { isGroupOrganizer } from "../lib/detail";
+import { isGroupOrganizer, loadPlayers, loadRounds } from "../lib/detail";
 import { asInt, inviteCode, newId, now, trimmed } from "../lib/util";
 import type { ApiCtx, AuthedUser } from "./context";
 
@@ -27,7 +27,21 @@ async function confirmedCounts(db: DB, sessionIds: string[]): Promise<Map<string
 }
 
 async function winnersFor(db: DB, sessionIds: string[]): Promise<Map<string, string>> {
-  if (sessionIds.length === 0) return new Map();
+  const out = new Map<string, string>();
+  if (sessionIds.length === 0) return out;
+  // Keep teams together: the winner is the top team of the same table as the podium.
+  const teamNights = (
+    await db
+      .select({ id: gameSessions.id })
+      .from(gameSessions)
+      .where(and(inArray(gameSessions.id, sessionIds), eq(gameSessions.fixedTeams, true)))
+  ).map((r) => r.id);
+  for (const id of teamNights) {
+    const top = computeTeamStandings(await loadPlayers(db, id), await loadRounds(db, id)).find((r) => r.ranked);
+    if (top) out.set(id, top.name);
+  }
+  const solo = sessionIds.filter((id) => !teamNights.includes(id));
+  if (solo.length === 0) return out;
   const sums = await db
     .select({
       sessionId: playerResults.sessionId,
@@ -36,7 +50,7 @@ async function winnersFor(db: DB, sessionIds: string[]): Promise<Map<string, str
       games: sql<number>`count(*)`,
     })
     .from(playerResults)
-    .where(inArray(playerResults.sessionId, sessionIds))
+    .where(inArray(playerResults.sessionId, solo))
     .groupBy(playerResults.sessionId, playerResults.playerId);
   // Same rule as the standings: most points among players with at least half
   // as many games as the busiest player.
@@ -46,7 +60,7 @@ async function winnersFor(db: DB, sessionIds: string[]): Promise<Map<string, str
     rows.push({ playerId: r.playerId, points: Number(r.pts), played: Number(r.games) });
     bySession.set(r.sessionId, rows);
   }
-  const top = new Map<string, { playerId: string; points: number }>();
+  const top = new Map<string, { playerId: string }>();
   for (const [sessionId, rows] of bySession) {
     const min = minGamesToRank(rows);
     const best = rows
@@ -55,31 +69,16 @@ async function winnersFor(db: DB, sessionIds: string[]): Promise<Map<string, str
     if (best) top.set(sessionId, best);
   }
   const playerIds = [...top.values()].map((t) => t.playerId);
-  if (playerIds.length === 0) return new Map();
-  const nameRows = (ids: string[]) =>
-    db
-      .select({ id: sessionPlayers.id, guest: sessionPlayers.guestName, uname: user.name, partnerId: sessionPlayers.partnerId, teams: gameSessions.fixedTeams })
-      .from(sessionPlayers)
-      .leftJoin(user, eq(sessionPlayers.userId, user.id))
-      .innerJoin(gameSessions, eq(sessionPlayers.sessionId, gameSessions.id))
-      .where(inArray(sessionPlayers.id, ids));
-  const names = await nameRows(playerIds);
-  // Fixed teams: the winner is the pair — name the partner too when they finished level.
-  const partnerIds = names
-    .filter((n) => n.teams && n.partnerId)
-    .map((n) => n.partnerId!)
-    .filter((id) => !playerIds.includes(id));
-  const partners = partnerIds.length > 0 ? await nameRows(partnerIds) : [];
-  const nameById = new Map([...names, ...partners].map((n) => [n.id, n.uname ?? n.guest ?? "Player"]));
-  const rowById = new Map(names.map((n) => [n.id, n]));
-  const out = new Map<string, string>();
+  if (playerIds.length === 0) return out;
+  const names = await db
+    .select({ id: sessionPlayers.id, guest: sessionPlayers.guestName, uname: user.name })
+    .from(sessionPlayers)
+    .leftJoin(user, eq(sessionPlayers.userId, user.id))
+    .where(inArray(sessionPlayers.id, playerIds));
+  const nameById = new Map(names.map((n) => [n.id, n.uname ?? n.guest ?? "Player"]));
   for (const [sessionId, t] of top) {
     const name = nameById.get(t.playerId);
-    if (!name) continue;
-    const row = rowById.get(t.playerId);
-    const partner = row?.teams && row.partnerId ? bySession.get(sessionId)?.find((r) => r.playerId === row.partnerId) : undefined;
-    const partnerName = partner && partner.points === t.points ? nameById.get(partner.playerId) : undefined;
-    out.set(sessionId, partnerName ? `${name} & ${partnerName}` : name);
+    if (name) out.set(sessionId, name);
   }
   return out;
 }

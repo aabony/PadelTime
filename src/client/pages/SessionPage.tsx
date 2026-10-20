@@ -498,9 +498,12 @@ function SettingsModal({
           </span>
         </label>
         <GroupByLevelToggle checked={form.groupByLevel} onChange={(groupByLevel) => setForm({ ...form, groupByLevel })} />
-        <TeamsToggle checked={form.fixedTeams} onChange={(fixedTeams) => setForm({ ...form, fixedTeams })} />
+        <TeamsToggle checked={form.fixedTeams} disabled={pointsLocked} onChange={(fixedTeams) => setForm({ ...form, fixedTeams })} />
         {pointsLocked && (
-          <p className="text-xs text-muted">Points per match are locked once a round has been dealt. Max players and courts can change any time.</p>
+          <p className="text-xs text-muted">
+            Points per match and Keep teams together are locked once a round has been dealt. Max players and courts can
+            change any time.
+          </p>
         )}
         <Button
           className="w-full"
@@ -638,6 +641,26 @@ function partnerOf(d: SessionDetail, p: PlayerRow): PlayerRow | undefined {
   return q && q.partnerId === p.id && q.status !== "dropped" ? q : undefined;
 }
 
+/**
+ * What a round can fill from these players. With Keep teams together only whole
+ * teams play: pairs who are both here, plus the unpaired paired up (the engine's rule).
+ */
+function roundCapacity(d: SessionDetail, here: PlayerRow[]) {
+  let playable = here.length;
+  if (d.fixedTeams) {
+    const ids = new Set(here.map((p) => p.id));
+    const pairs = here.filter((p) => {
+      const q = partnerOf(d, p);
+      return q && ids.has(q.id) && p.id < q.id;
+    }).length;
+    playable = 2 * (pairs + Math.floor(here.filter((p) => !partnerOf(d, p)).length / 2));
+  }
+  const courts = Math.min(d.courts, Math.floor(playable / 4));
+  return { playable, courts, sitting: here.length - courts * 4 };
+}
+const signedUp = (d: SessionDetail) => d.players.filter((p) => p.status === "confirmed" || p.status === "checked_in");
+const checkedIn = (d: SessionDetail) => d.players.filter((p) => p.status === "checked_in");
+
 /** Keep teams together: who's paired, who'll be paired for you, who can't play. */
 function PairingHint({ d }: { d: SessionDetail }) {
   // Before check-in everyone who's in counts; from check-in on, only who's here.
@@ -696,6 +719,7 @@ function PlayersCard({ d, isOrganizer, run, busyKey, checkinMode = false }: View
   const visible = d.players.filter((p) => p.status !== "dropped");
   const dropped = d.players.filter((p) => p.status === "dropped");
   const inCount = d.counts.confirmed + d.counts.checkedIn;
+  const { courts } = roundCapacity(d, signedUp(d));
   return (
     <Card>
       <SectionHeader
@@ -708,7 +732,11 @@ function PlayersCard({ d, isOrganizer, run, busyKey, checkinMode = false }: View
       />
       <ProgressBar value={inCount} max={d.maxPlayers} className="mb-1" />
       <p className="mb-3 text-xs text-muted">
-        {inCount < 4 ? `Needs at least 4 players` : `${Math.min(d.courts, Math.floor(inCount / 4))} court${Math.min(d.courts, Math.floor(inCount / 4)) === 1 ? "" : "s"} per round`}
+        {courts === 0
+          ? inCount < 4
+            ? "Needs at least 4 players"
+            : "Needs at least two full teams"
+          : `${courts} court${courts === 1 ? "" : "s"} per round`}
         {d.counts.waitlist > 0 && ` · ${d.counts.waitlist} waitlisted`}
       </p>
       {isOrganizer && d.groupByLevel && visible.length > 0 && <LevelHint d={d} players={visible} />}
@@ -884,7 +912,8 @@ function StartPreview({ d, run, busyKey }: { d: SessionDetail; run?: Run; busyKe
   return (
     <div className="mt-3">
       <NightSummary
-        players={ready}
+        players={d.fixedTeams ? roundCapacity(d, signedUp(d)).playable : ready}
+        teams={d.fixedTeams}
         courts={d.courts}
         durationMin={d.durationMin}
         points={d.pointsPerMatch}
@@ -899,7 +928,7 @@ function StartPreview({ d, run, busyKey }: { d: SessionDetail; run?: Run; busyKe
 // Status views
 
 function DraftView({ d, isOrganizer, run, busyKey }: ViewProps) {
-  const ready = d.counts.confirmed + d.counts.checkedIn;
+  const ready = roundCapacity(d, signedUp(d)).courts > 0;
   return (
     <div className="space-y-4">
       {isOrganizer ? (
@@ -911,7 +940,7 @@ function DraftView({ d, isOrganizer, run, busyKey }: ViewProps) {
           </p>
           <StartPreview d={d} run={run} busyKey={busyKey} />
           <div className="mt-4 flex flex-wrap gap-2">
-            <Button busy={busyKey === "start"} disabled={ready < 4} onClick={() => run("start", () => Api.sessionAction(d.id, "start"))}>
+            <Button busy={busyKey === "start"} disabled={!ready} onClick={() => run("start", () => Api.sessionAction(d.id, "start"))}>
               Start session →
             </Button>
             <Button variant="secondary" busy={busyKey === "open"} onClick={() => run("open", () => Api.sessionAction(d.id, "open"))}>
@@ -945,7 +974,7 @@ function OpenView({ d, isOrganizer, run, busyKey }: ViewProps) {
           <div className="mt-4 flex flex-wrap gap-2">
             <Button
               busy={busyKey === "start"}
-              disabled={d.counts.confirmed + d.counts.checkedIn < 4}
+              disabled={roundCapacity(d, signedUp(d)).courts === 0}
               onClick={() => run("start", () => Api.sessionAction(d.id, "start"))}
             >
               Start session →
@@ -963,8 +992,7 @@ function OpenView({ d, isOrganizer, run, busyKey }: ViewProps) {
 
 function CheckinView({ d, isOrganizer, run, busyKey }: ViewProps) {
   const n = d.counts.checkedIn;
-  const courtsUsed = Math.min(d.courts, Math.floor(n / 4));
-  const byes = courtsUsed > 0 ? n - courtsUsed * 4 : n;
+  const { courts: courtsUsed, sitting: byes } = roundCapacity(d, checkedIn(d));
   // Check-in with rounds on the books = the game is paused between rounds.
   const paused = d.rounds.length > 0;
   const nextRound = d.rounds.length + 1;
@@ -988,7 +1016,9 @@ function CheckinView({ d, isOrganizer, run, busyKey }: ViewProps) {
                 · <span className="font-black text-navy">{byes}</span> sitting each round
               </>
             )}
-            {courtsUsed === 0 && <span className="font-semibold text-amber-dark"> — need at least 4</span>}
+            {courtsUsed === 0 && (
+              <span className="font-semibold text-amber-dark">{n < 4 ? " — need at least 4" : " — need two full teams here"}</span>
+            )}
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
             <Button busy={busyKey === "start"} disabled={courtsUsed === 0} onClick={() => run("start", () => Api.sessionAction(d.id, "start"))}>
@@ -1071,7 +1101,7 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
                 {d.counts.checkedIn === 1 ? "" : "s"}, or pause the game to change who's playing.
               </p>
               <div className="mt-4 flex flex-wrap gap-2">
-                <Button busy={busyKey === "next"} disabled={d.counts.checkedIn < 4} onClick={() => run("next", () => Api.nextRound(d.id))}>
+                <Button busy={busyKey === "next"} disabled={roundCapacity(d, checkedIn(d)).courts === 0} onClick={() => run("next", () => Api.nextRound(d.id))}>
                   ▶️ Start round 1
                 </Button>
                 <Button variant="secondary" busy={busyKey === "pause"} onClick={() => run("pause", () => Api.sessionAction(d.id, "pause"))}>
@@ -1294,8 +1324,7 @@ function LiveRosterCard({ d, isOrganizer, run, busyKey }: ViewProps) {
   });
   const benched = d.players.filter((p) => p.status === "waitlist" || p.status === "dropped");
   const inCount = d.counts.confirmed + d.counts.checkedIn;
-  const courtsUsed = Math.min(d.courts, Math.floor(d.counts.checkedIn / 4));
-  const sitting = courtsUsed > 0 ? d.counts.checkedIn - courtsUsed * 4 : d.counts.checkedIn;
+  const { courts: courtsUsed, sitting } = roundCapacity(d, checkedIn(d));
 
   return (
     <Card>
