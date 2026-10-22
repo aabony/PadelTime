@@ -347,7 +347,7 @@ function RulesCard({ d }: { d: SessionDetail }) {
         <span className="min-w-0 flex-1">
           <span className="block text-base font-black leading-tight text-navy">The rules of {formatMeta(d.format).name} tournament</span>
           <span className="mt-0.5 block truncate text-xs text-muted">
-            {open ? "Format · scoring · serving · winning" : "Tap to read how the night works"}
+            {open ? "Scoring · serving · winning" : "Tap to read how to play"}
           </span>
         </span>
         <span className="flex h-8 shrink-0 items-center rounded-full bg-canvas px-3 text-xs font-bold text-navy">
@@ -356,44 +356,16 @@ function RulesCard({ d }: { d: SessionDetail }) {
       </button>
       {open && (
         <div className="mt-3 divide-y divide-line border-t border-line">
-          {d.fixedTeams ? (
-            <InfoRow icon="🤝">
-              <b>Same partner all night.</b>{" "}
-              {d.format === "mexicano"
-                ? "After each round the top two teams (points per game) play on court 1, the next two on court 2 — winners play winners."
-                : "Your team meets a different team every round."}
-            </InfoRow>
-          ) : d.format === "mexicano" ? (
-            <InfoRow icon="🏆">
-              <b>Play your level.</b> After each round the top four (points per game) play on court 1, the next four on
-              court 2 — 1st & 4th vs 2nd & 3rd, so games stay close.
-            </InfoRow>
-          ) : (
-            <InfoRow icon="🔄">
-              <b>New partner every round</b> — it's you against the field.
-            </InfoRow>
-          )}
-          {d.groupByLevel && (
-            <InfoRow icon="🎚️">
-              <b>Grouped by level</b> — beginners play beginners
-              {d.format === "mexicano"
-                ? ` for their first ${d.fixedTeams ? "game" : "two games"}, then results decide.`
-                : ", intermediate and advanced play each other."}
-            </InfoRow>
-          )}
-          {d.mixedPairs && (
-            <InfoRow icon="👩👨">
-              <b>Mixed pairs</b> — one woman + one man per team when possible.
-            </InfoRow>
-          )}
           <InfoRow icon="🎯">
             <b>Games to {n} points.</b> Every rally scores; the game ends when the scores add up to {n} (e.g. {example}).
           </InfoRow>
           <InfoRow icon="🎾">
-            <b>Serve 4 points each</b>, top team first, then pass it on. Switch ends at {half}.
+            <b>Each player serves 4 points in a row</b>, then the serve passes to the other team: top team's first
+            server → bottom team's first → top team's second → bottom team's second, and round again. Switch ends at{" "}
+            {half}.
           </InfoRow>
           <InfoRow icon="🏁">
-            <b>Most points wins{d.fixedTeams ? " — as a team" : ""}.</b> Sit-outs rotate fairly{d.fixedTeams ? " (partners sit together)" : ""}; ties are allowed.
+            <b>Most points wins{d.fixedTeams ? " — as a team" : ""}.</b> Ties are allowed.
           </InfoRow>
         </div>
       )}
