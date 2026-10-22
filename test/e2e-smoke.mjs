@@ -80,6 +80,18 @@ await shot(org, "01-home");
 // Session-first: no group step — straight from home.
 await org.getByRole("button", { name: "+ New session" }).click();
 await org.getByPlaceholder("Thursday Padel Jam").fill("Sunday Night Americano");
+// The form compares game lengths for the roster: 12 players, 2 courts, 90 min.
+const lengths = org.getByTestId("game-lengths");
+const row18 = lengths.getByRole("button", { name: /^18 pts/ });
+await row18.waitFor({ timeout: 10000 });
+const row18Text = (await row18.textContent()) ?? "";
+if (!/★ best/.test(row18Text) || !/64 ✓2/.test(row18Text)) fail(`18-point row should read 6 rounds, 4 games ✓, 2 sits, ★ best: "${row18Text}"`);
+await lengths.getByRole("button", { name: /^24 pts/ }).filter({ hasText: "3–4" }).waitFor();
+await lengths.getByRole("button", { name: /^18 pts/ }).click();
+if ((await org.getByLabel("Points", { exact: true }).inputValue()) !== "18") fail("tapping the 18-point row should set Points to 18");
+await shot(org, "01b-game-lengths");
+await lengths.getByRole("button", { name: /^24 pts/ }).click();
+log("new-session form compares game lengths (12 players, 2 courts: 18 pts → 6 rounds, 4 games each ✓) and a tap picks one");
 await org.getByRole("button", { name: "Create session", exact: true }).click();
 await org.waitForURL("**/app/sessions/**");
 const sessionId = org.url().split("/sessions/")[1];
@@ -437,7 +449,7 @@ for (const g of ["Ana", "Bea", "Cal", "Dee"]) {
   await org.getByRole("button", { name: "Add", exact: true }).click();
   await org.getByText(g).first().waitFor({ timeout: 10000 });
 }
-await org.getByText(/4 players → 1 court per round/).waitFor({ timeout: 10000 });
+await org.getByText(/4 players · 1 court → nobody sits out/).waitFor({ timeout: 10000 });
 await startBtn.click();
 await org.getByText("Round 1").first().waitFor({ timeout: 15000 });
 if ((await org.locator("button", { hasText: "Tap to enter score" }).count()) !== 1) fail("quick start should yield 1 court");

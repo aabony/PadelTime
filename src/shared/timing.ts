@@ -194,3 +194,48 @@ export function estimateRounds(durationMin: number | null | undefined, pointsPer
   if (!durationMin || durationMin <= 0) return null;
   return Math.max(1, Math.floor(Math.max(durationMin - SETUP_MINUTES, 0) / minutesPerMatch(pointsPerMatch)));
 }
+
+/** Game lengths shown side by side when setting up a night. */
+export const COMPARE_POINTS = [24, 21, 18, 16, 14, 12] as const;
+
+export interface GameLengthOption {
+  points: number;
+  minutesPerMatch: number;
+  rounds: number;
+  /** Fewest / most games any one player gets, and sit-outs likewise. */
+  playMin: number;
+  playMax: number;
+  sitMin: number;
+  sitMax: number;
+  /** Everyone plays the same number of games. */
+  even: boolean;
+}
+
+/**
+ * How each game length plays out for this roster, courts and court time: rounds
+ * that fit, games and sit-outs per player. Includes `current` when it isn't one
+ * of the usual lengths. Empty without a court time or with fewer than 4 players.
+ */
+export function compareGameLengths(
+  players: number,
+  courts: number,
+  durationMin: number | null | undefined,
+  current?: number,
+): GameLengthOption[] {
+  if (!durationMin || players < 4) return [];
+  const points = [...new Set([...COMPARE_POINTS, ...(current ? [current] : [])])].sort((a, b) => b - a);
+  return points.map((p) => {
+    const rounds = estimateRounds(durationMin, p) ?? 0;
+    const split = rosterSplit(players, courts, rounds);
+    return {
+      points: p,
+      minutesPerMatch: minutesPerMatch(p),
+      rounds,
+      playMin: split.playMin,
+      playMax: split.playMax,
+      sitMin: split.sitMin,
+      sitMax: split.sitMax,
+      even: split.playMin === split.playMax,
+    };
+  });
+}

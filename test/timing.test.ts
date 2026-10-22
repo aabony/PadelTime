@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { estimateRounds, minutesPerMatch, recommendSetup, rosterSplit, rosterWarnings, sweetSpot } from "../src/shared/timing";
+import { compareGameLengths, estimateRounds, minutesPerMatch, recommendSetup, rosterSplit, rosterWarnings, sweetSpot } from "../src/shared/timing";
 
 describe("pacing", () => {
   it("fits 7 rounds of 16 points or 5 rounds of 24 in a 90-minute booking", () => {
@@ -90,5 +90,20 @@ describe("roster warnings", () => {
 
   it("puts the sweet spot for 2 courts at 10–14 players", () => {
     expect(sweetSpot(2)).toEqual({ min: 10, max: 14 });
+  });
+});
+
+describe("game length comparison", () => {
+  it("12 players on 2 courts, 90 min: each length's rounds, games and sit-outs", () => {
+    const rows = compareGameLengths(12, 2, 90, 24);
+    expect(rows.map((r) => r.points)).toEqual([24, 21, 18, 16, 14, 12]);
+    const by = Object.fromEntries(rows.map((r) => [r.points, r]));
+    expect(by[24]).toMatchObject({ rounds: 5, playMin: 3, playMax: 4, sitMin: 1, sitMax: 2, even: false });
+    expect(by[18]).toMatchObject({ rounds: 6, playMin: 4, playMax: 4, sitMin: 2, sitMax: 2, even: true });
+  });
+
+  it("adds an unusual current length, and needs a court time", () => {
+    expect(compareGameLengths(12, 2, 90, 15).map((r) => r.points)).toContain(15);
+    expect(compareGameLengths(12, 2, null, 24)).toEqual([]);
   });
 });

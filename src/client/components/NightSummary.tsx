@@ -1,12 +1,13 @@
-import { useState } from "react";
-import { SETUP_MINUTES, planNight, recommendSetup, rosterWarnings, sweetSpot } from "../../shared/timing";
-import type { Priority, Recommendation } from "../../shared/timing";
+import { compareGameLengths, rosterWarnings, sweetSpot } from "../../shared/timing";
+import type { GameLengthOption } from "../../shared/timing";
 import { cls } from "./ui";
 
+const range = (lo: number, hi: number) => (lo === hi ? `${lo}` : `${lo}–${hi}`);
+
 /**
- * "What you get": rounds, matches and breaks per player for a roster size,
- * courts, court time and points — with a suggestion for the chosen priority
- * (playing time vs socialising) and, where the caller allows, a one-tap apply.
+ * Setting up a night: for this many players, courts and court time, how each
+ * game length plays out — rounds, games and sit-outs per player — side by side,
+ * with the best even option starred. Tapping a row picks it, where allowed.
  */
 export function NightSummary({
   players,
@@ -14,7 +15,7 @@ export function NightSummary({
   durationMin,
   points,
   label = "players",
-  onApply,
+  onPick,
   applying = false,
   teams = false,
   idle = 0,
@@ -24,151 +25,115 @@ export function NightSummary({
   durationMin: number | null | undefined;
   points: number;
   label?: string;
-  /** When given, the suggestion comes with a "Use" button. */
-  onApply?: (rec: Recommendation) => void;
+  /** When given, tapping a game length picks it. */
+  onPick?: (points: number) => void;
   applying?: boolean;
   /** Keep teams together: the team rotation mixes the two halves, so no split warning. */
   teams?: boolean;
   /** Signed up but can't play (no partner here): not in the plan, sitting every round. */
   idle?: number;
 }) {
-  const [priority, setPriority] = useState<Priority>("playing");
-  const p = planNight(players, courts, durationMin, points);
-  const spot = sweetSpot(courts);
+  const total = players + idle;
   if (players < 4) {
     return (
       <div className="rounded-2xl bg-canvas px-4 py-3 text-sm text-ink">
-        <span className="font-black text-navy">{players}</span> {label} —{" "}
+        <span className="font-black text-navy">{total}</span> {label} —{" "}
         <span className="font-semibold text-amber-dark">need at least 4 to start</span>
       </div>
     );
   }
-  // Courts can only be suggested downwards from what's available (social mode).
-  const rec = recommendSetup(players, courts, durationMin, priority);
-  const differs = rec && (rec.points !== points || rec.courts !== p.courtsUsed);
-  const recPlan = rec ? planNight(players, rec.courts, durationMin, rec.points) : null;
+  const courtsUsed = Math.min(courts, Math.floor(players / 4));
+  const sitting = total - courtsUsed * 4;
+  const rows = compareGameLengths(players, courts, durationMin, points);
+  // Best: everyone plays the same number of games (5+ rounds, 3+ games), most play overall.
+  const best = rows
+    .filter((r) => r.even && r.rounds >= 5 && r.playMin >= 3)
+    .reduce<GameLengthOption | null>((b, r) => (!b || r.playMin * r.points > b.playMin * b.points ? r : b), null);
   const warn = rosterWarnings(players, courts);
+  const spot = sweetSpot(courts);
+
   return (
-    <div className="rounded-2xl bg-canvas px-4 py-3 text-sm text-ink">
-      <p>
-        <span className="font-black text-navy">{players + idle}</span> {label} → <span className="font-black text-navy">{p.courtsUsed}</span>{" "}
-        court{p.courtsUsed === 1 ? "" : "s"} per round
-        {p.sitting + idle > 0 ? (
+    <div className="rounded-2xl bg-canvas p-3 text-sm text-ink">
+      <p className="px-1">
+        <span className="font-black text-navy">{total}</span> {label} · <span className="font-black text-navy">{courtsUsed}</span>{" "}
+        court{courtsUsed === 1 ? "" : "s"} →{" "}
+        {sitting > 0 ? (
           <>
-            {" "}
-            · <span className="font-black text-navy">{p.sitting + idle}</span> sitting each round
+            <span className="font-black text-navy">{sitting}</span> sit out each round
           </>
         ) : (
-          <span className="text-muted"> · nobody sits out</span>
+          "nobody sits out"
         )}
+        {courtsUsed < courts && <span className="text-muted"> (fills {courtsUsed} of {courts} courts)</span>}
       </p>
-      {p.rounds != null && p.courtsUsed > 0 && (
-        <p className="mt-1 text-xs text-muted">
-          {durationMin} min (≈ {Math.max((durationMin ?? 0) - SETUP_MINUTES, 0)} of play after check-in) of {points}-point games ≈{" "}
-          <span className="font-bold text-navy">{p.rounds} rounds</span> of ~{p.minutesPerMatch} min · each player plays ~
-          <span className="font-bold text-navy">{p.matchesPerPlayer}</span>
-          {p.sitting > 0 ? (
-            <>
-              {" "}
-              and sits out ~<span className="font-bold text-navy">{p.sitOutsPerPlayer}</span> (a sit-out is one round, ≈{" "}
-              {p.minutesPerMatch} min)
-            </>
-          ) : (
-            <> — no breaks until the end</>
-          )}
-          .
-        </p>
-      )}
-      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-        <span className="text-muted">Priority:</span>
-        {(
-          [
-            ["playing", "🎾 Playing time"],
-            ["social", "🍻 Socialising"],
-          ] as const
-        ).map(([key, text]) => (
-          <button
-            key={key}
-            type="button"
-            aria-pressed={priority === key}
-            onClick={() => setPriority(key)}
-            className={cls(
-              "rounded-full border px-2.5 py-1 font-bold transition-colors",
-              priority === key ? "border-navy bg-navy text-white" : "border-line bg-white text-navy hover:border-line-strong",
-            )}
-          >
-            {text}
-          </button>
-        ))}
-      </div>
-      {rec && recPlan && differs ? (
-        <p className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-          <span className="font-semibold text-navy">
-            💡 Suggested: {rec.courts} court{rec.courts === 1 ? "" : "s"} · {rec.points}-point games
-            {rec.stopAfter != null ? (
-              <> → stop after round {rec.stopAfter}</>
-            ) : (
-              rec.rounds != null && <> → {rec.rounds} rounds</>
-            )}
-            {rec.gamesEach != null && rec.rounds != null && recPlan.sitting > 0 ? (
-              <>
-                {" "}
-                — everyone plays {rec.gamesEach} and sits out {rec.rounds - rec.gamesEach}
-              </>
-            ) : recPlan.sitting > 0 ? (
-              <>
-                , {recPlan.sitting} sit each round (≈ {recPlan.minutesPerMatch} min breaks)
-              </>
-            ) : (
-              <>, nobody sits out</>
-            )}
-            .
-          </span>
-          {onApply && (
-            <button
-              type="button"
-              disabled={applying}
-              onClick={() => onApply(rec)}
-              className="rounded-full bg-royal px-3 py-1 font-bold text-white hover:bg-royal-dark disabled:opacity-50"
-            >
-              Use this
-            </button>
-          )}
-        </p>
+
+      {rows.length > 0 ? (
+        <div className="mt-2 overflow-hidden rounded-xl border border-line bg-white" data-testid="game-lengths">
+          <div className="grid grid-cols-[1fr_3.5rem_3.25rem_2.5rem] gap-x-2 whitespace-nowrap border-b border-line px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted">
+            <span>Game to</span>
+            <span className="text-right">Rounds</span>
+            <span className="text-right">Games</span>
+            <span className="text-right">Sits</span>
+          </div>
+          {rows.map((r) => {
+            const picked = r.points === points;
+            const Row = onPick ? "button" : "div";
+            return (
+              <Row
+                key={r.points}
+                {...(onPick ? { type: "button" as const, disabled: applying, onClick: () => onPick(r.points), "aria-pressed": picked } : {})}
+                className={cls(
+                  "grid w-full grid-cols-[1fr_3.5rem_3.25rem_2.5rem] items-center gap-x-2 border-b border-line px-3 py-2 text-left last:border-b-0",
+                  picked ? "bg-royal-soft/70" : onPick && "hover:bg-canvas",
+                )}
+              >
+                <span className="min-w-0 whitespace-nowrap leading-tight">
+                  <span className={cls("font-black", picked ? "text-royal" : "text-navy")}>{r.points} pts</span>
+                  {best?.points === r.points && <span className="ml-1.5 text-xs font-bold text-mint-dark">★ best</span>}
+                  <span className="block text-[11px] text-muted">~{r.minutesPerMatch} min a game</span>
+                </span>
+                <span className="tabular text-right font-semibold text-navy">{r.rounds}</span>
+                <span className={cls("tabular text-right font-bold", r.even ? "text-mint-dark" : "text-navy")}>
+                  {range(r.playMin, r.playMax)}
+                  {r.even && sitting > 0 && " ✓"}
+                </span>
+                <span className="tabular text-right text-muted">{range(r.sitMin, r.sitMax)}</span>
+              </Row>
+            );
+          })}
+        </div>
       ) : (
-        rec &&
-        rec.equalGames && (
-          <p className="mt-2 text-xs font-semibold text-mint-dark">
-            ✓ This is the suggested setup for {priority === "social" ? "socialising" : "playing time"}
-            {rec.gamesEach != null && recPlan && recPlan.sitting > 0 && <> — everyone plays {rec.gamesEach}</>}.
-          </p>
-        )
+        <p className="mt-1 px-1 text-xs text-muted">Set the court time to compare game lengths.</p>
       )}
+      {rows.length > 0 && (
+        <p className="mt-1.5 px-1 text-xs text-muted">
+          Games and sit-outs per {teams ? "team" : "player"} in a {durationMin}-min booking (~10 min to get going). ✓ = everyone
+          gets the same number of games.
+          {onPick && " Tap a row to use it."}
+        </p>
+      )}
+
       {idle > 0 && (
-        <p className="mt-2 text-xs font-semibold text-amber-dark">
-          ⚠️ {idle} without a partner here can't play until paired — the plan is for the {players} who can.
+        <p className="mt-2 px-1 text-xs font-semibold text-amber-dark">
+          ⚠️ {idle} without a partner here can't play until paired — the table is for the {players} who can.
         </p>
       )}
       {warn.splitGroups && !teams && (
-        <p className="mt-2 text-xs font-semibold text-amber-dark">
-          ⚠️ {players} players on {p.courtsUsed} court{p.courtsUsed === 1 ? "" : "s"} splits into two groups of {p.onCourt} who never
-          play each other — one more or one fewer avoids it.
+        <p className="mt-2 px-1 text-xs font-semibold text-amber-dark">
+          ⚠️ {players} players on {courtsUsed} court{courtsUsed === 1 ? "" : "s"} splits into two groups of {courtsUsed * 4} who
+          never play each other — one more or one fewer avoids it.
         </p>
       )}
       {warn.longWaits && (
-        <p className="mt-2 text-xs font-semibold text-amber-dark">
-          ⚠️ More than half sit out each round — expect 2–3 rounds in a row off court and short games.
+        <p className="mt-2 px-1 text-xs font-semibold text-amber-dark">
+          ⚠️ More than half sit out each round — expect 2–3 rounds in a row off court.
         </p>
       )}
-      {rec && !rec.equalGames && durationMin ? (
-        <p className="mt-2 text-xs font-semibold text-amber-dark">
-          ⚠️ Games can't come out even for {players} players — some get one more game than others.
+      {(total < spot.min || total > spot.max) && (
+        <p className="mt-1 px-1 text-xs text-muted">
+          Sweet spot for {courts} court{courts === 1 ? "" : "s"}: {spot.min}–{spot.max} players.
         </p>
-      ) : null}
-      <p className="mt-1 text-xs text-muted">
-        Sweet spot for {courts} court{courts === 1 ? "" : "s"}: {spot.min}–{spot.max} players — a few rest each round,
-        nobody waits long.
-      </p>
+      )}
     </div>
   );
 }
