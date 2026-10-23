@@ -36,9 +36,6 @@ export function ScoreEntry({
           <span className="size-12" />
         </span>
       </div>
-      <p className="text-center text-xs text-muted">
-        {total} points per match — the other side fills in automatically
-      </p>
       <Button className="w-full" size="lg" busy={busy} onClick={() => onSubmit(a, b)}>
         {submitLabel} · {a}–{b}
       </Button>

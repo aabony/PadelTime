@@ -105,21 +105,6 @@ export function SessionPage() {
 // ---------------------------------------------------------------------------
 // Hero: court banner + floating card with the essentials
 
-function PillLink({ href, label, children }: { href: string; label: string; children: React.ReactNode }) {
-  return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noreferrer"
-      title={label}
-      aria-label={label}
-      className="flex h-10 items-center gap-1 rounded-full bg-white px-3 text-xs font-bold text-navy shadow-md ring-1 ring-line hover:bg-canvas"
-    >
-      {children}
-    </a>
-  );
-}
-
 function ShareIcon() {
   return (
     <svg
@@ -194,38 +179,40 @@ function ShareButton({ d }: { d: SessionDetail }) {
 }
 
 function Hero({ d, isOrganizer, onSettings }: { d: SessionDetail; isOrganizer: boolean; onSettings: () => void }) {
-  // Before the night the invite card shares the link, and at the end the podium
-  // shares the results: Share up here is for the live night (late arrivals).
-  const shareable = d.status === "active";
+  // Share is always there: the invite link before the night, the results after.
+  const shareable = d.status !== "cancelled";
   return (
     <div>
-      {/* Back arrow, then the action row with Share on the far right. On phones the
-          row drops to its own line and the banner grows with it, so it never slides
-          under the card. */}
+      {/* The organizer's tools sit in a slim row above the banner, so the banner
+          keeps just the way back and Share. */}
+      {isOrganizer && (
+        <div className="-mt-1 mb-2 flex justify-end gap-1">
+          <a
+            href={`/print?session=${d.id}`}
+            target="_blank"
+            rel="noreferrer"
+            title="Printable pen & paper sheet"
+            className="flex h-8 items-center rounded-full px-3 text-xs font-bold text-muted hover:bg-line hover:text-navy"
+          >
+            🖨 Print
+          </a>
+          <button
+            type="button"
+            aria-label="Settings"
+            title="Session settings — style, courts, points, time"
+            onClick={onSettings}
+            className="flex h-8 items-center rounded-full px-3 text-xs font-bold text-muted hover:bg-line hover:text-navy"
+          >
+            ⚙ Settings
+          </button>
+        </div>
+      )}
       <div className="court-banner relative min-h-36 rounded-3xl px-3 pb-16 pt-3">
-        <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-3">
+        <div className="flex items-center justify-between gap-2">
           <Link to="/app" aria-label="Back to sessions" className="shrink-0">
             <span className="flex size-10 items-center justify-center rounded-full bg-white text-navy shadow-md">←</span>
           </Link>
-          <div className="ml-auto flex flex-wrap justify-end gap-1.5">
-            {isOrganizer && (
-              <PillLink href={`/print?session=${d.id}`} label="Printable pen & paper sheet">
-                🖨 Print
-              </PillLink>
-            )}
-            {isOrganizer && (
-              <button
-                type="button"
-                aria-label="Settings"
-                title="Session settings — style, courts, points, time"
-                onClick={onSettings}
-                className="flex h-10 items-center gap-1.5 rounded-full bg-white px-3.5 text-xs font-bold text-navy shadow-md hover:bg-canvas"
-              >
-                ⚙ Settings
-              </button>
-            )}
-            {shareable && <ShareButton d={d} />}
-          </div>
+          {shareable && <ShareButton d={d} />}
         </div>
       </div>
       <Card className="relative -mt-12 mx-3 shadow-lg">
@@ -252,47 +239,48 @@ function Hero({ d, isOrganizer, onSettings }: { d: SessionDetail; isOrganizer: b
 }
 
 // ---------------------------------------------------------------------------
-// The session journey: Players → Check-in → Play → Results
+// The session journey: Players → Play → Results. No check-in step: whoever is
+// signed up plays, and anyone who doesn't show gets ✕'d. A paused game
+// ("checkin" with rounds played) is still Play; "checkin" before any round only
+// exists on sessions from before the step was dropped, and counts as Players.
 
-const STEPS = [
-  { label: "Players", statuses: ["draft", "open"] },
-  { label: "Check-in", statuses: ["checkin"] },
-  { label: "Play", statuses: ["active"] },
-  { label: "Results", statuses: ["complete"] },
-] as const;
+const STEPS = ["Players", "Play", "Results"] as const;
+
+function stepOf(d: SessionDetail): number {
+  if (d.status === "complete") return 2;
+  if (d.status === "active" || (d.status === "checkin" && d.rounds.length > 0)) return 1;
+  return 0;
+}
 
 function LifecycleStepper({ d, isOrganizer, run, busyKey }: ViewProps) {
   if (d.status === "cancelled") return null;
-  const current = STEPS.findIndex((s) => (s.statuses as readonly string[]).includes(d.status));
+  const current = stepOf(d);
 
   const advance = (target: number) => {
-    if (!isOrganizer || target <= current || busyKey) return;
-    if (d.status === "active" && target === 3) {
-      if (window.confirm("Finish the session and lock the final standings?")) {
+    if (!isOrganizer || target !== current + 1 || busyKey) return;
+    if (target === 2) {
+      if (d.status === "active" && window.confirm("Finish the session and lock the final standings?")) {
         run("finish", () => Api.sessionAction(d.id, "complete"));
       }
       return;
     }
-    if (target === 1) run("checkin", () => Api.sessionAction(d.id, "start_checkin"));
-    if (target === 2) run("start", () => Api.sessionAction(d.id, "start"));
+    run("start", () => Api.sessionAction(d.id, "start"));
   };
 
   return (
-    // On a phone only the current step is spelled out; the rest are numbered dots, so all four fit.
     <div className="flex items-center gap-1 px-1 py-1">
-      {STEPS.map((s, i) => {
+      {STEPS.map((label, i) => {
         const done = i < current;
         const cur = i === current;
-        const reach = current === 0 ? 2 : 1;
-        const clickable = isOrganizer && i > current && i - current <= reach && d.status !== "complete";
+        const clickable = isOrganizer && i === current + 1 && (i === 1 || d.status === "active");
         return (
-          <Fragment key={s.label}>
+          <Fragment key={label}>
             {i > 0 && <span className={cls("h-px min-w-3 flex-1", done || cur ? "bg-royal" : "bg-line-strong")} />}
             <button
               type="button"
               disabled={!clickable}
               onClick={() => advance(i)}
-              title={clickable ? `Go to ${s.label}` : undefined}
+              title={clickable ? `Go to ${label}` : undefined}
               className={cls(
                 "flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold transition-colors",
                 cur
@@ -312,7 +300,7 @@ function LifecycleStepper({ d, isOrganizer, run, busyKey }: ViewProps) {
               >
                 {done ? "✓" : i + 1}
               </span>
-              <span className={cur ? undefined : "hidden sm:inline"}>{s.label}</span>
+              <span>{label}</span>
             </button>
           </Fragment>
         );
@@ -326,8 +314,7 @@ function LifecycleStepper({ d, isOrganizer, run, busyKey }: ViewProps) {
 
 function RulesCard({ d }: { d: SessionDetail }) {
   // Open before the session starts (new players read them); folded once play is under way.
-  // Open for players before the night starts (they're the ones reading them); folded for the organizer.
-  const [open, setOpen] = useState(d.myRole !== "organizer" && ["draft", "open", "checkin"].includes(d.status));
+  const [open, setOpen] = useState(["draft", "open", "checkin"].includes(d.status));
   const n = d.pointsPerMatch;
   const half = Math.ceil(n / 2);
   const lo = Math.floor(n / 2);
@@ -698,7 +685,7 @@ function playerStatusBadge(p: PlayerRow) {
   }
 }
 
-function PlayersCard({ d, isOrganizer, run, busyKey, checkinMode = false }: ViewProps & { checkinMode?: boolean }) {
+function PlayersCard({ d, isOrganizer, run, busyKey }: ViewProps) {
   const [guestName, setGuestName] = useState("");
   const visible = d.players.filter((p) => p.status !== "dropped");
   const dropped = d.players.filter((p) => p.status === "dropped");
@@ -731,19 +718,7 @@ function PlayersCard({ d, isOrganizer, run, busyKey, checkinMode = false }: View
       <ul className="divide-y divide-line">
         {visible.map((p) => (
           <li key={p.id} className="flex items-center gap-3 py-2.5">
-            {checkinMode && isOrganizer ? (
-              <input
-                type="checkbox"
-                className="size-5 accent-royal"
-                checked={p.status === "checked_in"}
-                disabled={p.status === "waitlist"}
-                onChange={() =>
-                  run(`p-${p.id}`, () => Api.playerAction(d.id, p.id, p.status === "checked_in" ? "undo_checkin" : "checkin"))
-                }
-              />
-            ) : (
-              <Avatar name={p.name} size="sm" ring={p.id === d.myPlayerId} />
-            )}
+            <Avatar name={p.name} size="sm" ring={p.id === d.myPlayerId} />
             <span className="min-w-0 flex-1">
               <span className="block truncate font-bold text-navy">
                 {p.name}
@@ -751,16 +726,14 @@ function PlayersCard({ d, isOrganizer, run, busyKey, checkinMode = false }: View
                 {p.isGuest && <span className="ml-1.5 text-xs font-medium text-faint">guest</span>}
                 {p.id === d.myPlayerId && <span className="ml-1.5 text-xs font-bold text-royal">you</span>}
               </span>
-              {/* Gender only matters for mixed pairs; levels for grouping and team balancing. */}
-              {isOrganizer && (d.mixedPairs || d.groupByLevel || d.fixedTeams) && (
+              {/* Gender and level on one line; levels only matter for grouping and team balancing. */}
+              {isOrganizer && (
                 <span className="mt-1 flex flex-wrap items-center gap-1">
-                  {d.mixedPairs && (
-                    <GenderSelect
-                      value={p.gender}
-                      busy={busyKey === `g-${p.id}`}
-                      onChange={(gender) => run(`g-${p.id}`, () => Api.playerAction(d.id, p.id, "set_gender", { gender }))}
-                    />
-                  )}
+                  <GenderSelect
+                    value={p.gender}
+                    busy={busyKey === `g-${p.id}`}
+                    onChange={(gender) => run(`g-${p.id}`, () => Api.playerAction(d.id, p.id, "set_gender", { gender }))}
+                  />
                   {(d.groupByLevel || d.fixedTeams) && (
                     <LevelSelect
                       compact
@@ -785,8 +758,8 @@ function PlayersCard({ d, isOrganizer, run, busyKey, checkinMode = false }: View
               {isOrganizer && <MergeHint d={d} p={p} run={run} busyKey={busyKey} />}
             </span>
             <div className="flex shrink-0 items-center gap-1.5">
-              {/* Everyone listed is "in": only the exceptions get a badge (the organizer's check-in has its checkbox). */}
-              {(p.status === "waitlist" || (!isOrganizer && d.status === "checkin")) && playerStatusBadge(p)}
+              {/* Everyone listed is "in": only the waitlist gets a badge. */}
+              {p.status === "waitlist" && playerStatusBadge(p)}
               {isOrganizer && p.status === "waitlist" && (
                 <Button
                   size="sm"
@@ -825,13 +798,6 @@ function PlayersCard({ d, isOrganizer, run, busyKey, checkinMode = false }: View
           ))}
         </div>
       )}
-      {isOrganizer && !d.myPlayerId && ["draft", "open", "checkin"].includes(d.status) && (
-        <div className="mt-3 border-t border-line pt-3">
-          <Button variant="secondary" size="sm" busy={busyKey === "selfjoin"} onClick={() => run("selfjoin", () => Api.join(d.inviteCode))}>
-            + I'm playing too
-          </Button>
-        </div>
-      )}
       {isOrganizer && (
         <form
           className="mt-3 flex gap-2 border-t border-line pt-3"
@@ -862,18 +828,11 @@ function MyStatusCard({ d, run, busyKey }: { d: SessionDetail; run: Run; busyKey
     <Card className="border-royal/30 bg-royal-soft/40">
       {me.status === "waitlist" ? (
         <p className="text-sm font-semibold text-amber-dark">You're on the waitlist — you'll move up automatically if a spot opens.</p>
-      ) : d.status === "checkin" && me.status === "confirmed" ? (
-        <div className="flex items-center justify-between gap-3">
-          <p className="font-bold text-navy">At the club?</p>
-          <Button busy={busyKey === "selfcheckin"} onClick={() => run("selfcheckin", () => Api.selfCheckin(d.id))}>
-            ✓ I'm here
-          </Button>
-        </div>
       ) : me.status === "checked_in" ? (
         <p className="text-sm font-semibold text-navy">
           {d.rounds.length > 0
-            ? "You're checked in — the game resumes when the organizer deals the next round."
-            : "You're checked in. Pairings drop when the organizer starts the session."}
+            ? "You're in ✓ — the game resumes when the organizer deals the next round."
+            : "You're in ✓ — pairings drop when the organizer starts the session."}
         </p>
       ) : (
         <div className="flex items-center justify-between gap-3">
@@ -932,9 +891,12 @@ function DraftView({ d, isOrganizer, run, busyKey }: ViewProps) {
           <p className="text-sm text-muted">Add names below and start, or open signup and share the link.</p>
           <StartPreview d={d} run={run} busyKey={busyKey} />
           <div className="mt-4 flex flex-wrap gap-2">
-            <Button busy={busyKey === "start"} disabled={!ready} onClick={() => run("start", () => Api.sessionAction(d.id, "start"))}>
-              Start session →
-            </Button>
+            {/* Starting skips signup and deals round 1 with the names added — only once there's a court's worth. */}
+            {ready && (
+              <Button busy={busyKey === "start"} onClick={() => run("start", () => Api.sessionAction(d.id, "start"))}>
+                Start session →
+              </Button>
+            )}
             <Button variant="secondary" busy={busyKey === "open"} onClick={() => run("open", () => Api.sessionAction(d.id, "open"))}>
               Open signup
             </Button>
@@ -958,7 +920,7 @@ function OpenView({ d, isOrganizer, run, busyKey }: ViewProps) {
       {isOrganizer && (
         <Card className="border-royal/30">
           <SectionHeader title="Game day?" />
-          <p className="text-sm text-muted">Start with everyone signed up, or check people in at the club first.</p>
+          <p className="text-sm text-muted">Everyone signed up plays — ✕ anyone who doesn't show, then start.</p>
           <StartPreview d={d} run={run} busyKey={busyKey} />
           <div className="mt-4 flex flex-wrap gap-2">
             <Button
@@ -968,9 +930,6 @@ function OpenView({ d, isOrganizer, run, busyKey }: ViewProps) {
             >
               Start session →
             </Button>
-            <Button variant="secondary" busy={busyKey === "checkin"} onClick={() => run("checkin", () => Api.sessionAction(d.id, "start_checkin"))}>
-              Start check-in
-            </Button>
           </div>
         </Card>
       )}
@@ -979,10 +938,11 @@ function OpenView({ d, isOrganizer, run, busyKey }: ViewProps) {
   );
 }
 
+// "checkin" is the paused game now: every round and the standings kept, the
+// roster open for ✕ / bring back / late names, and Resume deals the next round.
+// (Before any round it's a session from when check-in was a step: same screen.)
 function CheckinView({ d, isOrganizer, run, busyKey }: ViewProps) {
-  const n = d.counts.checkedIn;
-  const { courts: courtsUsed, sitting: byes } = roundCapacity(d, checkedIn(d));
-  // Check-in with rounds on the books = the game is paused between rounds.
+  const { courts: courtsUsed } = roundCapacity(d, signedUp(d));
   const paused = d.rounds.length > 0;
   const nextRound = d.rounds.length + 1;
   return (
@@ -990,31 +950,16 @@ function CheckinView({ d, isOrganizer, run, busyKey }: ViewProps) {
       <MyStatusCard d={d} run={run} busyKey={busyKey} />
       {isOrganizer ? (
         <Card className="border-royal/30">
-          <SectionHeader title={paused ? "Game paused" : "Check-in"} />
+          <SectionHeader title={paused ? "Game paused" : "Game day?"} />
           <p className="text-sm text-muted">
             {paused
-              ? `${d.rounds.length} round${d.rounds.length === 1 ? "" : "s"} played, standings kept. Change who's here, then resume.`
-              : "Only checked-in players get dealt in."}
+              ? `${d.rounds.length} round${d.rounds.length === 1 ? "" : "s"} played, standings kept. Change who's playing, then resume.`
+              : "Everyone signed up plays — ✕ anyone who doesn't show, then start."}
           </p>
-          <div className="mt-3 rounded-2xl bg-canvas px-4 py-3 text-sm text-ink">
-            <span className="font-black text-navy">{n}</span> checked in → <span className="font-black text-navy">{courtsUsed}</span> court
-            {courtsUsed === 1 ? "" : "s"} per round
-            {courtsUsed > 0 && byes > 0 && (
-              <>
-                {" "}
-                · <span className="font-black text-navy">{byes}</span> sitting each round
-              </>
-            )}
-            {courtsUsed === 0 && (
-              <span className="font-semibold text-amber-dark">{n < 4 ? " — need at least 4" : " — need two full teams here"}</span>
-            )}
-          </div>
+          {!paused && <StartPreview d={d} run={run} busyKey={busyKey} />}
           <div className="mt-4 flex flex-wrap gap-2">
             <Button busy={busyKey === "start"} disabled={courtsUsed === 0} onClick={() => run("start", () => Api.sessionAction(d.id, "start"))}>
               {paused ? `▶️ Resume · round ${nextRound}` : "Start session →"}
-            </Button>
-            <Button variant="secondary" busy={busyKey === "checkin_all"} onClick={() => run("checkin_all", () => Api.sessionAction(d.id, "checkin_all"))}>
-              Everyone's here
             </Button>
           </div>
         </Card>
@@ -1027,7 +972,7 @@ function CheckinView({ d, isOrganizer, run, busyKey }: ViewProps) {
           </Card>
         )
       )}
-      <PlayersCard d={d} isOrganizer={isOrganizer} run={run} busyKey={busyKey} checkinMode />
+      <PlayersCard d={d} isOrganizer={isOrganizer} run={run} busyKey={busyKey} />
       {paused && (
         <Card>
           <SectionHeader
@@ -1097,8 +1042,8 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
           {isOrganizer ? (
             <>
               <p className="text-sm text-muted">
-                Every round has been undone. Start a fresh round 1 with the {d.counts.checkedIn} checked-in player
-                {d.counts.checkedIn === 1 ? "" : "s"}, or pause the game to change who's playing.
+                Every round has been undone. Start a fresh round 1 with the {d.counts.checkedIn} player
+                {d.counts.checkedIn === 1 ? "" : "s"} here, or pause the game to change who's playing.
               </p>
               <div className="mt-4 flex flex-wrap gap-2">
                 <Button busy={busyKey === "next"} disabled={roundCapacity(d, checkedIn(d)).courts === 0} onClick={() => run("next", () => Api.nextRound(d.id))}>
@@ -1133,19 +1078,6 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
       )}
       {!isOrganizer && me && me.status === "checked_in" && current && !meFinishing && (
         <MyMatchCard d={d} round={current} nameOf={nameOf} run={run} busyKey={busyKey} waitingFor={waitingFor} />
-      )}
-      {!isOrganizer && me && me.status === "confirmed" && (
-        <Card className="border-royal/30 bg-royal-soft/40">
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <p className="font-bold text-navy">At the courts?</p>
-              <p className="text-xs text-muted">Check in and you're in the rotation from the next round.</p>
-            </div>
-            <Button busy={busyKey === "selfcheckin"} onClick={() => run("selfcheckin", () => Api.selfCheckin(d.id))}>
-              ✓ I'm here
-            </Button>
-          </div>
-        </Card>
       )}
       {!isOrganizer && me && me.status === "waitlist" && (
         <Card className="border-amber-soft bg-amber-soft/40">
@@ -1205,6 +1137,7 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
                 key={m.id}
                 d={d}
                 m={m}
+                round={current}
                 nameOf={nameOf}
                 isOrganizer={isOrganizer}
                 run={run}
@@ -1213,17 +1146,13 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
               />
             ))}
           </div>
-          {current.byes.length > 0 && (
-            <p className="mt-3 text-sm text-muted">
-              <span className="font-bold text-navy">Sitting this round:</span> {current.byes.map(nameOf).join(" · ")}
-            </p>
-          )}
         </Card>
       )}
 
       {isOrganizer && current && (
         <Card>
-          {/* One main action; the rest are rarely needed, so they sit small underneath. */}
+          {/* One main action, only once it can act (scores in, or a court free to start
+              the next round); the rest are rarely needed, so they sit small underneath. */}
           {canDealAhead ? (
             <Button
               className="w-full"
@@ -1242,20 +1171,14 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
               ▶️ Start round {current.number + 1} on {freeCourts.map(label).join(" & ")}
             </Button>
           ) : (
-            <Button
-              className="w-full"
-              busy={busyKey === "next"}
-              disabled={!current.complete && !!finishingRound}
-              title={finishingRound && !current.complete ? `Round ${finishingRound.number} is still finishing` : undefined}
-              onClick={() => {
-                if (!current.complete && !window.confirm("Some scores aren't confirmed yet. Generate the next round anyway?")) return;
-                run("next", () => Api.nextRound(d.id, { force: !current.complete }));
-              }}
-            >
-              Next round →
-            </Button>
+            current.complete &&
+            !finishingRound && (
+              <Button className="w-full" busy={busyKey === "next"} onClick={() => run("next", () => Api.nextRound(d.id))}>
+                Next round →
+              </Button>
+            )
           )}
-          <div className="mt-2 flex flex-wrap justify-center gap-1">
+          <div className={cls("flex flex-wrap justify-center gap-1", (canDealAhead || (current.complete && !finishingRound)) && "mt-2")}>
             {!current.matches.some((m) => m.status === "confirmed") && (
               <Button
                 variant="ghost"
@@ -1285,7 +1208,7 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
               disabled={!current.complete || !!finishingRound}
               title={
                 current.complete && !finishingRound
-                  ? "Back to check-in between rounds — every round and the standings are kept"
+                  ? "Pause between rounds — every round and the standings are kept"
                   : "Enter all of the scores first"
               }
               onClick={() => run("pause", () => Api.sessionAction(d.id, "pause"))}
@@ -1374,7 +1297,6 @@ function LiveRosterCard({ d, isOrganizer, run, busyKey }: ViewProps) {
       <p className="mb-3 text-xs text-muted">
         {courtsUsed} court{courtsUsed === 1 ? "" : "s"} per round
         {sitting > 0 ? ` · ${sitting} sit${sitting === 1 ? "s" : ""} out each round` : " · everyone plays"}
-        {d.counts.confirmed > 0 && ` · ${d.counts.confirmed} not checked in`}
       </p>
       {isOrganizer && d.groupByLevel && <LevelHint players={d.players.filter((p) => p.status !== "dropped" && p.status !== "waitlist")} />}
       {isOrganizer && d.fixedTeams && <PairingHint d={d} />}
@@ -1422,15 +1344,13 @@ function LiveRosterCard({ d, isOrganizer, run, busyKey }: ViewProps) {
                           {p.isGuest && <span className="ml-1.5 text-xs font-medium text-faint">guest</span>}
                           {me && <span className="ml-1.5 text-xs font-bold text-royal">you</span>}
                         </p>
-                        {isOrganizer && (d.mixedPairs || d.groupByLevel || d.fixedTeams) && (
+                        {isOrganizer && (
                           <div className="flex flex-wrap items-center gap-1">
-                            {d.mixedPairs && (
-                              <GenderSelect
-                                value={p.gender}
-                                busy={busyKey === `g-${p.id}`}
-                                onChange={(gender) => run(`g-${p.id}`, () => Api.playerAction(d.id, p.id, "set_gender", { gender }))}
-                              />
-                            )}
+                            <GenderSelect
+                              value={p.gender}
+                              busy={busyKey === `g-${p.id}`}
+                              onChange={(gender) => run(`g-${p.id}`, () => Api.playerAction(d.id, p.id, "set_gender", { gender }))}
+                            />
                             {(d.groupByLevel || d.fixedTeams) && (
                               <LevelSelect
                                 compact
@@ -1453,7 +1373,6 @@ function LiveRosterCard({ d, isOrganizer, run, busyKey }: ViewProps) {
                         {/* Only facts worth reading: nothing before a first game, no "playing" for everyone. */}
                         {(() => {
                           const facts = [
-                            p.status !== "checked_in" && "not checked in",
                             !isOrganizer && d.fixedTeams && partnerOf(d, p) && `🤝 with ${partnerOf(d, p)!.name}`,
                             row.played > 0 && `${row.wins}-${row.losses}${row.ties > 0 ? `-${row.ties}` : ""}`,
                             row.played > 0 && `${perGame(row)} per game`,
@@ -1491,16 +1410,6 @@ function LiveRosterCard({ d, isOrganizer, run, busyKey }: ViewProps) {
                   {isOrganizer && (
                     <td className="py-2 text-right">
                       <div className="flex items-center justify-end gap-1">
-                        {p.status === "confirmed" && (
-                          <Button
-                            size="sm"
-                            variant="subtle"
-                            busy={busyKey === `p-${p.id}`}
-                            onClick={() => run(`p-${p.id}`, () => Api.playerAction(d.id, p.id, "checkin"))}
-                          >
-                            Check in
-                          </Button>
-                        )}
                         <button
                           type="button"
                           className="flex size-8 items-center justify-center rounded-full text-faint hover:bg-rose-soft hover:text-rose-dark disabled:pointer-events-none"
@@ -1587,17 +1496,14 @@ function waitingForCourt(d: SessionDetail, finishing: MatchRow[]) {
 function NextUp({ d, round, nameOf }: { d: SessionDetail; round: RoundRow; nameOf: (id: string) => string }) {
   const me = d.myPlayerId!;
   const next = round.matches.find((m) => [...m.a, ...m.b].includes(me));
+  if (!next) return null;
   return (
     <Card className="border-line bg-canvas/60">
       <p className="text-xs font-bold uppercase tracking-wider text-muted">Next · round {round.number}</p>
-      {next ? (
-        <p className="mt-1 text-sm text-ink">
-          <b className="text-navy">Court {courtLabel(d.courtLabels, next.court)}</b> —{" "}
-          {teamNames(next.a.includes(me) ? next.a : next.b, nameOf)} vs {teamNames(next.a.includes(me) ? next.b : next.a, nameOf)}
-        </p>
-      ) : (
-        <p className="mt-1 text-sm text-ink">You sit round {round.number} out — finish up and grab a drink.</p>
-      )}
+      <p className="mt-1 text-sm text-ink">
+        <b className="text-navy">Court {courtLabel(d.courtLabels, next.court)}</b> —{" "}
+        {teamNames(next.a.includes(me) ? next.a : next.b, nameOf)} vs {teamNames(next.a.includes(me) ? next.b : next.a, nameOf)}
+      </p>
     </Card>
   );
 }
@@ -1605,6 +1511,7 @@ function NextUp({ d, round, nameOf }: { d: SessionDetail; round: RoundRow; nameO
 function CourtCard({
   d,
   m,
+  round,
   waitingFor,
   nameOf,
   isOrganizer,
@@ -1613,6 +1520,8 @@ function CourtCard({
 }: {
   d: SessionDetail;
   m: MatchRow;
+  /** The round on court: given, the organizer can swap players in this game until it has a score. */
+  round?: RoundRow;
   /** Dealt ahead: the court this game waits on ("Court 4"), while its players finish there. */
   waitingFor?: string;
   nameOf: (id: string) => string;
@@ -1621,40 +1530,43 @@ function CourtCard({
   busyKey: string | null;
 }) {
   const [editing, setEditing] = useState(false);
+  const [swapping, setSwapping] = useState(false);
   const scored = m.scoreA != null && m.scoreB != null;
+  const canSwap = isOrganizer && !!round && !d.fixedTeams && !scored && m.status === "pending";
+  const court = `Court ${courtLabel(d.courtLabels, m.court)}`;
   return (
-    <>
-      <button
-        className={cls(
-          "rounded-2xl border border-line bg-canvas/60 p-4 text-left transition-colors",
-          isOrganizer && "hover:border-royal hover:bg-royal-soft/40",
-        )}
-        onClick={() => isOrganizer && setEditing(true)}
-        disabled={!isOrganizer}
-      >
-        <div className="mb-3 flex items-center justify-between gap-2">
-          <span className="flex items-center gap-2 text-2xl font-black uppercase tracking-tight text-royal">
-            <span aria-hidden>🏟️</span>
-            <span>Court {courtLabel(d.courtLabels, m.court)}</span>
-          </span>
-          <MatchStatusBadge m={m} />
+    <div className="rounded-2xl border border-line bg-canvas/60 p-4">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <span className="flex items-center gap-2 text-2xl font-black uppercase tracking-tight text-royal">
+          <span aria-hidden>🏟️</span>
+          <span>{court}</span>
+        </span>
+        <MatchStatusBadge m={m} />
+      </div>
+      {waitingFor && <p className="-mt-1 mb-2 text-xs font-bold text-amber-dark">⏳ Starts when {waitingFor} finishes</p>}
+      <div className="space-y-1.5 text-sm">
+        <div className="flex items-center justify-between gap-2">
+          <span className="min-w-0 truncate font-bold text-navy">{teamNames(m.a, nameOf)}</span>
+          <span className="tabular text-2xl font-black text-navy">{m.scoreA ?? "–"}</span>
         </div>
-        {waitingFor && (
-          <p className="-mt-1 mb-2 text-xs font-bold text-amber-dark">⏳ Starts when {waitingFor} finishes</p>
-        )}
-        <div className="space-y-1.5 text-sm">
-          <div className="flex items-center justify-between gap-2">
-            <span className="min-w-0 truncate font-bold text-navy">{teamNames(m.a, nameOf)}</span>
-            <span className="tabular text-2xl font-black text-navy">{m.scoreA ?? "–"}</span>
-          </div>
-          <div className="flex items-center justify-between gap-2">
-            <span className="min-w-0 truncate font-bold text-navy">{teamNames(m.b, nameOf)}</span>
-            <span className="tabular text-2xl font-black text-navy">{m.scoreB ?? "–"}</span>
-          </div>
+        <div className="flex items-center justify-between gap-2">
+          <span className="min-w-0 truncate font-bold text-navy">{teamNames(m.b, nameOf)}</span>
+          <span className="tabular text-2xl font-black text-navy">{m.scoreB ?? "–"}</span>
         </div>
-        {isOrganizer && <p className="mt-2 text-xs text-faint">{scored ? "Tap to edit score" : "Tap to enter score"}</p>}
-      </button>
-      <Modal open={editing} onClose={() => setEditing(false)} title={`Court ${courtLabel(d.courtLabels, m.court)} — score`}>
+      </div>
+      {isOrganizer && (
+        <div className="mt-3 flex gap-2">
+          <Button className="flex-1" size="sm" variant={scored ? "subtle" : "primary"} aria-label={`${scored ? "Edit" : "Enter"} score, ${court}`} onClick={() => setEditing(true)}>
+            {scored ? "✏️ Edit score" : "📝 Enter score"}
+          </Button>
+          {canSwap && (
+            <Button size="sm" variant="subtle" aria-label={`Swap a player, ${court}`} onClick={() => setSwapping(true)}>
+              ⇄ Swap
+            </Button>
+          )}
+        </div>
+      )}
+      <Modal open={editing} onClose={() => setEditing(false)} title={`${court} — score`}>
         <ScoreEntry
           total={d.pointsPerMatch}
           teamA={teamNames(m.a, nameOf)}
@@ -1670,7 +1582,98 @@ function CourtCard({
           }
         />
       </Modal>
-    </>
+      {canSwap && round && (
+        <SwapModal open={swapping} onClose={() => setSwapping(false)} d={d} m={m} round={round} nameOf={nameOf} run={run} busyKey={busyKey} />
+      )}
+    </div>
+  );
+}
+
+/** Swap a player in a game: tap who's going off, then who's coming on. */
+function SwapModal({
+  open,
+  onClose,
+  d,
+  m,
+  round,
+  nameOf,
+  run,
+  busyKey,
+}: {
+  open: boolean;
+  onClose: () => void;
+  d: SessionDetail;
+  m: MatchRow;
+  round: RoundRow;
+  nameOf: (id: string) => string;
+  run: Run;
+  busyKey: string | null;
+}) {
+  const [out, setOut] = useState<string | null>(null);
+  const label = (court: number) => `Court ${courtLabel(d.courtLabels, court)}`;
+  const inRound = new Set([...round.byes, ...round.matches.flatMap((x) => [...x.a, ...x.b])]);
+  // Who can come on: sitting out first, then players on other courts without a score yet, then late arrivals.
+  const candidates = [
+    ...round.byes.map((id) => ({ id, note: "sitting out" })),
+    ...round.matches
+      .filter((x) => x.id !== m.id && x.scoreA == null && x.status === "pending")
+      .flatMap((x) => [...x.a, ...x.b].map((id) => ({ id, note: label(x.court) }))),
+    ...d.players
+      .filter((p) => p.status === "checked_in" && !inRound.has(p.id))
+      .map((p) => ({ id: p.id, note: "just arrived" })),
+  ];
+  const close = () => {
+    setOut(null);
+    onClose();
+  };
+  return (
+    <Modal open={open} onClose={close} title={`${label(m.court)} — swap a player`}>
+      <p className="mb-2 text-xs font-bold uppercase tracking-wider text-muted">Going off</p>
+      <div className="grid grid-cols-2 gap-2">
+        {[...m.a, ...m.b].map((id) => (
+          <button
+            key={id}
+            type="button"
+            aria-pressed={out === id}
+            onClick={() => setOut(id)}
+            className={cls(
+              "truncate rounded-xl border px-3 py-2 text-left text-sm font-bold",
+              out === id ? "border-royal bg-royal text-white" : "border-line bg-white text-navy hover:border-line-strong",
+            )}
+          >
+            {nameOf(id)}
+          </button>
+        ))}
+      </div>
+      {out && (
+        <>
+          <p className="mb-2 mt-4 text-xs font-bold uppercase tracking-wider text-muted">Coming on for {nameOf(out)}</p>
+          {candidates.length === 0 ? (
+            <p className="text-sm text-muted">Nobody free to swap in.</p>
+          ) : (
+            <div className="max-h-72 space-y-1 overflow-y-auto">
+              {candidates.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  disabled={busyKey === "swap"}
+                  onClick={() =>
+                    run("swap", async () => {
+                      await Api.swapPlayer(d.id, round.id, out, c.id);
+                      close();
+                    })
+                  }
+                  className="flex w-full items-center justify-between gap-2 rounded-xl border border-line bg-white px-3 py-2 text-left text-sm hover:border-royal disabled:opacity-50"
+                >
+                  <span className="truncate font-bold text-navy">{nameOf(c.id)}</span>
+                  <span className="shrink-0 text-xs text-muted">{c.note}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </Modal>
   );
 }
 
@@ -1693,22 +1696,8 @@ function MyMatchCard({
   const myMatch = round.matches.find((m) => [...m.a, ...m.b].includes(me));
   const [editing, setEditing] = useState(false);
 
-  if (!myMatch) {
-    const sitting = round.byes.includes(me);
-    return (
-      <Card className="border-amber-soft bg-amber-soft/40 text-center">
-        <p className="text-3xl">{sitting ? "🧘" : "👋"}</p>
-        <p className="mt-1 font-black text-navy">
-          {sitting ? `You're sitting round ${round.number} out` : `You're in from round ${round.number + 1}`}
-        </p>
-        <p className="text-sm text-muted">
-          {sitting
-            ? "Grab a drink — sit-outs rotate fairly, so you'll be back on soon."
-            : `Round ${round.number} was already dealt when you joined — sit-outs rotate fairly, so you'll be on soon.`}
-        </p>
-      </Card>
-    );
-  }
+  // Sitting out (or dealt in from the next round): nothing to show — the round card says who's on.
+  if (!myMatch) return null;
 
   const myTeam: "a" | "b" = myMatch.a.includes(me) ? "a" : "b";
   const partner = (myTeam === "a" ? myMatch.a : myMatch.b).find((x) => x !== me)!;
@@ -1757,7 +1746,7 @@ function MyMatchCard({
           <>
             {!editing ? (
               <Button className="w-full" size="lg" onClick={() => setEditing(true)}>
-                Enter final score
+                📝 Enter score
               </Button>
             ) : (
               <ScoreEntry

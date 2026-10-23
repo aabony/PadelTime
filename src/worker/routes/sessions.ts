@@ -8,6 +8,7 @@ import { generateNextRound } from "../lib/engine";
 import { getFormat } from "../../shared/formats/registry";
 import { parseGender } from "../../shared/genders";
 import { parseLevel } from "../../shared/levels";
+import { swapInRound } from "../../shared/swap";
 import { asInt, newId, now, trimmed } from "../lib/util";
 import type { ApiCtx, AuthedUser } from "./context";
 
@@ -176,17 +177,14 @@ sessionRoutes.post("/sessions/:id/status", async (c) => {
       if (!["draft", "open", "checkin"].includes(session.status)) {
         return c.json({ error: "Session has already started" }, 400);
       }
-      // Fast path: starting straight from the roster (no check-in phase) means
-      // everyone the organizer confirmed is playing. From check-in, only the
-      // players who actually checked in get scheduled.
-      if (session.status !== "checkin") {
-        await db
-          .update(sessionPlayers)
-          .set({ status: "checked_in", checkedInAt: now() })
-          .where(
-            and(eq(sessionPlayers.sessionId, session.id), eq(sessionPlayers.status, "confirmed")),
-          );
-      }
+      // No check-in step: everyone still on the roster plays (no-shows get ✕'d),
+      // whether starting or resuming a paused game.
+      await db
+        .update(sessionPlayers)
+        .set({ status: "checked_in", checkedInAt: now() })
+        .where(
+          and(eq(sessionPlayers.sessionId, session.id), eq(sessionPlayers.status, "confirmed")),
+        );
       const result = await generateNextRound(db, session);
       if (result.error) return c.json({ error: result.error }, 400);
       await setStatus("active");
@@ -517,6 +515,64 @@ sessionRoutes.post("/sessions/:id/rounds", async (c) => {
   const result = await generateNextRound(db, session, { force });
   if (result.error) return c.json({ error: result.error }, 400);
   return c.json({ ok: true, roundNumber: result.roundNumber });
+});
+
+// Swap one player for another in the round on court (a game without a score
+// yet): someone sitting out, someone on another court, or a late arrival.
+sessionRoutes.post("/sessions/:id/rounds/:roundId/swap", async (c) => {
+  const u = c.get("user");
+  if (!u) return c.json({ error: "Sign in required" }, 401);
+  const db = c.get("db");
+  const loaded = await loadSession(db, c.req.param("id"));
+  if (!loaded) return c.json({ error: "Session not found" }, 404);
+  const { session } = loaded;
+  if (!(await canManage(db, session, u))) return c.json({ error: "Organizers only" }, 403);
+  if (session.status !== "active") return c.json({ error: "Session isn't live" }, 400);
+  if (session.fixedTeams) {
+    return c.json({ error: "Teams play together all night — a swap would split one" }, 400);
+  }
+
+  const body = await c.req.json().catch(() => ({}));
+  const out = typeof body.out === "string" ? body.out : "";
+  const inn = typeof body.in === "string" ? body.in : "";
+  const played = await loadRounds(db, session.id);
+  const latest = played[played.length - 1];
+  if (!latest || latest.id !== c.req.param("roundId")) {
+    return c.json({ error: "Only the round on court can change" }, 400);
+  }
+  const inRound =
+    latest.byes.includes(inn) || latest.matches.some((m) => [...m.a, ...m.b].includes(inn));
+  if (!inRound) {
+    const [player] = await db
+      .select()
+      .from(sessionPlayers)
+      .where(and(eq(sessionPlayers.id, inn), eq(sessionPlayers.sessionId, session.id)))
+      .limit(1);
+    if (!player || player.status !== "checked_in") {
+      return c.json({ error: "That player isn't playing tonight" }, 400);
+    }
+  }
+
+  const result = swapInRound(
+    latest.matches.map((m) => ({
+      id: m.id,
+      slots: [m.a[0], m.a[1], m.b[0], m.b[1]],
+      scored: m.scoreA != null || m.status !== "pending",
+    })),
+    latest.byes,
+    out,
+    inn,
+  );
+  if ("error" in result) return c.json({ error: result.error }, 400);
+  for (const m of result.matches) {
+    const [a1, a2, b1, b2] = m.slots;
+    await db.update(matches).set({ a1, a2, b1, b2 }).where(eq(matches.id, m.id));
+  }
+  await db
+    .update(rounds)
+    .set({ byesJson: JSON.stringify(result.byes) })
+    .where(eq(rounds.id, latest.id));
+  return c.json({ ok: true });
 });
 
 sessionRoutes.delete("/sessions/:id/rounds/:roundId", async (c) => {

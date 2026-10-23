@@ -97,14 +97,9 @@ export function Home() {
         <div>
           <h1 className="whitespace-nowrap text-2xl font-black tracking-tight text-navy">Hey {firstName(data.user.name)} 👋</h1>
         </div>
-        <div className="flex shrink-0 items-center gap-3">
-          <Link to="/plan" className="text-sm font-bold text-royal hover:text-royal-dark">
-            Planner
-          </Link>
-          <Button className="whitespace-nowrap" aria-label="New session" onClick={() => setShowCreate(true)}>
-            + New
-          </Button>
-        </div>
+        <Button className="shrink-0 whitespace-nowrap" aria-label="New session" onClick={() => setShowCreate(true)}>
+          + New session
+        </Button>
       </div>
 
       <section>

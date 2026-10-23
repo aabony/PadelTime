@@ -267,14 +267,9 @@ export function JoinPage() {
                 </Button>
               </Link>
             ) : playing && spotsLeft > 0 ? (
-              <div className="flex gap-2">
-                <Button className="flex-1" size="lg" busy={busy === "here"} onClick={() => join(true)}>
-                  ✓ I'm here — deal me in
-                </Button>
-                <Button variant="secondary" size="lg" busy={busy === "join"} onClick={() => join(false)}>
-                  On my way
-                </Button>
-              </div>
+              <Button className="w-full" size="lg" busy={busy === "here"} onClick={() => join(true)}>
+                ✓ Join — deal me in
+              </Button>
             ) : (
               <Button className="w-full" size="lg" busy={busy === "join"} onClick={() => join(false)}>
                 {spotsLeft > 0 ? "Join session" : "Join waitlist"}

@@ -75,6 +75,8 @@ export const Api = {
     req<{ roundNumber?: number }>(`/sessions/${id}/rounds`, post(opts)),
   undoRound: (id: string, roundId: string) =>
     req(`/sessions/${id}/rounds/${roundId}`, { method: "DELETE" }),
+  swapPlayer: (id: string, roundId: string, out: string, inn: string) =>
+    req(`/sessions/${id}/rounds/${roundId}/swap`, post({ out, in: inn })),
 
   score: (matchId: string, scoreA: number, scoreB: number) =>
     req<{ status: string }>(`/matches/${matchId}/score`, post({ scoreA, scoreB })),

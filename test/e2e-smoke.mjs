@@ -109,7 +109,9 @@ if (!joinUrl?.includes("/join/")) fail(`no join url found (${joinUrl})`);
 const code = joinUrl.split("/join/")[1];
 log(`invite code: ${code}`);
 
-await org.getByRole("button", { name: "+ I'm playing too" }).click();
+// The organizer plays too: they join with their own invite link like anyone else.
+await org.request.post(`${BASE}/api/join/${code}`, { data: {} });
+await org.reload();
 await org.getByText("you", { exact: true }).first().waitFor({ timeout: 10000 });
 for (const g of ["George", "John", "Zach", "Mike", "Ben", "Chris"]) {
   await org.getByPlaceholder(/Add player by name/).fill(g);
@@ -118,8 +120,8 @@ for (const g of ["George", "John", "Zach", "Mike", "Ben", "Chris"]) {
 }
 log("organizer + 6 guests in roster");
 const genderOf = (pg, name) => pg.locator("li", { hasText: name }).getByRole("combobox", { name: "Gender" });
-// Gender only matters for mixed pairs: no picker until it's on.
-if ((await genderOf(org, "George").count()) !== 0) fail("no gender selects until the session uses mixed pairs");
+// Gender can always be set (it's needed the moment mixed pairs goes on).
+if ((await genderOf(org, "George").count()) !== 1) fail("the organizer should always have a gender picker");
 await org.getByRole("button", { name: "Settings" }).click();
 await org.getByRole("checkbox", { name: /^👩👨 Mixed pairs/ }).check();
 await org.getByRole("button", { name: "Save changes" }).click();
@@ -169,33 +171,25 @@ if (!paulaView.groupByLevel) fail("Paula's view should say the session groups by
 if (paulaView.players.some((p) => p.level != null)) fail("levels must not reach players' API responses");
 log("levels are organizer-only: no selects for Paula, null in her API payload");
 
-// --- Check-in --------------------------------------------------------------
-await org.getByRole("button", { name: "Start check-in" }).click();
-await org.getByText("Only checked-in players").waitFor({ timeout: 10000 });
-log("check-in started");
-
-await paula.getByRole("button", { name: /I'm here/ }).click({ timeout: 15000 });
-await paula.getByText("You're checked in").waitFor({ timeout: 10000 });
-log("Paula self-checked-in");
-
-await org.getByRole("button", { name: "Everyone's here" }).click();
-await org.getByText(/8.*checked in/s).waitFor({ timeout: 10000 }).catch(() => {});
-await shot(org, "04-checkin");
+// --- Start: no check-in step — everyone signed up plays --------------------
+if ((await org.getByRole("button", { name: "Start check-in" }).count()) !== 0) fail("check-in is no longer a step");
+await shot(org, "04-ready");
 await org.getByRole("button", { name: "Start session →" }).click();
 await org.getByText("Round 1", { exact: false }).first().waitFor({ timeout: 15000 });
-log("session started — round 1 generated");
+log("session started straight from signup — round 1 generated");
 
-const courtCards = org.getByRole("button").filter({ hasText: /^COURT|Court \d/ });
-const courtCount = await org.locator("button", { hasText: "Tap to enter score" }).count();
+const scoreBtn = (pg, court) => pg.getByRole("button", { name: new RegExp(`(Enter|Edit) score, Court ${court}$`) });
+const courtCount = await org.getByRole("button", { name: /Enter score, Court/ }).count();
 if (courtCount !== 2) fail(`expected 2 courts, saw ${courtCount}`);
-for (const label of ["Court 3", "Court 4"]) await courtCards.filter({ hasText: label }).first().waitFor();
-if ((await courtCards.filter({ hasText: /Court [12]\b/ }).count()) !== 0) fail("courts should be labelled 3 and 4, not 1 and 2");
+for (const label of [3, 4]) await scoreBtn(org, label).first().waitFor();
+if ((await org.getByRole("button", { name: /score, Court [12]$/ }).count()) !== 0) fail("courts should be labelled 3 and 4, not 1 and 2");
+if ((await org.getByRole("button", { name: "Next round →" }).count()) !== 0) fail("no Next round until the scores are in");
 log("2 courts (labelled Court 3 / Court 4), 8 players, no byes ✓");
 await shot(org, "05-live-round1");
 
 // --- Paula scores her own match --------------------------------------------
 await paula.waitForTimeout(4500); // next poll picks up the live round
-const enterBtn = paula.getByRole("button", { name: "Enter final score" });
+const enterBtn = paula.getByRole("button", { name: "📝 Enter score" });
 if (await enterBtn.isVisible().catch(() => false)) {
   await shot(paula, "06-paula-match");
   await enterBtn.click();
@@ -225,7 +219,7 @@ if (await enterBtn.isVisible().catch(() => false)) {
 
 // --- Organizer finalises all courts ----------------------------------------
 for (const court of [3, 4]) {
-  await org.getByRole("button", { name: new RegExp(`Court ${court}\\b`) }).first().click();
+  await scoreBtn(org, court).first().click();
   const plus = org.locator(".fixed").getByRole("button", { name: "+", exact: true });
   await plus.click();
   await org.getByRole("button", { name: /Save score/ }).click();
@@ -251,11 +245,11 @@ await late.getByRole("button", { name: "Continue with email →" }).click();
 await late.waitForURL("**/login**");
 await otpSignIn(late, "Late", `late${run}@test.com`);
 await late.waitForURL("**/join/**", { timeout: 15000 });
-await late.getByRole("button", { name: /I'm here — deal me in/ }).click({ timeout: 15000 });
+await late.getByRole("button", { name: /Join — deal me in/ }).click({ timeout: 15000 });
 await late.getByText("in the rotation from the next round").waitFor({ timeout: 10000 });
 await late.getByRole("button", { name: "Open session" }).click();
 await late.waitForURL("**/app/sessions/**");
-await late.getByText("You're in from round 2").waitFor({ timeout: 10000 });
+await late.getByText("Round 1").first().waitFor({ timeout: 10000 });
 await org.waitForTimeout(4500); // next poll
 if ((await org.locator("tbody tr", { hasText: "Late" }).count()) !== 1) fail("joining should claim the guest entry, not duplicate it");
 if ((await org.locator("tbody tr", { hasText: "Late" }).getByText("guest").count()) !== 0) fail("claimed entry should no longer be a guest");
@@ -270,12 +264,40 @@ if ((await org.locator("table tbody tr").count()) < 8) fail("paused view should 
 await shot(org, "08c-paused");
 await org.getByRole("button", { name: /Resume · round 2/ }).click();
 await org.getByText("Round 2").first().waitFor({ timeout: 15000 });
-log("pause → check-in with standings kept → resume deals round 2");
-await late.waitForTimeout(4500); // next poll
-await late.getByText(/Round 2 · your match|sitting round 2 out/).first().waitFor({ timeout: 10000 });
+log("pause with standings kept → resume deals round 2");
+const lateView = await (await late.request.get(`${BASE}/api/sessions/${sessionId}`)).json();
+const r2 = lateView.rounds.at(-1);
+if (![...r2.byes, ...r2.matches.flatMap((m) => [...m.a, ...m.b])].includes(lateView.myPlayerId)) fail("late arrival should be in round 2");
 log("late arrival is part of round 2 (9 players: 8 on court, 1 sitting)");
 
-// --- Round 3, then finish ---------------------------------------------------
+// --- Swap: the sitting player comes on for someone on Court 3 ---------------
+const orgApi = async (method, path, data) => {
+  const res = await org.request.fetch(`${BASE}/api${path}`, { method, data });
+  if (!res.ok()) fail(`${method} ${path} → ${res.status()} ${await res.text()}`);
+  return res.json();
+};
+const sitter = r2.byes[0];
+const court3 = r2.matches.find((m) => m.court === 1);
+const goingOff = court3.a[0];
+const nameIn = (id) => lateView.players.find((p) => p.id === id).name;
+await org.getByRole("button", { name: "Swap a player, Court 3" }).click();
+await org.locator(".fixed").getByRole("button", { name: nameIn(goingOff), exact: true }).click();
+await org.locator(".fixed").getByRole("button", { name: new RegExp(`^${nameIn(sitter)}\\s*sitting out`) }).click();
+await org.locator(".fixed").waitFor({ state: "detached", timeout: 10000 });
+const swapped = (await orgApi("GET", `/sessions/${sessionId}`)).rounds.at(-1);
+const c3 = swapped.matches.find((m) => m.id === court3.id);
+if (!c3.a.includes(sitter) || c3.a.includes(goingOff)) fail(`swap should put ${nameIn(sitter)} on for ${nameIn(goingOff)}`);
+if (!swapped.byes.includes(goingOff) || swapped.byes.includes(sitter)) fail("the player going off should sit the round");
+log(`swap: ${nameIn(sitter)} came on for ${nameIn(goingOff)} on Court 3, who now sits round 2`);
+await shot(org, "08d-swapped");
+
+// --- Round 2 scores in, then round 3, then finish -----------------------------
+const half = lateView.pointsPerMatch / 2;
+for (const m of swapped.matches) await orgApi("POST", `/matches/${m.id}/score`, { scoreA: half, scoreB: half });
+const refused = await org.request.post(`${BASE}/api/sessions/${sessionId}/rounds/${swapped.id}/swap`, {
+  data: { out: c3.a[0], in: goingOff },
+});
+if (refused.ok()) fail("a game with a score can't have players swapped");
 await org.getByRole("button", { name: "Next round →" }).click();
 await org.getByText("Round 3").first().waitFor({ timeout: 15000 });
 log("round 3 generated");
@@ -471,7 +493,7 @@ if (!(await org.getByRole("button", { name: /Pause/ }).isDisabled())) fail("can'
 await shot(org, "12a-deal-ahead");
 log("deal ahead: Court 3 done → round 2 dealt now; Court 4's players sit it, Court 4 keeps playing round 1");
 // Court 4 finishes: its score still goes in, and round 1 closes.
-await org.locator("button", { hasText: "Court 4" }).first().click();
+await scoreBtn(org, 4).first().click();
 await org.locator(".fixed").getByRole("button", { name: "+", exact: true }).click();
 await org.getByRole("button", { name: /Save score/ }).click();
 await org.locator(".fixed").waitFor({ state: "detached", timeout: 10000 });
@@ -487,7 +509,7 @@ await org.getByPlaceholder("Thursday Padel Jam").fill("Quick Start Night");
 await org.getByRole("button", { name: "Create session", exact: true }).click();
 await org.waitForURL("**/app/sessions/**");
 const startBtn = org.getByRole("button", { name: "Start session →" });
-if (!(await startBtn.isDisabled())) fail("start should be disabled with no players");
+if ((await startBtn.count()) !== 0) fail("no Start button until there's a court's worth of players");
 for (const g of ["Ana", "Bea", "Cal", "Dee"]) {
   await org.getByPlaceholder(/Add player by name/).fill(g);
   await org.getByRole("button", { name: "Add", exact: true }).click();
@@ -496,7 +518,7 @@ for (const g of ["Ana", "Bea", "Cal", "Dee"]) {
 await org.getByText(/4 players · 1 court → nobody sits out/).waitFor({ timeout: 10000 });
 await startBtn.click();
 await org.getByText("Round 1").first().waitFor({ timeout: 15000 });
-if ((await org.locator("button", { hasText: "Tap to enter score" }).count()) !== 1) fail("quick start should yield 1 court");
+if ((await org.getByRole("button", { name: /Enter score, Court/ }).count()) !== 1) fail("quick start should yield 1 court");
 log("quick start from draft: 4 names → Start → round 1 (no signup step)");
 await shot(org, "12-quick-start");
 
@@ -508,8 +530,8 @@ await org.getByRole("button", { name: /Start round 1/ }).click();
 await org.getByText("Round 1").first().waitFor({ timeout: 15000 });
 await org.getByRole("button", { name: "Undo round" }).click();
 await org.getByRole("button", { name: /Pause/ }).click();
-await org.getByText("Only checked-in players").waitFor({ timeout: 10000 });
-log("empty board recovers: start round 1 again / pause back to check-in");
+await org.getByText("Game day?").waitFor({ timeout: 10000 });
+log("empty board recovers: start round 1 again / pause back to the roster");
 
 // --- Night planner: 4 dials → on-court / off-court split → prefilled new session ----
 await org.goto(`${BASE}/plan?players=11&courts=2&duration=90&points=16`);

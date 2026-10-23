@@ -106,7 +106,7 @@ publicRoutes.get("/join/:code", async (c) => {
 
 // Join via invite link → confirmed, or waitlist when full (plan §8). The link
 // keeps working once the game is on: late arrivals join themselves and are
-// dealt in from the next round. `here: true` checks them in on the spot.
+// dealt in from the next round (there's no separate check-in any more).
 publicRoutes.post("/join/:code", async (c) => {
   const u = c.get("user");
   if (!u) return c.json({ error: "Sign in required" }, 401);
@@ -120,7 +120,7 @@ publicRoutes.post("/join/:code", async (c) => {
   }
   const body = await c.req.json().catch(() => ({}));
   const playing = ["checkin", "active"].includes(session.status);
-  const here = playing && body.here === true;
+  const here = playing;
 
   const players = await db
     .select()

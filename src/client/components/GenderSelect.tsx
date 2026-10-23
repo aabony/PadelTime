@@ -2,7 +2,7 @@ import { GENDERS, genderMeta } from "../../shared/genders";
 import type { Gender } from "../../shared/genders";
 import { cls } from "./ui";
 
-/** Compact woman / man picker (native select: one tap on a phone). */
+/** Compact woman / man picker — just the emoji (native select: one tap on a phone). */
 export function GenderSelect({
   value,
   onChange,
@@ -27,10 +27,10 @@ export function GenderSelect({
         meta ? "border-line bg-canvas text-navy" : "border-dashed border-line-strong bg-white text-muted",
       )}
     >
-      <option value="">— w / m —</option>
+      <option value="">👩/👨</option>
       {GENDERS.map((g) => (
-        <option key={g.value} value={g.value}>
-          {g.emoji} {g.label}
+        <option key={g.value} value={g.value} aria-label={g.label}>
+          {g.emoji}
         </option>
       ))}
     </select>

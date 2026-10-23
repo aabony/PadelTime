@@ -71,6 +71,7 @@ export function NightSummary({
         )}
         {courtsUsed < courts && <span className="text-muted"> (fills {courtsUsed} of {courts} courts)</span>}
       </p>
+      {rows.length > 0 && open && <p className="px-1 text-[11px] text-muted">Assumes a 10-min warm-up.</p>}
 
       {rows.length > 0 && !open ? (
         (() => {
@@ -125,13 +126,6 @@ export function NightSummary({
         </div>
       ) : (
         <p className="mt-1 px-1 text-xs text-muted">Set the court time to compare game lengths.</p>
-      )}
-      {rows.length > 0 && open && (
-        <p className="mt-1.5 px-1 text-xs text-muted">
-          Games and sit-outs per {teams ? "team" : "player"} in a {durationMin}-min booking (~10 min to get going). ✓ = everyone
-          gets the same number of games.
-          {onPick && " Tap a row to use it."}
-        </p>
       )}
 
       {idle > 0 && (
