@@ -26,9 +26,7 @@ export function TeamsToggle({
       <span>
         <span className="block text-sm font-bold text-navy">🤝 Keep teams together</span>
         <span className="block text-xs text-muted">
-          Pairs play the whole night together. Pair people in the roster; anyone unpaired is paired for you when rounds
-          start, balanced by the levels you set (woman + man with Mixed pairs). Casual: each team meets different teams.
-          Competitive: winners play winners.
+          Partners play the whole night together. Pair them in the roster; the rest are paired for you.
         </span>
       </span>
     </label>

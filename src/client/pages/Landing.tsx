@@ -7,7 +7,7 @@ import { Logo } from "../App";
 const steps = [
   { icon: "📝", title: "Create a session", text: "Name, time, courts, points. Twenty seconds." },
   { icon: "🔗", title: "Share one link", text: "Players sign up from WhatsApp. Waitlist and check-in handled." },
-  { icon: "🎾", title: "Play", text: "Americano pairings, byes and a live leaderboard — every round, automatically." },
+  { icon: "🎾", title: "Play", text: "Fair pairings, sit-outs and a live leaderboard — every round, automatically." },
 ];
 
 function PaperSheetForm() {
@@ -61,7 +61,7 @@ export function Landing() {
       <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col justify-center px-5 pb-16">
         <div className="max-w-xl">
           <p className="mb-4 inline-block rounded-full bg-lime px-3 py-1 text-xs font-bold text-navy">
-            Americano &amp; Mexicano · mixed pairs · live scores
+            Americano &amp; Mexicano
           </p>
           <h1 className="text-4xl font-black leading-tight tracking-tight text-navy sm:text-6xl">
             Padel nights that
@@ -124,7 +124,7 @@ export function Landing() {
         </div>
       </main>
 
-      <footer className="border-t border-line py-6 text-center text-xs text-faint">
+      <footer className="border-t border-line px-5 py-6 text-center text-xs text-faint">
         PadelTime — the organizer gets the complexity, the players get simplicity.
       </footer>
     </div>

@@ -95,14 +95,15 @@ export function Home() {
     <div className="space-y-8">
       <div className="flex items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-black tracking-tight text-navy">Hey {firstName(data.user.name)} 👋</h1>
-          <p className="text-sm text-muted">Ready to hit?</p>
+          <h1 className="whitespace-nowrap text-2xl font-black tracking-tight text-navy">Hey {firstName(data.user.name)} 👋</h1>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex shrink-0 items-center gap-3">
           <Link to="/plan" className="text-sm font-bold text-royal hover:text-royal-dark">
             Planner
           </Link>
-          <Button onClick={() => setShowCreate(true)}>+ New session</Button>
+          <Button className="whitespace-nowrap" aria-label="New session" onClick={() => setShowCreate(true)}>
+            + New
+          </Button>
         </div>
       </div>
 
@@ -228,7 +229,6 @@ export function NewSessionModal({
         <StylePicker
           value={form.format}
           onChange={(format) => setForm({ ...form, format })}
-          grouped={form.groupByLevel}
           teams={form.fixedTeams}
           hint="You can switch styles later — even mid-session."
         />
@@ -286,7 +286,7 @@ export function NewSessionModal({
           <input type="checkbox" className="mt-0.5 size-5 accent-royal" checked={form.mixedPairs} onChange={(e) => setForm({ ...form, mixedPairs: e.target.checked })} />
           <span>
             <span className="block text-sm font-bold text-navy">👩👨 Mixed pairs</span>
-            <span className="block text-xs text-muted">Every team is one woman + one man whenever the numbers allow. Players say which they are when they join.</span>
+            <span className="block text-xs text-muted">One woman + one man per team when possible.</span>
           </span>
         </label>
         <GroupByLevelToggle checked={form.groupByLevel} onChange={(groupByLevel) => setForm({ ...form, groupByLevel })} />

@@ -23,8 +23,9 @@ app.on(["GET", "POST"], "/api/auth/*", (c) =>
 app.route("/api", api);
 
 // Shared links get a real preview: the SPA shell with the session's title and
-// a live description injected (wrangler routes /join/* and /board/* here).
-const preview = (kind: "join" | "board") => async (c: { env: Env; req: { url: string; raw: Request } }) => {
+// a live description injected (wrangler routes /join/* here, and old /board/*
+// links, which the app sends on to the join page).
+const preview = () => async (c: { env: Env; req: { url: string; raw: Request } }) => {
   const url = new URL(c.req.url);
   const shell = await c.env.ASSETS.fetch(new Request(new URL("/", url), { headers: c.req.raw.headers }));
   const code = url.pathname.split("/")[2] ?? "";
@@ -32,7 +33,7 @@ const preview = (kind: "join" | "board") => async (c: { env: Env; req: { url: st
   if (code) {
     try {
       await ensureSchema(c.env.DB);
-      meta = await previewFor(drizzle(c.env.DB, { schema }), kind, code);
+      meta = await previewFor(drizzle(c.env.DB, { schema }), code);
     } catch (err) {
       console.error("preview failed:", err);
     }
@@ -58,8 +59,8 @@ const preview = (kind: "join" | "board") => async (c: { env: Env; req: { url: st
     .on('meta[name="twitter:description"]', set("content", meta.description))
     .transform(shell);
 };
-app.get("/join/*", preview("join"));
-app.get("/board/*", preview("board"));
+app.get("/join/*", preview());
+app.get("/board/*", preview());
 
 app.notFound((c) => c.json({ error: "Not found" }, 404));
 app.onError((err, c) => {

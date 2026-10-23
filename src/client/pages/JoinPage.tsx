@@ -8,7 +8,27 @@ import { Logo } from "../App";
 import { statusTone } from "./Home";
 import { blurbFor, formatMeta } from "../../shared/formatMeta";
 import { GenderToggle } from "../components/GenderSelect";
+import { StandingsTable } from "../components/StandingsTable";
 import type { Gender } from "../../shared/genders";
+
+/** The night is over: the podium and the final table, for anyone with the link. */
+function FinalResults({ code }: { code: string }) {
+  const { data } = useLoad(() => Api.results(code), [code]);
+  if (!data) return null;
+  const table = (data.teamStandings ?? data.standings).filter((r) => r.played > 0);
+  const podium = table.filter((r) => r.ranked).slice(0, 3);
+  return (
+    <Card className="mt-4">
+      <h3 className="text-lg font-black text-navy">🏆 Final results</h3>
+      {podium.length > 0 && (
+        <p className="mb-2 mt-1 text-sm font-semibold text-ink">
+          {podium.map((r, i) => `${["🥇", "🥈", "🥉"][i]} ${r.name} ${r.points}`).join("  ·  ")}
+        </p>
+      )}
+      <StandingsTable standings={table} compact />
+    </Card>
+  );
+}
 
 export function JoinPage() {
   const { code = "" } = useParams();
@@ -81,20 +101,22 @@ export function JoinPage() {
     <div className="min-h-dvh bg-canvas pb-32">
       <div className="mx-auto max-w-lg">
         <div className="court-banner relative h-40 sm:rounded-b-3xl">
-          <div className="absolute left-4 top-4">
-            <span className="rounded-full bg-white px-3 py-1.5 shadow-md">
-              <Logo to="/" />
-            </span>
+          <div className="absolute left-4 top-4 inline-flex rounded-full bg-white px-3 py-1.5 shadow-md">
+            <Logo to="/" />
           </div>
         </div>
         <div className="px-3">
           <Card className="relative -mt-14 shadow-lg">
             <div className="flex items-center justify-between gap-2">
-              <p className="text-xs font-bold uppercase tracking-widest text-muted">You're invited</p>
+              <p className="text-xs font-bold uppercase tracking-widest text-muted">
+                {over ? "Padel night" : "You're invited"}
+              </p>
               <Badge tone={statusTone(data.status)}>{stageLabel}</Badge>
             </div>
             <h1 className="mt-1 text-2xl font-black leading-tight text-navy">{data.name}</h1>
-            <p className="mt-1 text-sm text-muted">{fmtTimeRange(data.startsAt, data.durationMin)}</p>
+            {data.startsAt != null && (
+              <p className="mt-1 text-sm text-muted">{fmtTimeRange(data.startsAt, data.durationMin)}</p>
+            )}
             {data.venue && <p className="text-sm text-muted">📍 {data.venue}</p>}
             <div className="mt-4 grid grid-cols-3 gap-2 border-t border-line pt-4">
               <StatCell label="Format" value={formatMeta(data.format).name} />
@@ -103,9 +125,17 @@ export function JoinPage() {
             </div>
           </Card>
 
+          {data.status === "complete" && <FinalResults code={code} />}
+
           {playing && !joined && !over && (
             <Card className="mt-4 border-royal/30 bg-royal-soft/40">
-              <p className="font-black text-navy">{live ? "The game is already on — jump in." : paused ? "The game is paused between rounds." : "Check-in is happening now."}</p>
+              <p className="font-black text-navy">
+                {live
+                  ? "The game is already on — jump in."
+                  : paused
+                    ? "The game is paused between rounds."
+                    : "Check-in is happening now."}
+              </p>
               <p className="mt-1 text-sm text-ink">
                 {live
                   ? `Round ${data.roundsPlayed} is on court. Join now and you're in the rotation from round ${nextRound} — the organizer sees you straight away.`
@@ -114,19 +144,23 @@ export function JoinPage() {
             </Card>
           )}
 
-          <Card className="mt-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-black text-navy">Players</h3>
-              <span className="tabular text-sm font-bold text-navy">
-                {data.confirmedCount} <span className="font-medium text-muted">/ {data.maxPlayers}</span>
-              </span>
-            </div>
-            <ProgressBar value={data.confirmedCount} max={data.maxPlayers} className="mt-3" />
-            <p className="mt-2 text-xs text-muted">
-              {spotsLeft > 0 ? `${spotsLeft} spot${spotsLeft === 1 ? "" : "s"} left` : "Full — new joins go on the waitlist"}
-              {data.waitlistCount > 0 && ` · ${data.waitlistCount} waitlisted`}
-            </p>
-          </Card>
+          {!over && (
+            <Card className="mt-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-black text-navy">Players</h3>
+                <span className="tabular text-sm font-bold text-navy">
+                  {data.confirmedCount} <span className="font-medium text-muted">/ {data.maxPlayers}</span>
+                </span>
+              </div>
+              <ProgressBar value={data.confirmedCount} max={data.maxPlayers} className="mt-3" />
+              <p className="mt-2 text-xs text-muted">
+                {spotsLeft > 0
+                  ? `${spotsLeft} spot${spotsLeft === 1 ? "" : "s"} left`
+                  : "Full — new joins go on the waitlist"}
+                {data.waitlistCount > 0 && ` · ${data.waitlistCount} waitlisted`}
+              </p>
+            </Card>
+          )}
 
           {!over && joined && data.fixedTeams && (
             <Card className="mt-4">
@@ -146,26 +180,31 @@ export function JoinPage() {
           {!over && data.mixedPairs && (
             <Card className="mt-4">
               <h3 className="text-lg font-black text-navy">You are…</h3>
-              <p className="mb-3 text-xs text-muted">Mixed pairs night: every team is one woman + one man, so the draw needs to know.</p>
+              <p className="mb-3 text-xs text-muted">
+                Mixed pairs night: every team is one woman + one man, so the draw needs to know.
+              </p>
               <GenderToggle value={gender} busy={busy === "gender"} onChange={pickGender} />
             </Card>
           )}
 
-          <Card className="mt-4">
-            <h3 className="mb-1 text-lg font-black text-navy">How it works</h3>
-            <div className="divide-y divide-line">
-              <InfoRow icon={formatMeta(data.format).emoji}>
-                <b>
-                  {data.fixedTeams && "Team "}
-                  {formatMeta(data.format).name}
-                </b>{" "}
-                — {blurbFor(data.format, data)}
-              </InfoRow>
-              <InfoRow icon="🎯">One game to {data.pointsPerMatch} rally points; every point you win counts for {data.fixedTeams ? "your team" : "you"}</InfoRow>
-              <InfoRow icon="📱">Enter and confirm scores from your phone; live leaderboard</InfoRow>
-              <InfoRow icon="🔑">No password — a one-time code by email</InfoRow>
-            </div>
-          </Card>
+          {!over && (
+            <Card className="mt-4">
+              <h3 className="mb-1 text-lg font-black text-navy">How it works</h3>
+              <div className="divide-y divide-line">
+                <InfoRow icon={formatMeta(data.format).emoji}>
+                  <b>
+                    {data.fixedTeams && "Team "}
+                    {formatMeta(data.format).name}
+                  </b>{" "}
+                  — {blurbFor(data.format, { fixedTeams: data.fixedTeams })}
+                </InfoRow>
+                <InfoRow icon="🎯">
+                  Games to {data.pointsPerMatch} points; every point you win counts for{" "}
+                  {data.fixedTeams ? "your team" : "you"}.
+                </InfoRow>
+              </div>
+            </Card>
+          )}
 
           <div className="mt-4">
             <ErrorNote message={joinErr} />
@@ -173,75 +212,77 @@ export function JoinPage() {
         </div>
       </div>
 
-      {/* Sticky action, Playtomic-style */}
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-white/95 p-4 backdrop-blur">
-        <div className="mx-auto max-w-lg">
-          {joined ? (
-            data.myStatus === "waitlist" ? (
-              <div className="flex items-center gap-3">
-                <p className="min-w-0 flex-1 text-sm font-semibold text-amber-dark">You're on the waitlist — hang tight.</p>
-                <Button size="lg" onClick={openSession}>
-                  Open session
-                </Button>
-              </div>
-            ) : playing && data.myStatus === "confirmed" ? (
-              <div>
-                <p className="mb-2 text-sm font-semibold text-navy">You're in ✓ — check in when you're at the courts.</p>
-                <div className="flex gap-2">
-                  <Button className="flex-1" size="lg" busy={busy === "here"} onClick={checkIn}>
-                    ✓ I'm here
-                  </Button>
-                  <Button variant="secondary" size="lg" onClick={openSession}>
+      {/* Sticky action, Playtomic-style (nothing to do on a finished night unless you played) */}
+      {!(data.status === "complete" && !joined) && (
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-white/95 p-4 backdrop-blur">
+          <div className="mx-auto max-w-lg">
+            {joined ? (
+              data.myStatus === "waitlist" ? (
+                <div className="flex items-center gap-3">
+                  <p className="min-w-0 flex-1 text-sm font-semibold text-amber-dark">
+                    You're on the waitlist — hang tight.
+                  </p>
+                  <Button size="lg" onClick={openSession}>
                     Open session
                   </Button>
                 </div>
-              </div>
-            ) : (
-              <div className="flex items-center gap-3">
-                <p className="min-w-0 flex-1 text-sm font-semibold text-navy">
-                  {data.myStatus === "checked_in" && live ? "You're in ✓ — in the rotation from the next round." : "You're in ✓"}
-                </p>
-                <Button size="lg" onClick={openSession}>
-                  Open session
+              ) : playing && data.myStatus === "confirmed" ? (
+                <div>
+                  <p className="mb-2 text-sm font-semibold text-navy">
+                    You're in ✓ — check in when you're at the courts.
+                  </p>
+                  <div className="flex gap-2">
+                    <Button className="flex-1" size="lg" busy={busy === "here"} onClick={checkIn}>
+                      ✓ I'm here
+                    </Button>
+                    <Button variant="secondary" size="lg" onClick={openSession}>
+                      Open session
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-3">
+                  <p className="min-w-0 flex-1 text-sm font-semibold text-navy">
+                    {data.myStatus === "checked_in" && live
+                      ? "You're in ✓ — in the rotation from the next round."
+                      : "You're in ✓"}
+                  </p>
+                  <Button size="lg" onClick={openSession}>
+                    Open session
+                  </Button>
+                </div>
+              )
+            ) : over ? (
+              <Button className="w-full" size="lg" disabled>
+                Session cancelled
+              </Button>
+            ) : data.status === "draft" ? (
+              <Button className="w-full" size="lg" disabled>
+                Signup hasn't opened yet
+              </Button>
+            ) : !session ? (
+              <Link to={`/login?next=${encodeURIComponent(`/join/${code}`)}`} className="block">
+                <Button className="w-full" size="lg">
+                  Continue with email →
+                </Button>
+              </Link>
+            ) : playing && spotsLeft > 0 ? (
+              <div className="flex gap-2">
+                <Button className="flex-1" size="lg" busy={busy === "here"} onClick={() => join(true)}>
+                  ✓ I'm here — deal me in
+                </Button>
+                <Button variant="secondary" size="lg" busy={busy === "join"} onClick={() => join(false)}>
+                  On my way
                 </Button>
               </div>
-            )
-          ) : data.status === "complete" ? (
-            <Link to={`/board/${code}`} className="block">
-              <Button className="w-full" size="lg">
-                🏆 See the final standings
+            ) : (
+              <Button className="w-full" size="lg" busy={busy === "join"} onClick={() => join(false)}>
+                {spotsLeft > 0 ? "Join session" : "Join waitlist"}
               </Button>
-            </Link>
-          ) : over ? (
-            <Button className="w-full" size="lg" disabled>
-              Session cancelled
-            </Button>
-          ) : data.status === "draft" ? (
-            <Button className="w-full" size="lg" disabled>
-              Signup hasn't opened yet
-            </Button>
-          ) : !session ? (
-            <Link to={`/login?next=${encodeURIComponent(`/join/${code}`)}`} className="block">
-              <Button className="w-full" size="lg">
-                Continue with email →
-              </Button>
-            </Link>
-          ) : playing && spotsLeft > 0 ? (
-            <div className="flex gap-2">
-              <Button className="flex-1" size="lg" busy={busy === "here"} onClick={() => join(true)}>
-                ✓ I'm here — deal me in
-              </Button>
-              <Button variant="secondary" size="lg" busy={busy === "join"} onClick={() => join(false)}>
-                On my way
-              </Button>
-            </div>
-          ) : (
-            <Button className="w-full" size="lg" busy={busy === "join"} onClick={() => join(false)}>
-              {spotsLeft > 0 ? "Join session" : "Join waitlist"}
-            </Button>
-          )}
+            )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

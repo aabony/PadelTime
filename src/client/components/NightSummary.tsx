@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { compareGameLengths, rosterWarnings, sweetSpot } from "../../shared/timing";
 import type { GameLengthOption } from "../../shared/timing";
 import { cls } from "./ui";
@@ -19,6 +20,7 @@ export function NightSummary({
   applying = false,
   teams = false,
   idle = 0,
+  folded = false,
 }: {
   players: number;
   courts: number;
@@ -32,7 +34,10 @@ export function NightSummary({
   teams?: boolean;
   /** Signed up but can't play (no partner here): not in the plan, sitting every round. */
   idle?: number;
+  /** Start with just the chosen length's line; the comparison opens on a tap. */
+  folded?: boolean;
 }) {
+  const [open, setOpen] = useState(!folded);
   const total = players + idle;
   if (players < 4) {
     return (
@@ -67,7 +72,23 @@ export function NightSummary({
         {courtsUsed < courts && <span className="text-muted"> (fills {courtsUsed} of {courts} courts)</span>}
       </p>
 
-      {rows.length > 0 ? (
+      {rows.length > 0 && !open ? (
+        (() => {
+          const now = rows.find((r) => r.points === points);
+          return (
+            <button type="button" onClick={() => setOpen(true)} className="mt-1 w-full px-1 text-left text-xs text-muted">
+              {now && (
+                <>
+                  <b className="text-navy">{points} pts</b> → {now.rounds} rounds, {teams ? "each team" : "everyone"} plays{" "}
+                  <b className={now.even ? "text-mint-dark" : "text-navy"}>{range(now.playMin, now.playMax)}</b>
+                  {now.even && " ✓"} ·{" "}
+                </>
+              )}
+              <span className="font-bold text-royal">Compare game lengths ▾</span>
+            </button>
+          );
+        })()
+      ) : rows.length > 0 ? (
         <div className="mt-2 overflow-hidden rounded-xl border border-line bg-white" data-testid="game-lengths">
           <div className="grid grid-cols-[1fr_3.5rem_3.25rem_2.5rem] gap-x-2 whitespace-nowrap border-b border-line px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted">
             <span>Game to</span>
@@ -105,7 +126,7 @@ export function NightSummary({
       ) : (
         <p className="mt-1 px-1 text-xs text-muted">Set the court time to compare game lengths.</p>
       )}
-      {rows.length > 0 && (
+      {rows.length > 0 && open && (
         <p className="mt-1.5 px-1 text-xs text-muted">
           Games and sit-outs per {teams ? "team" : "player"} in a {durationMin}-min booking (~10 min to get going). ✓ = everyone
           gets the same number of games.

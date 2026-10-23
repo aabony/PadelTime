@@ -1,7 +1,7 @@
 import { fitCourtLabels, parseCourtLabels } from "../../shared/courts";
 import { and, desc, eq, isNotNull, like } from "drizzle-orm";
 import { Hono } from "hono";
-import type { BoardData, JoinInfo, PlayerStatus, SessionStatus } from "../../shared/types";
+import type { ResultsData, JoinInfo, PlayerStatus, SessionStatus } from "../../shared/types";
 import { computeStandings, computeTeamStandings } from "../../shared/standings";
 import { groupMembers, sessionPlayers, verification } from "../db/schema";
 import type { DB } from "../lib/detail";
@@ -193,19 +193,19 @@ publicRoutes.post("/join/:code", async (c) => {
   return c.json({ status: target });
 });
 
-// Read-only live board for the invite code — the TV / court display (plan §16).
-publicRoutes.get("/board/:code", async (c) => {
+// Read-only public results for the invite code (the join page shows them once the night is over).
+publicRoutes.get("/results/:code", async (c) => {
   const db = c.get("db");
   const loaded = await loadSessionByCode(db, c.req.param("code"));
-  if (!loaded) return c.json({ error: "Board not found" }, 404);
+  if (!loaded) return c.json({ error: "Session not found" }, 404);
   const { session, groupName } = loaded;
   const players = await loadPlayers(db, session.id);
   const rounds = await loadRounds(db, session.id);
-  const board: BoardData = {
+  const board: ResultsData = {
     name: session.name,
     groupName,
     status: session.status as SessionStatus,
-    format: session.format as BoardData["format"],
+    format: session.format as ResultsData["format"],
     pointsPerMatch: session.pointsPerMatch,
     courtLabels: fitCourtLabels(parseCourtLabels(session.courtLabels ?? ""), session.courts),
     players: players.map((p) => ({ id: p.id, name: p.name })),

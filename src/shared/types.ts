@@ -180,7 +180,7 @@ export interface JoinInfo {
 }
 
 // Read-only public board (TV / court display) payload.
-export interface BoardData {
+export interface ResultsData {
   name: string;
   groupName: string;
   status: SessionStatus;

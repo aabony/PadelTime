@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
-  BoardData,
+  ResultsData,
   GroupDetail,
   JoinInfo,
   MeResponse,
@@ -84,7 +84,7 @@ export const Api = {
   joinInfo: (code: string) => req<JoinInfo>(`/join/${code}`),
   join: (code: string, opts: { here?: boolean; gender?: "woman" | "man" | null } = {}) =>
     req<{ status: PlayerStatus }>(`/join/${code}`, post(opts)),
-  board: (code: string) => req<BoardData>(`/board/${code}`),
+  results: (code: string) => req<ResultsData>(`/results/${code}`),
 };
 
 export interface Loaded<T> {

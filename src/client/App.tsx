@@ -1,4 +1,4 @@
-import { Link, Navigate, Outlet, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { Link, Navigate, Outlet, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import { authClient } from "./lib/auth";
 import { PageSpinner } from "./components/ui";
 import { Landing } from "./pages/Landing";
@@ -6,7 +6,6 @@ import { AuthPage } from "./pages/AuthPage";
 import { Home } from "./pages/Home";
 import { SessionPage } from "./pages/SessionPage";
 import { JoinPage } from "./pages/JoinPage";
-import { BoardPage } from "./pages/BoardPage";
 import { PrintSheetPage } from "./pages/PrintSheetPage";
 import { PlanPage } from "./pages/PlanPage";
 import { firstName } from "./lib/format";
@@ -66,7 +65,8 @@ export function App() {
       <Route path="/login" element={<AuthPage mode="login" />} />
       <Route path="/register" element={<AuthPage mode="register" />} />
       <Route path="/join/:code" element={<JoinPage />} />
-      <Route path="/board/:code" element={<BoardPage />} />
+      {/* The TV board is gone: old board / results links land on the join page, which shows the results. */}
+      <Route path="/board/:code" element={<ToJoin />} />
       <Route path="/print" element={<PrintSheetPage />} />
       <Route path="/plan" element={<PlanPage />} />
       <Route element={<AppLayout />}>
@@ -76,4 +76,9 @@ export function App() {
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
+}
+
+function ToJoin() {
+  const { code = "" } = useParams();
+  return <Navigate to={`/join/${code}`} replace />;
 }

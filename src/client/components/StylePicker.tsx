@@ -1,20 +1,23 @@
-import { FORMAT_KEYS, FORMAT_META, blurbFor } from "../../shared/formatMeta";
+import { FORMAT_KEYS, FORMAT_META } from "../../shared/formatMeta";
 import type { FormatKey } from "../../shared/types";
 import { cls } from "./ui";
+
+// One line each in the picker (the full story is in the rules and on the invite page).
+const SHORT: Record<FormatKey, [string, string]> = {
+  americano: ["New partner every round.", "Your team meets a different team each round."],
+  mexicano: ["Standings deal the courts: winners play winners.", "Top teams play top teams each round."],
+};
 
 /** Casual (Americano) vs Competitive (Mexicano) — the one choice that changes how courts are dealt. */
 export function StylePicker({
   value,
   onChange,
   hint,
-  grouped = false,
   teams = false,
 }: {
   value: FormatKey;
   onChange: (key: FormatKey) => void;
   hint?: string;
-  /** "Group players by playing level" is ticked: describe the grouped version. */
-  grouped?: boolean;
   /** "Keep teams together" is ticked: describe the team version. */
   teams?: boolean;
 }) {
@@ -43,7 +46,7 @@ export function StylePicker({
                 {teams && "Team "}
                 {m.name} · {m.tagline}
               </p>
-              <p className="mt-1 text-xs leading-snug text-muted">{blurbFor(key, { groupByLevel: grouped, fixedTeams: teams })}</p>
+              <p className="mt-1 text-xs leading-snug text-muted">{SHORT[key][teams ? 1 : 0]}</p>
             </button>
           );
         })}

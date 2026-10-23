@@ -14,9 +14,7 @@ export function GroupByLevelToggle({ checked, onChange }: { checked: boolean; on
       <span>
         <span className="block text-sm font-bold text-navy">🎚️ Group players by playing level</span>
         <span className="block text-xs text-muted">
-          Beginners play beginners, intermediate and advanced play each other — so every court is a good match-up. You
-          set each player's level in the roster; only you can see it. In Competitive it places each player's first
-          two games; after that, results deal the courts.
+          Beginners play beginners. Set levels in the roster — only you see them.
         </span>
       </span>
     </label>

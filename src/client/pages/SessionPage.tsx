@@ -11,7 +11,6 @@ import {
   Badge,
   Button,
   Card,
-  CopyButton,
   ErrorNote,
   Field,
   Input,
@@ -36,7 +35,7 @@ import { PartnerSelect } from "../components/PartnerSelect";
 import { CourtNumbersField } from "../components/CourtNumbersField";
 import { courtLabel, fitCourtLabels, parseCourtLabels } from "../../shared/courts";
 import { NightSummary } from "../components/NightSummary";
-import { FORMAT_META, blurbFor, formatMeta } from "../../shared/formatMeta";
+import { formatMeta } from "../../shared/formatMeta";
 
 type Run = (key: string, fn: () => Promise<unknown>) => Promise<void>;
 type ViewProps = { d: SessionDetail; isOrganizer: boolean; run: Run; busyKey: string | null };
@@ -86,7 +85,7 @@ export function SessionPage() {
         </Card>
       )}
 
-      {d.status !== "cancelled" && <RulesCard d={d} />}
+      {!["cancelled", "complete"].includes(d.status) && <RulesCard d={d} />}
 
       {/* Mounted only while open, so the form starts from the session as it is now. */}
       {isOrganizer && showSettings && (
@@ -151,7 +150,7 @@ function useShare(d: SessionDetail) {
   const results = d.status === "complete";
   const share = async () => {
     const payload = results
-      ? { title: `${d.name} — results`, text: resultsText({ name: d.name, standings: d.teamStandings ?? d.standings }, `${window.location.origin}/board/${d.inviteCode}`) }
+      ? { title: `${d.name} — results`, text: resultsText({ name: d.name, standings: d.teamStandings ?? d.standings }, `${window.location.origin}/join/${d.inviteCode}`) }
       : { title: d.name, text: `Join "${d.name}" on PadelTime`, url: `${window.location.origin}/join/${d.inviteCode}` };
     if (typeof navigator.share === "function") {
       try {
@@ -195,7 +194,9 @@ function ShareButton({ d }: { d: SessionDetail }) {
 }
 
 function Hero({ d, isOrganizer, onSettings }: { d: SessionDetail; isOrganizer: boolean; onSettings: () => void }) {
-  const shareable = ["open", "checkin", "active", "complete"].includes(d.status);
+  // Before the night the invite card shares the link, and at the end the podium
+  // shares the results: Share up here is for the live night (late arrivals).
+  const shareable = d.status === "active";
   return (
     <div>
       {/* Back arrow, then the action row with Share on the far right. On phones the
@@ -207,44 +208,37 @@ function Hero({ d, isOrganizer, onSettings }: { d: SessionDetail; isOrganizer: b
             <span className="flex size-10 items-center justify-center rounded-full bg-white text-navy shadow-md">←</span>
           </Link>
           <div className="ml-auto flex flex-wrap justify-end gap-1.5">
-            {d.status !== "draft" && d.status !== "cancelled" && (
-              <PillLink href={`/board/${d.inviteCode}`} label="Open the live TV board in a new tab">
-                📺 TV board
-              </PillLink>
-            )}
             {isOrganizer && (
               <PillLink href={`/print?session=${d.id}`} label="Printable pen & paper sheet">
                 🖨 Print
               </PillLink>
+            )}
+            {isOrganizer && (
+              <button
+                type="button"
+                aria-label="Settings"
+                title="Session settings — style, courts, points, time"
+                onClick={onSettings}
+                className="flex h-10 items-center gap-1.5 rounded-full bg-white px-3.5 text-xs font-bold text-navy shadow-md hover:bg-canvas"
+              >
+                ⚙ Settings
+              </button>
             )}
             {shareable && <ShareButton d={d} />}
           </div>
         </div>
       </div>
       <Card className="relative -mt-12 mx-3 shadow-lg">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <Badge tone={statusTone(d.status)}>
-              {d.status === "checkin" && d.rounds.length > 0 ? "Paused" : SESSION_STATUS_LABEL[d.status]}
-            </Badge>
-            {d.mixedPairs && <Badge tone="zinc">👩👨 Mixed pairs</Badge>}
-            {d.groupByLevel && <Badge tone="zinc">🎚️ Grouped by level</Badge>}
-            {d.fixedTeams && <Badge tone="zinc">🤝 Fixed teams</Badge>}
-          </div>
-          {isOrganizer && (
-            <button
-              type="button"
-              aria-label="Settings"
-              title="Session settings — style, courts, points, time"
-              onClick={onSettings}
-              className="flex h-8 shrink-0 items-center gap-1 rounded-full bg-canvas px-3 text-xs font-bold text-navy hover:bg-line"
-            >
-              ⚙ Settings
-            </button>
-          )}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Badge tone={statusTone(d.status)}>
+            {d.status === "checkin" && d.rounds.length > 0 ? "Paused" : SESSION_STATUS_LABEL[d.status]}
+          </Badge>
+          {d.mixedPairs && <Badge tone="zinc">👩👨 Mixed pairs</Badge>}
+          {d.groupByLevel && <Badge tone="zinc">🎚️ Grouped by level</Badge>}
+          {d.fixedTeams && <Badge tone="zinc">🤝 Fixed teams</Badge>}
         </div>
         <h1 className="mt-2 text-2xl font-black leading-tight tracking-tight text-navy">{d.name}</h1>
-        <p className="mt-1 text-sm text-muted">{fmtTimeRange(d.startsAt, d.durationMin)}</p>
+        {d.startsAt != null && <p className="mt-1 text-sm text-muted">{fmtTimeRange(d.startsAt, d.durationMin)}</p>}
         {d.venue && <p className="text-sm text-muted">📍 {d.venue}</p>}
         <div className="mt-4 grid grid-cols-[1.5fr_1fr_1fr_1fr] gap-2 border-t border-line pt-4">
           <StatCell label="Format" value={formatMeta(d.format).name} />
@@ -284,7 +278,8 @@ function LifecycleStepper({ d, isOrganizer, run, busyKey }: ViewProps) {
   };
 
   return (
-    <div className="no-scrollbar flex items-center gap-1 overflow-x-auto px-1 py-1">
+    // On a phone only the current step is spelled out; the rest are numbered dots, so all four fit.
+    <div className="flex items-center gap-1 px-1 py-1">
       {STEPS.map((s, i) => {
         const done = i < current;
         const cur = i === current;
@@ -292,7 +287,7 @@ function LifecycleStepper({ d, isOrganizer, run, busyKey }: ViewProps) {
         const clickable = isOrganizer && i > current && i - current <= reach && d.status !== "complete";
         return (
           <Fragment key={s.label}>
-            {i > 0 && <span className={cls("h-px w-3 shrink-0 sm:w-8", done || cur ? "bg-royal" : "bg-line-strong")} />}
+            {i > 0 && <span className={cls("h-px min-w-3 flex-1", done || cur ? "bg-royal" : "bg-line-strong")} />}
             <button
               type="button"
               disabled={!clickable}
@@ -317,7 +312,7 @@ function LifecycleStepper({ d, isOrganizer, run, busyKey }: ViewProps) {
               >
                 {done ? "✓" : i + 1}
               </span>
-              {s.label}
+              <span className={cur ? undefined : "hidden sm:inline"}>{s.label}</span>
             </button>
           </Fragment>
         );
@@ -331,7 +326,8 @@ function LifecycleStepper({ d, isOrganizer, run, busyKey }: ViewProps) {
 
 function RulesCard({ d }: { d: SessionDetail }) {
   // Open before the session starts (new players read them); folded once play is under way.
-  const [open, setOpen] = useState(["draft", "open", "checkin"].includes(d.status));
+  // Open for players before the night starts (they're the ones reading them); folded for the organizer.
+  const [open, setOpen] = useState(d.myRole !== "organizer" && ["draft", "open", "checkin"].includes(d.status));
   const n = d.pointsPerMatch;
   const half = Math.ceil(n / 2);
   const lo = Math.floor(n / 2);
@@ -422,7 +418,6 @@ function SettingsModal({
           <StylePicker
             value={form.format}
             onChange={(format) => setForm({ ...form, format })}
-            grouped={form.groupByLevel}
             teams={pointsLocked ? d.fixedTeams : form.fixedTeams}
             hint={d.rounds.length > 0 ? "A change applies from the next round dealt." : undefined}
           />
@@ -478,8 +473,7 @@ function SettingsModal({
           <span>
             <span className="block text-sm font-bold text-navy">👩👨 Mixed pairs</span>
             <span className="block text-xs text-muted">
-              Every team is one woman + one man whenever the numbers allow. Players say which they are when they join;
-              you can set it in the roster. Applies from the next round.
+              One woman + one man per team when possible. Applies from the next round.
             </span>
           </span>
         </label>
@@ -522,9 +516,6 @@ function SettingsModal({
           Save changes
         </Button>
         <div className="flex flex-wrap gap-2 border-t border-line pt-4">
-          <a href={`/board/${d.inviteCode}`} target="_blank" rel="noreferrer">
-            <Button variant="secondary" size="sm">📺 Open TV board</Button>
-          </a>
           {d.status !== "complete" && (
             <Button
               variant="danger"
@@ -566,16 +557,21 @@ function SettingsModal({
 
 function InviteCard({ d }: { d: SessionDetail }) {
   const joinUrl = `${window.location.origin}/join/${d.inviteCode}`;
-  const boardUrl = `${window.location.origin}/board/${d.inviteCode}`;
+  const { share, copied } = useShare(d);
   return (
     <Card>
       <SectionHeader title="Invite players" />
-      <p className="mb-3 text-sm text-muted">Drop this link in the group chat — players sign up themselves.</p>
-      <div className="mb-3 truncate rounded-2xl bg-canvas px-3 py-2.5 font-mono text-xs text-royal">{joinUrl}</div>
-      <div className="flex flex-wrap gap-2">
-        <CopyButton text={joinUrl} label="Copy join link" variant="primary" />
-        <CopyButton text={boardUrl} label="Copy TV board link" />
-      </div>
+      <p className="mb-3 truncate rounded-2xl bg-canvas px-3 py-2.5 font-mono text-xs text-royal">{joinUrl}</p>
+      <Button onClick={share}>
+        {copied ? (
+          "✓ Link copied"
+        ) : (
+          <>
+            <ShareIcon />
+            Share invite link
+          </>
+        )}
+      </Button>
     </Card>
   );
 }
@@ -613,16 +609,12 @@ function MergeHint({ d, p, run, busyKey }: { d: SessionDetail; p: PlayerRow; run
 }
 
 /** Organizer-only: how many levels are set, and what grouping does with them. */
-function LevelHint({ d, players }: { d: SessionDetail; players: PlayerRow[] }) {
+function LevelHint({ players }: { players: PlayerRow[] }) {
   const set = players.filter((p) => p.level != null).length;
   return (
     <p className="-mt-1 mb-3 rounded-xl bg-canvas px-3 py-2 text-xs text-muted">
-      🎚️ Levels: <b className={set < players.length ? "text-amber-dark" : "text-navy"}>{set}</b> of {players.length} set
-      {set < players.length && " (unset counts as intermediate)"} ·{" "}
-      {d.format === "mexicano"
-        ? "each player's first two games put beginners together and intermediate/advanced together."
-        : "beginners play beginners, intermediate and advanced play each other."}{" "}
-      Only you see levels.
+      🎚️ Levels set: <b className={set < players.length ? "text-amber-dark" : "text-navy"}>{set}</b> of {players.length}
+      {set < players.length && " (unset = intermediate)"} · only you see them
     </p>
   );
 }
@@ -723,15 +715,16 @@ function PlayersCard({ d, isOrganizer, run, busyKey, checkinMode = false }: View
         }
       />
       <ProgressBar value={inCount} max={d.maxPlayers} className="mb-1" />
-      <p className="mb-3 text-xs text-muted">
-        {courts === 0
-          ? inCount < 4
-            ? "Needs at least 4 players"
-            : "Needs at least two full teams"
-          : `${courts} court${courts === 1 ? "" : "s"} per round`}
-        {d.counts.waitlist > 0 && ` · ${d.counts.waitlist} waitlisted`}
-      </p>
-      {isOrganizer && d.groupByLevel && visible.length > 0 && <LevelHint d={d} players={visible} />}
+      {/* Courts per round is in the start / check-in card; here only what needs attention. */}
+      {(courts === 0 || d.counts.waitlist > 0) && (
+        <p className="text-xs text-muted">
+          {courts === 0 ? (inCount < 4 ? "Needs at least 4 players" : "Needs at least two full teams") : ""}
+          {courts === 0 && d.counts.waitlist > 0 && " · "}
+          {d.counts.waitlist > 0 && `${d.counts.waitlist} waitlisted`}
+        </p>
+      )}
+      <div className="mb-3" />
+      {isOrganizer && d.groupByLevel && visible.length > 0 && <LevelHint players={visible} />}
       {isOrganizer && d.fixedTeams && visible.length > 0 && <PairingHint d={d} />}
 
       {visible.length === 0 && <p className="py-4 text-center text-sm text-muted">Nobody yet — share the invite link or add names below.</p>}
@@ -758,15 +751,19 @@ function PlayersCard({ d, isOrganizer, run, busyKey, checkinMode = false }: View
                 {p.isGuest && <span className="ml-1.5 text-xs font-medium text-faint">guest</span>}
                 {p.id === d.myPlayerId && <span className="ml-1.5 text-xs font-bold text-royal">you</span>}
               </span>
-              {isOrganizer && (
+              {/* Gender only matters for mixed pairs; levels for grouping and team balancing. */}
+              {isOrganizer && (d.mixedPairs || d.groupByLevel || d.fixedTeams) && (
                 <span className="mt-1 flex flex-wrap items-center gap-1">
-                  <GenderSelect
-                    value={p.gender}
-                    busy={busyKey === `g-${p.id}`}
-                    onChange={(gender) => run(`g-${p.id}`, () => Api.playerAction(d.id, p.id, "set_gender", { gender }))}
-                  />
+                  {d.mixedPairs && (
+                    <GenderSelect
+                      value={p.gender}
+                      busy={busyKey === `g-${p.id}`}
+                      onChange={(gender) => run(`g-${p.id}`, () => Api.playerAction(d.id, p.id, "set_gender", { gender }))}
+                    />
+                  )}
                   {(d.groupByLevel || d.fixedTeams) && (
                     <LevelSelect
+                      compact
                       value={p.level}
                       busy={busyKey === `lvl-${p.id}`}
                       onChange={(level) => run(`lvl-${p.id}`, () => Api.playerAction(d.id, p.id, "set_level", { level }))}
@@ -788,7 +785,8 @@ function PlayersCard({ d, isOrganizer, run, busyKey, checkinMode = false }: View
               {isOrganizer && <MergeHint d={d} p={p} run={run} busyKey={busyKey} />}
             </span>
             <div className="flex shrink-0 items-center gap-1.5">
-              {playerStatusBadge(p)}
+              {/* Everyone listed is "in": only the exceptions get a badge (the organizer's check-in has its checkbox). */}
+              {(p.status === "waitlist" || (!isOrganizer && d.status === "checkin")) && playerStatusBadge(p)}
               {isOrganizer && p.status === "waitlist" && (
                 <Button
                   size="sm"
@@ -858,7 +856,8 @@ function PlayersCard({ d, isOrganizer, run, busyKey, checkinMode = false }: View
 
 function MyStatusCard({ d, run, busyKey }: { d: SessionDetail; run: Run; busyKey: string | null }) {
   const me = d.players.find((p) => p.id === d.myPlayerId);
-  if (!me || me.status === "dropped") return null;
+  // The organizer manages their own spot from the roster like anyone else's.
+  if (!me || me.status === "dropped" || d.myRole === "organizer") return null;
   return (
     <Card className="border-royal/30 bg-royal-soft/40">
       {me.status === "waitlist" ? (
@@ -914,6 +913,7 @@ function StartPreview({ d, run, busyKey }: { d: SessionDetail; run?: Run; busyKe
         points={d.pointsPerMatch}
         onPick={canApply ? (pointsPerMatch) => run("rec", () => Api.updateSession(d.id, { pointsPerMatch })) : undefined}
         applying={busyKey === "rec"}
+        folded
       />
     </div>
   );
@@ -929,10 +929,7 @@ function DraftView({ d, isOrganizer, run, busyKey }: ViewProps) {
       {isOrganizer ? (
         <Card className="border-royal/30">
           <SectionHeader title="Get the session going" />
-          <p className="text-sm text-muted">
-            Add players by name below and start whenever you have enough — or open signup and share the invite link
-            so people join themselves.
-          </p>
+          <p className="text-sm text-muted">Add names below and start, or open signup and share the link.</p>
           <StartPreview d={d} run={run} busyKey={busyKey} />
           <div className="mt-4 flex flex-wrap gap-2">
             <Button busy={busyKey === "start"} disabled={!ready} onClick={() => run("start", () => Api.sessionAction(d.id, "start"))}>
@@ -961,10 +958,7 @@ function OpenView({ d, isOrganizer, run, busyKey }: ViewProps) {
       {isOrganizer && (
         <Card className="border-royal/30">
           <SectionHeader title="Game day?" />
-          <p className="text-sm text-muted">
-            Start now to play with everyone who's signed up, or run check-in first so only the people actually at the
-            club get scheduled.
-          </p>
+          <p className="text-sm text-muted">Start with everyone signed up, or check people in at the club first.</p>
           <StartPreview d={d} run={run} busyKey={busyKey} />
           <div className="mt-4 flex flex-wrap gap-2">
             <Button
@@ -999,8 +993,8 @@ function CheckinView({ d, isOrganizer, run, busyKey }: ViewProps) {
           <SectionHeader title={paused ? "Game paused" : "Check-in"} />
           <p className="text-sm text-muted">
             {paused
-              ? `${d.rounds.length} round${d.rounds.length === 1 ? "" : "s"} played — scores and standings are kept. Late arrivals join with the invite link, drop-outs leave, and Resume deals round ${nextRound} with whoever is checked in.`
-              : "Only checked-in players get scheduled — one no-show can wreck a round otherwise."}
+              ? `${d.rounds.length} round${d.rounds.length === 1 ? "" : "s"} played, standings kept. Change who's here, then resume.`
+              : "Only checked-in players get dealt in."}
           </p>
           <div className="mt-3 rounded-2xl bg-canvas px-4 py-3 text-sm text-ink">
             <span className="font-black text-navy">{n}</span> checked in → <span className="font-black text-navy">{courtsUsed}</span> court
@@ -1229,50 +1223,54 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
 
       {isOrganizer && current && (
         <Card>
-          <SectionHeader title="Organizer controls" />
-          <div className="flex flex-wrap gap-2">
-            {canDealAhead ? (
-              <Button
-                busy={busyKey === "next"}
-                onClick={() => {
-                  const still = playingCourts.map(label).join(" and ");
-                  if (
-                    !window.confirm(
-                      `${still} ${playingCourts.length === 1 ? "is" : "are"} still playing. Deal round ${current.number + 1} now? ${freeCourts.map(label).join(" & ")} start${freeCourts.length === 1 ? "s" : ""} straight away; the rest start as ${still} finish${playingCourts.length === 1 ? "es" : ""}. ${still}'s players sit round ${current.number + 1} when the rotation allows.`,
-                    )
+          {/* One main action; the rest are rarely needed, so they sit small underneath. */}
+          {canDealAhead ? (
+            <Button
+              className="w-full"
+              busy={busyKey === "next"}
+              onClick={() => {
+                const still = playingCourts.map(label).join(" and ");
+                if (
+                  !window.confirm(
+                    `${still} ${playingCourts.length === 1 ? "is" : "are"} still playing. Deal round ${current.number + 1} now? ${freeCourts.map(label).join(" & ")} start${freeCourts.length === 1 ? "s" : ""} straight away; the rest start as ${still} finish${playingCourts.length === 1 ? "es" : ""}. ${still}'s players sit round ${current.number + 1} when the rotation allows.`,
                   )
-                    return;
-                  run("next", () => Api.nextRound(d.id, { force: true }));
-                }}
-              >
-                ▶️ Start round {current.number + 1} on {freeCourts.map(label).join(" & ")}
-              </Button>
-            ) : (
-              <Button
-                busy={busyKey === "next"}
-                disabled={!current.complete && !!finishingRound}
-                title={finishingRound && !current.complete ? `Round ${finishingRound.number} is still finishing` : undefined}
-                onClick={() => {
-                  if (!current.complete && !window.confirm("Some scores aren't confirmed yet. Generate the next round anyway?")) return;
-                  run("next", () => Api.nextRound(d.id, { force: !current.complete }));
-                }}
-              >
-                Next round →
-              </Button>
-            )}
+                )
+                  return;
+                run("next", () => Api.nextRound(d.id, { force: true }));
+              }}
+            >
+              ▶️ Start round {current.number + 1} on {freeCourts.map(label).join(" & ")}
+            </Button>
+          ) : (
+            <Button
+              className="w-full"
+              busy={busyKey === "next"}
+              disabled={!current.complete && !!finishingRound}
+              title={finishingRound && !current.complete ? `Round ${finishingRound.number} is still finishing` : undefined}
+              onClick={() => {
+                if (!current.complete && !window.confirm("Some scores aren't confirmed yet. Generate the next round anyway?")) return;
+                run("next", () => Api.nextRound(d.id, { force: !current.complete }));
+              }}
+            >
+              Next round →
+            </Button>
+          )}
+          <div className="mt-2 flex flex-wrap justify-center gap-1">
             {!current.matches.some((m) => m.status === "confirmed") && (
               <Button
-                variant="secondary"
+                variant="ghost"
+                size="sm"
                 busy={busyKey === "regen"}
                 onClick={() => {
                   if (window.confirm("Throw away these pairings and draw new ones?")) run("regen", () => Api.nextRound(d.id, { regenerate: true }));
                 }}
               >
-                Redraw pairings
+                Redraw
               </Button>
             )}
             <Button
               variant="ghost"
+              size="sm"
               busy={busyKey === "undo"}
               onClick={() => {
                 if (window.confirm(`Undo round ${current.number}? Its scores will be lost.`)) run("undo", () => Api.undoRound(d.id, current.id));
@@ -1281,7 +1279,8 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
               Undo round
             </Button>
             <Button
-              variant="secondary"
+              variant="ghost"
+              size="sm"
               busy={busyKey === "pause"}
               disabled={!current.complete || !!finishingRound}
               title={
@@ -1291,43 +1290,19 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
               }
               onClick={() => run("pause", () => Api.sessionAction(d.id, "pause"))}
             >
-              ⏸ Pause game
+              ⏸ Pause
             </Button>
             <Button
-              variant="outline"
+              variant="ghost"
+              size="sm"
               busy={busyKey === "finish"}
               onClick={() => {
                 if (window.confirm("Finish the session and lock the final standings?")) run("finish", () => Api.sessionAction(d.id, "complete"));
               }}
             >
-              Finish session
-            </Button>
-            <a href={`/board/${d.inviteCode}`} target="_blank" rel="noreferrer">
-              <Button variant="secondary">📺 TV board</Button>
-            </a>
-            <Button variant="ghost" onClick={scrollToPlayers}>
-              Manage players ↓
+              Finish
             </Button>
           </div>
-          <p className="mt-3 text-xs text-muted">
-            {formatMeta(d.format).emoji} <b className="text-navy">{formatMeta(d.format).style}</b> style ·{" "}
-            {d.fixedTeams && "Team "}
-            {formatMeta(d.format).name}: {blurbFor(d.format, d)}{" "}
-            <button
-              type="button"
-              className="font-bold text-royal hover:underline"
-              disabled={busyKey === "style"}
-              onClick={() => run("style", () => Api.updateSession(d.id, { format: d.format === "mexicano" ? "americano" : "mexicano" }))}
-            >
-              Switch to {FORMAT_META[d.format === "mexicano" ? "americano" : "mexicano"].style.toLowerCase()} →
-            </button>{" "}
-            (applies from the next round).
-          </p>
-          <p className="mt-2 text-xs text-muted">
-            Put the TV board on a courtside iPad or TV — it refreshes itself with courts, scores and the leaderboard.
-            Late arrivals can join with the invite link at any time; player changes apply from the next round. Pause
-            between rounds for a fresh check-in.
-          </p>
         </Card>
       )}
 
@@ -1401,7 +1376,7 @@ function LiveRosterCard({ d, isOrganizer, run, busyKey }: ViewProps) {
         {sitting > 0 ? ` · ${sitting} sit${sitting === 1 ? "s" : ""} out each round` : " · everyone plays"}
         {d.counts.confirmed > 0 && ` · ${d.counts.confirmed} not checked in`}
       </p>
-      {isOrganizer && d.groupByLevel && <LevelHint d={d} players={d.players.filter((p) => p.status !== "dropped" && p.status !== "waitlist")} />}
+      {isOrganizer && d.groupByLevel && <LevelHint players={d.players.filter((p) => p.status !== "dropped" && p.status !== "waitlist")} />}
       {isOrganizer && d.fixedTeams && <PairingHint d={d} />}
 
       <div className="overflow-x-auto">
@@ -1447,13 +1422,15 @@ function LiveRosterCard({ d, isOrganizer, run, busyKey }: ViewProps) {
                           {p.isGuest && <span className="ml-1.5 text-xs font-medium text-faint">guest</span>}
                           {me && <span className="ml-1.5 text-xs font-bold text-royal">you</span>}
                         </p>
-                        {isOrganizer && (
+                        {isOrganizer && (d.mixedPairs || d.groupByLevel || d.fixedTeams) && (
                           <div className="flex flex-wrap items-center gap-1">
-                            <GenderSelect
-                              value={p.gender}
-                              busy={busyKey === `g-${p.id}`}
-                              onChange={(gender) => run(`g-${p.id}`, () => Api.playerAction(d.id, p.id, "set_gender", { gender }))}
-                            />
+                            {d.mixedPairs && (
+                              <GenderSelect
+                                value={p.gender}
+                                busy={busyKey === `g-${p.id}`}
+                                onChange={(gender) => run(`g-${p.id}`, () => Api.playerAction(d.id, p.id, "set_gender", { gender }))}
+                              />
+                            )}
                             {(d.groupByLevel || d.fixedTeams) && (
                               <LevelSelect
                                 compact
@@ -1473,20 +1450,30 @@ function LiveRosterCard({ d, isOrganizer, run, busyKey }: ViewProps) {
                           </div>
                         )}
                         {/* Each fact stays whole; the line wraps between them. */}
-                        <div className="mt-0.5 flex flex-wrap items-center gap-x-1 text-[11px] text-muted">
-                          {!isOrganizer && <GenderBadge gender={p.gender} />}
-                          <span>{p.status === "checked_in" ? "playing" : "not checked in"}</span>
-                          {!isOrganizer && d.fixedTeams && partnerOf(d, p) && (
-                            <span className="whitespace-nowrap">· 🤝 with {partnerOf(d, p)!.name}</span>
-                          )}
-                          {row.played > 0 && <span className="whitespace-nowrap">· {perGame(row)} per game</span>}
-                          {row.played > 0 && !row.ranked && <span className="whitespace-nowrap">· too few games to rank</span>}
-                          {row.byes > 0 && <span className="whitespace-nowrap">· sat out {row.byes}</span>}
-                          <span className="whitespace-nowrap sm:hidden">
-                            · {row.wins}-{row.losses}
-                            {row.ties > 0 ? `-${row.ties}` : ""}
-                          </span>
-                        </div>
+                        {/* Only facts worth reading: nothing before a first game, no "playing" for everyone. */}
+                        {(() => {
+                          const facts = [
+                            p.status !== "checked_in" && "not checked in",
+                            !isOrganizer && d.fixedTeams && partnerOf(d, p) && `🤝 with ${partnerOf(d, p)!.name}`,
+                            row.played > 0 && `${row.wins}-${row.losses}${row.ties > 0 ? `-${row.ties}` : ""}`,
+                            row.played > 0 && `${perGame(row)} per game`,
+                            row.played > 0 && !row.ranked && "too few games to rank",
+                            row.byes > 0 && `sat out ${row.byes}`,
+                          ].filter(Boolean) as string[];
+                          const badge = !isOrganizer && p.gender ? <GenderBadge gender={p.gender} /> : null;
+                          if (facts.length === 0 && !badge) return null;
+                          return (
+                            <div className="mt-0.5 flex flex-wrap items-center gap-x-1 text-[11px] text-muted">
+                              {badge}
+                              {facts.map((f, i) => (
+                                <span key={f} className="whitespace-nowrap">
+                                  {i > 0 && "· "}
+                                  {f}
+                                </span>
+                              ))}
+                            </div>
+                          );
+                        })()}
                         {isOrganizer && <MergeHint d={d} p={p} run={run} busyKey={busyKey} />}
                       </div>
                     </div>

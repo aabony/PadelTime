@@ -1,6 +1,6 @@
 // End-to-end smoke test against a running `wrangler dev` on :8787.
 // Drives the full V1 flow with two users (organizer + player) plus the
-// public board. Run with: node test/e2e-smoke.mjs [screenshot-dir]
+// public results. Run with: node test/e2e-smoke.mjs [screenshot-dir]
 import { chromium } from "playwright";
 
 const BASE = process.env.E2E_BASE ?? "http://127.0.0.1:8787";
@@ -78,7 +78,7 @@ log("organizer registered → /app");
 await shot(org, "01-home");
 
 // Session-first: no group step — straight from home.
-await org.getByRole("button", { name: "+ New session" }).click();
+await org.getByRole("button", { name: /New session/ }).click();
 await org.getByPlaceholder("Thursday Padel Jam").fill("Sunday Night Americano");
 // The form compares game lengths for the roster: 12 players, 2 courts, 90 min.
 const lengths = org.getByTestId("game-lengths");
@@ -118,6 +118,12 @@ for (const g of ["George", "John", "Zach", "Mike", "Ben", "Chris"]) {
 }
 log("organizer + 6 guests in roster");
 const genderOf = (pg, name) => pg.locator("li", { hasText: name }).getByRole("combobox", { name: "Gender" });
+// Gender only matters for mixed pairs: no picker until it's on.
+if ((await genderOf(org, "George").count()) !== 0) fail("no gender selects until the session uses mixed pairs");
+await org.getByRole("button", { name: "Settings" }).click();
+await org.getByRole("checkbox", { name: /^👩👨 Mixed pairs/ }).check();
+await org.getByRole("button", { name: "Save changes" }).click();
+await org.getByText("👩👨 Mixed pairs").waitFor({ timeout: 10000 });
 await genderOf(org, "George").selectOption("man");
 await org.waitForTimeout(800);
 await org.reload();
@@ -134,7 +140,7 @@ await org.getByRole("checkbox", { name: /Group players by playing level/ }).chec
 await org.getByRole("button", { name: "Save changes" }).click();
 await org.getByText("🎚️ Grouped by level").waitFor({ timeout: 10000 });
 await levelOf(org, "George").selectOption("4");
-await org.getByText(/Levels: 1 of \d+ set/).waitFor({ timeout: 10000 });
+await org.getByText(/Levels set: 1 of \d+/).waitFor({ timeout: 10000 });
 await org.reload();
 await org.getByText("Invite players").waitFor({ timeout: 10000 });
 if ((await levelOf(org, "George").inputValue()) !== "4") fail("George's level should persist");
@@ -257,7 +263,7 @@ log("late arrival joined via link while live → claimed the pre-added guest ent
 await shot(late, "08b-late-joiner");
 
 // --- Pause between rounds, then resume into round 2 --------------------------
-await org.getByRole("button", { name: /Pause game/ }).click();
+await org.getByRole("button", { name: /Pause/ }).click();
 await org.getByText("Game paused").waitFor({ timeout: 10000 });
 await org.getByText("Standings so far").waitFor();
 if ((await org.locator("table tbody tr").count()) < 8) fail("paused view should keep the standings");
@@ -274,19 +280,21 @@ await org.getByRole("button", { name: "Next round →" }).click();
 await org.getByText("Round 3").first().waitFor({ timeout: 15000 });
 log("round 3 generated");
 
-await org.getByRole("button", { name: "Finish session" }).click();
+await org.getByRole("button", { name: "Finish", exact: true }).click();
 await org.getByText("Final result").waitFor({ timeout: 15000 });
 log("session finished — podium shown");
 await shot(org, "09-final");
 
-// --- Public board (no auth) -------------------------------------------------
-const tvCtx = await newContext({ ...contextOpts, viewport: { width: 1280, height: 800 } });
+// --- Public results (no auth): the join link shows them; old board links land there ----
+const tvCtx = await newContext({ ...contextOpts, viewport: { width: 390, height: 844 } });
 const tv = await tvCtx.newPage();
 await tv.goto(`${BASE}/board/${code}`);
-await tv.getByText("Leaderboard").waitFor({ timeout: 10000 });
+await tv.waitForURL(`**/join/${code}`, { timeout: 10000 });
+await tv.getByText("Final results").waitFor({ timeout: 10000 });
 await tv.getByText("Sunday Night Americano").waitFor();
-log("public board renders without auth");
-await shot(tv, "10-board");
+if ((await tv.locator("table tbody tr").count()) < 8) fail("the join page should list the final standings");
+log("public results on the join page without auth (old board link redirects there)");
+await shot(tv, "10-results");
 
 // --- Session-aware print sheet (names pre-filled, played rounds + planned) --
 const pr = await orgCtx.newPage();
@@ -303,7 +311,7 @@ await shot(pr, "11-session-print");
 // Also exercises "bring back the players from" (copies the 8 from the first session).
 await org.goto(`${BASE}/app`);
 await org.getByText("Past sessions").waitFor({ timeout: 10000 });
-await org.getByRole("button", { name: "+ New session" }).click();
+await org.getByRole("button", { name: /New session/ }).click();
 await org.getByPlaceholder("Thursday Padel Jam").fill("Bring Back Night");
 await org.getByRole("button", { name: /Competitive/ }).click(); // Mexicano
 await org.getByRole("checkbox", { name: /^👩👨 Mixed pairs/ }).check();
@@ -434,13 +442,13 @@ await org.goto(`${BASE}/app/sessions/${ft.id}`);
 await org.getByText("Final result").waitFor({ timeout: 10000 });
 const champ = (await org.locator("p.text-2xl").first().textContent())?.trim();
 if (!champ?.includes(" & ")) fail(`the champion should be a team, got "${champ}"`);
-const board = await (await org.request.get(`${BASE}/api/board/${fd.inviteCode}`)).json();
-if (!board.teamStandings?.[0]?.name.includes(" & ")) fail("the TV board should list teams");
+const board = await (await org.request.get(`${BASE}/api/results/${fd.inviteCode}`)).json();
+if (!board.teamStandings?.[0]?.name.includes(" & ")) fail("the public results should list teams");
 const me = await api("GET", "/me");
 const winner = me.sessions.find((s) => s.id === ft.id)?.winnerName;
 if (!winner?.includes(" & ")) fail(`past-session winner should name both partners, got "${winner}"`);
 await shot(org, "16-teams-final");
-log(`final: champion "${champ}" on the podium, TV board and past-sessions list name the team`);
+log(`final: champion "${champ}" on the podium, public results and past-sessions list name the team`);
 // --- Deal ahead: Court 3 finishes first → round 2 starts there while Court 4 plays on ----
 const ah = await api("POST", "/sessions", { name: "Ahead Night", format: "americano", courtLabels: ["3", "4"], pointsPerMatch: 16 });
 for (let i = 1; i <= 12; i++) await api("POST", `/sessions/${ah.id}/players`, { guestName: `A${i}` });
@@ -459,7 +467,7 @@ const r2On = ad.rounds[1].matches.flatMap((m) => [...m.a, ...m.b]);
 if (r2On.some((p) => stillOn.includes(p))) fail("12 players: the Court 4 players should sit round 2, so both courts start now");
 // Court 3 starts now; round 2's other game is on Court 4, so it starts when round 1 finishes there.
 if ((await org.getByText("Starts when Court 4 finishes").count()) !== 1) fail("round 2's Court 4 game should wait for Court 4");
-if (!(await org.getByRole("button", { name: /Pause game/ }).isDisabled())) fail("can't pause while Court 4 is still playing");
+if (!(await org.getByRole("button", { name: /Pause/ }).isDisabled())) fail("can't pause while Court 4 is still playing");
 await shot(org, "12a-deal-ahead");
 log("deal ahead: Court 3 done → round 2 dealt now; Court 4's players sit it, Court 4 keeps playing round 1");
 // Court 4 finishes: its score still goes in, and round 1 closes.
@@ -474,7 +482,7 @@ if (ad.standings.filter((r) => r.played > 0).length !== 8) fail("all 8 round-1 p
 log("Court 4's round-1 score entered after round 2 started; round 1 complete, standings updated");
 
 await org.goto(`${BASE}/app`);
-await org.getByRole("button", { name: "+ New session" }).click();
+await org.getByRole("button", { name: /New session/ }).click();
 await org.getByPlaceholder("Thursday Padel Jam").fill("Quick Start Night");
 await org.getByRole("button", { name: "Create session", exact: true }).click();
 await org.waitForURL("**/app/sessions/**");
@@ -495,12 +503,11 @@ await shot(org, "12-quick-start");
 // --- Undo every round → recover: deal round 1 again, or step back to check-in
 await org.getByRole("button", { name: "Undo round" }).click();
 await org.getByText("No rounds on the board").waitFor({ timeout: 10000 });
-await org.getByText("📺 TV board").first().waitFor();
 await shot(org, "13-empty-board");
 await org.getByRole("button", { name: /Start round 1/ }).click();
 await org.getByText("Round 1").first().waitFor({ timeout: 15000 });
 await org.getByRole("button", { name: "Undo round" }).click();
-await org.getByRole("button", { name: /Pause game/ }).click();
+await org.getByRole("button", { name: /Pause/ }).click();
 await org.getByText("Only checked-in players").waitFor({ timeout: 10000 });
 log("empty board recovers: start round 1 again / pause back to check-in");
 
