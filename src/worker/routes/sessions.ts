@@ -1,3 +1,4 @@
+import { fitCourtLabels, parseCourtLabels } from "../../shared/courts";
 import { and, eq, inArray, isNull, or } from "drizzle-orm";
 import { Hono } from "hono";
 import { gameSessions, matches, rounds, sessionPlayers } from "../db/schema";
@@ -72,8 +73,16 @@ sessionRoutes.patch("/sessions/:id", async (c) => {
     const dur = asInt(body.durationMin);
     patch.durationMin = dur == null || dur <= 0 ? null : Math.min(dur, 600);
   }
+  // Rented court names ("3, 4") set the count; a new count alone keeps the names in step.
   const courts = asInt(body.courts);
   if (courts != null) patch.courts = Math.min(Math.max(courts, 1), 12);
+  if ("courtLabels" in body) {
+    const labels = parseCourtLabels(body.courtLabels);
+    patch.courtLabels = labels.length ? labels.join(",") : null;
+    if (labels.length) patch.courts = labels.length;
+  } else if (patch.courts != null && session.courtLabels) {
+    patch.courtLabels = fitCourtLabels(parseCourtLabels(session.courtLabels), patch.courts).join(",");
+  }
   // Casual ↔ competitive can flip any time before the session is over; the
   // next round dealt uses the new strategy.
   if (typeof body.format === "string" && !["complete", "cancelled"].includes(session.status)) {

@@ -50,4 +50,8 @@ async function apply(db: Env["DB"]): Promise<void> {
   if (!hasTeams) await db.prepare("ALTER TABLE game_sessions ADD COLUMN fixed_teams integer NOT NULL DEFAULT 0").run();
   if (!hasPartner) await db.prepare("ALTER TABLE session_players ADD COLUMN partner_id text").run();
   if (!hasTeams || !hasPartner) await record("0007_fixed_teams.sql");
+  if (!sessions.has("court_labels")) {
+    await db.prepare("ALTER TABLE game_sessions ADD COLUMN court_labels text").run();
+    await record("0008_court_labels.sql");
+  }
 }

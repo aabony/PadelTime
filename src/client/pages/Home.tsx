@@ -6,6 +6,8 @@ import { SESSION_STATUS_LABEL } from "../../shared/types";
 import type { FormatKey, SessionStatus, SessionSummary } from "../../shared/types";
 import { StylePicker } from "../components/StylePicker";
 import { NightSummary } from "../components/NightSummary";
+import { CourtNumbersField } from "../components/CourtNumbersField";
+import { fitCourtLabels, parseCourtLabels } from "../../shared/courts";
 import { GroupByLevelToggle } from "../components/GroupByLevelToggle";
 import { TeamsToggle } from "../components/TeamsToggle";
 import { Badge, Button, Card, EmptyState, ErrorNote, Field, Input, Modal, PageSpinner, ProgressBar, cls } from "../components/ui";
@@ -175,6 +177,7 @@ export function NewSessionModal({
     venue: "",
     durationMin: initial?.durationMin ?? 90,
     courts: initial?.courts ?? 2,
+    courtLabels: "",
     maxPlayers: initial?.maxPlayers ?? 12,
     pointsPerMatch: initial?.pointsPerMatch ?? 24,
     copyPlayersFrom: "",
@@ -199,6 +202,7 @@ export function NewSessionModal({
         startsAt: fromLocalInputValue(form.when),
         durationMin: form.durationMin,
         courts: form.courts,
+        courtLabels: parseCourtLabels(form.courtLabels),
         maxPlayers: form.maxPlayers,
         pointsPerMatch: form.pointsPerMatch,
         format: form.format,
@@ -249,7 +253,17 @@ export function NewSessionModal({
         </Field>
         <div className="grid grid-cols-3 gap-3">
           <Field label="Courts">
-            <Input type="number" min={1} max={12} value={form.courts} onChange={(e) => setForm({ ...form, courts: num(e.target.value, 2) })} />
+            <Input
+              type="number"
+              min={1}
+              max={12}
+              value={form.courts}
+              onChange={(e) => {
+                const courts = num(e.target.value, 2);
+                const labels = parseCourtLabels(form.courtLabels);
+                setForm({ ...form, courts, courtLabels: labels.length ? fitCourtLabels(labels, courts).join(", ") : "" });
+              }}
+            />
           </Field>
           <Field label="Max players">
             <Input type="number" min={4} max={64} value={form.maxPlayers} onChange={(e) => setForm({ ...form, maxPlayers: num(e.target.value, 12) })} />
@@ -258,6 +272,7 @@ export function NewSessionModal({
             <Input type="number" min={4} max={99} value={form.pointsPerMatch} onChange={(e) => setForm({ ...form, pointsPerMatch: num(e.target.value, 24) })} />
           </Field>
         </div>
+        <CourtNumbersField courts={form.courts} value={form.courtLabels} onChange={(courtLabels, courts) => setForm({ ...form, courtLabels, courts })} />
         <NightSummary
           players={form.maxPlayers}
           courts={form.courts}

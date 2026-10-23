@@ -49,6 +49,7 @@ export const Api = {
       startsAt?: number | null;
       durationMin?: number | null;
       courts: number;
+      courtLabels?: string[];
       maxPlayers: number;
       pointsPerMatch: number;
       format: string;

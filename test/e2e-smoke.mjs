@@ -91,6 +91,9 @@ await lengths.getByRole("button", { name: /^18 pts/ }).click();
 if ((await org.getByLabel("Points", { exact: true }).inputValue()) !== "18") fail("tapping the 18-point row should set Points to 18");
 await shot(org, "01b-game-lengths");
 await lengths.getByRole("button", { name: /^24 pts/ }).click();
+// The courts actually booked: players see Court 3 / Court 4.
+await org.getByLabel(/Court numbers/).fill("3, 4");
+if ((await org.getByLabel("Courts", { exact: true }).inputValue()) !== "2") fail("court numbers 3, 4 should mean 2 courts");
 log("new-session form compares game lengths (12 players, 2 courts: 18 pts → 6 rounds, 4 games each ✓) and a tap picks one");
 await org.getByRole("button", { name: "Create session", exact: true }).click();
 await org.waitForURL("**/app/sessions/**");
@@ -179,7 +182,9 @@ log("session started — round 1 generated");
 const courtCards = org.getByRole("button").filter({ hasText: /^COURT|Court \d/ });
 const courtCount = await org.locator("button", { hasText: "Tap to enter score" }).count();
 if (courtCount !== 2) fail(`expected 2 courts, saw ${courtCount}`);
-log("2 courts, 8 players, no byes ✓");
+for (const label of ["Court 3", "Court 4"]) await courtCards.filter({ hasText: label }).first().waitFor();
+if ((await courtCards.filter({ hasText: /Court [12]\b/ }).count()) !== 0) fail("courts should be labelled 3 and 4, not 1 and 2");
+log("2 courts (labelled Court 3 / Court 4), 8 players, no byes ✓");
 await shot(org, "05-live-round1");
 
 // --- Paula scores her own match --------------------------------------------
@@ -213,7 +218,7 @@ if (await enterBtn.isVisible().catch(() => false)) {
 }
 
 // --- Organizer finalises all courts ----------------------------------------
-for (const court of [1, 2]) {
+for (const court of [3, 4]) {
   await org.getByRole("button", { name: new RegExp(`Court ${court}\\b`) }).first().click();
   const plus = org.locator(".fixed").getByRole("button", { name: "+", exact: true });
   await plus.click();

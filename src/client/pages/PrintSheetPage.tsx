@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { americano } from "../../shared/formats/americano";
 import { autoPair } from "../../shared/formats/teams";
 import { formatMeta } from "../../shared/formatMeta";
+import { courtLabel } from "../../shared/courts";
 import { mulberry32 } from "../../shared/formats/types";
 import type { EngineContext } from "../../shared/formats/types";
 import { buildHistory, creditAbsences } from "../../shared/history";
@@ -46,6 +47,8 @@ interface SheetData {
   venue: string | null;
   players: { number: number; name: string | null }[];
   courts: number;
+  /** Rented court names; empty = C1, C2… */
+  courtLabels?: string[];
   points: number;
   rounds: SheetRound[];
   format: "americano" | "mexicano";
@@ -212,6 +215,7 @@ function sessionSheet(d: SessionDetail, roundsWanted: number, seed: number): She
     venue: d.venue,
     players: roster.map((p, i) => ({ number: i + 1, name: p.name })),
     courts: d.courts,
+    courtLabels: d.courtLabels,
     points: d.pointsPerMatch,
     rounds: [...existing, ...planned],
     format: d.format,
@@ -397,7 +401,7 @@ export function PrintSheetPage() {
                       {round.matches.map((m) => (
                         <tr key={m.court} className="border-t border-zinc-200 first:border-t-0">
                           <td className={cls("px-2 font-bold text-zinc-500", dense ? "py-px text-[9px]" : "py-0.5 text-[10px]")}>
-                            C{m.court}
+                            C{courtLabel(sheet.courtLabels, m.court)}
                           </td>
                           <td className={cls("tabular text-center font-bold", dense ? "py-px text-[11px]" : "py-0.5 text-xs")}>
                             <Num n={m.a[0]} /> <span className="font-normal text-zinc-400">&amp;</span> <Num n={m.a[1]} />{" "}
@@ -464,12 +468,12 @@ export function PrintSheetPage() {
               {sheet.format === "mexicano" &&
                 (sheet.teams ? (
                   <>
-                    <b>Mexicano:</b> after each round rank the teams by points — top two teams to court 1, next two to
-                    court 2. Fill the blank rounds in as you go.{" "}
+                    <b>Mexicano:</b> after each round rank the teams by points — top two teams to the first court, next
+                    two to the next. Fill the blank rounds in as you go.{" "}
                   </>
                 ) : (
                   <>
-                    <b>Mexicano:</b> after each round rank everyone by points — top four to court 1, next four to court 2,
+                    <b>Mexicano:</b> after each round rank everyone by points — top four to the first court, next four to the next,
                     1st & 4th vs 2nd & 3rd. Fill the blank rounds in as you go.{" "}
                   </>
                 ))}

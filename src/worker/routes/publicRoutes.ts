@@ -1,3 +1,4 @@
+import { fitCourtLabels, parseCourtLabels } from "../../shared/courts";
 import { and, desc, eq, isNotNull, like } from "drizzle-orm";
 import { Hono } from "hono";
 import type { BoardData, JoinInfo, PlayerStatus, SessionStatus } from "../../shared/types";
@@ -206,6 +207,7 @@ publicRoutes.get("/board/:code", async (c) => {
     status: session.status as SessionStatus,
     format: session.format as BoardData["format"],
     pointsPerMatch: session.pointsPerMatch,
+    courtLabels: fitCourtLabels(parseCourtLabels(session.courtLabels ?? ""), session.courts),
     players: players.map((p) => ({ id: p.id, name: p.name })),
     rounds,
     // People who never made it onto a court don't belong on the TV.

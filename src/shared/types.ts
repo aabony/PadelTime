@@ -129,6 +129,8 @@ export interface SessionDetail {
   status: SessionStatus;
   format: FormatKey;
   courts: number;
+  /** The rented courts' names, e.g. ["3", "4"]; empty = Court 1..n. */
+  courtLabels: string[];
   maxPlayers: number;
   pointsPerMatch: number;
   /** Every team is one woman + one man whenever the numbers allow. */
@@ -184,6 +186,7 @@ export interface BoardData {
   status: SessionStatus;
   format: FormatKey;
   pointsPerMatch: number;
+  courtLabels: string[];
   players: { id: string; name: string }[];
   rounds: RoundRow[];
   standings: StandingRow[];

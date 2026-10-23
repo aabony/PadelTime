@@ -4,6 +4,7 @@ import { Api, usePoll } from "../lib/api";
 import { StandingsTable, perGame } from "../components/StandingsTable";
 import { Avatar, Badge, PageSpinner, cls } from "../components/ui";
 import { formatMeta } from "../../shared/formatMeta";
+import { courtLabel } from "../../shared/courts";
 
 // TV / court display (plan §16): read-only, huge type, auto-refreshing.
 export function BoardPage() {
@@ -79,7 +80,7 @@ export function BoardPage() {
                     <div className="mb-3 flex items-center justify-between">
                       <span className="flex items-center gap-2 text-2xl font-black uppercase tracking-tight text-royal">
                         <span aria-hidden>🏟️</span>
-                        <span>Court {m.court}</span>
+                        <span>Court {courtLabel(data.courtLabels, m.court)}</span>
                       </span>
                       <span className={cls("text-xs font-bold uppercase tracking-wider", m.status === "confirmed" ? "text-mint-dark" : "text-muted")}>
                         {m.status === "confirmed" ? "✓ complete" : m.status === "submitted" || m.status === "disputed" ? "confirming…" : "live"}

@@ -1,3 +1,4 @@
+import { courtLabel, fitCourtLabels, parseCourtLabels } from "../../shared/courts";
 import { normalizeLevel } from "../../shared/levels";
 import { and, eq, inArray } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
@@ -148,7 +149,7 @@ export async function loadRoundsFor(db: DB, sessionIds: string[]): Promise<Map<s
   return out;
 }
 
-export function computeWarnings(players: PlayerRow[], allRounds: RoundRow[], fixedTeams = false): string[] {
+export function computeWarnings(players: PlayerRow[], allRounds: RoundRow[], fixedTeams = false, labels: string[] = []): string[] {
   // Things to act on first; partner repeats (often unavoidable) fill whatever room is left.
   const warnings: string[] = [];
   const repeats: string[] = [];
@@ -158,12 +159,12 @@ export function computeWarnings(players: PlayerRow[], allRounds: RoundRow[], fix
   const latest = allRounds[allRounds.length - 1];
   if (latest) {
     for (const m of latest.matches) {
-      if (m.status === "disputed") warnings.push(`Court ${m.court} score is disputed.`);
+      if (m.status === "disputed") warnings.push(`Court ${courtLabel(labels, m.court)} score is disputed.`);
     }
     const confirmed = latest.matches.filter((m) => m.status === "confirmed").length;
     if (confirmed > 0 && confirmed < latest.matches.length) {
       for (const m of latest.matches) {
-        if (m.status === "pending") warnings.push(`Court ${m.court} score hasn't been submitted.`);
+        if (m.status === "pending") warnings.push(`Court ${courtLabel(labels, m.court)} score hasn't been submitted.`);
       }
     }
   }
@@ -266,6 +267,7 @@ export async function buildDetail(
     status: session.status as SessionStatus,
     format: session.format as FormatKey,
     courts: session.courts,
+    courtLabels: fitCourtLabels(parseCourtLabels(session.courtLabels ?? ""), session.courts),
     maxPlayers: session.maxPlayers,
     pointsPerMatch: session.pointsPerMatch,
     mixedPairs: session.mixedPairs,
@@ -279,7 +281,7 @@ export async function buildDetail(
     rounds: roundRows,
     standings,
     teamStandings: session.fixedTeams ? computeTeamStandings(players, roundRows) : undefined,
-    warnings: myRole === "organizer" ? computeWarnings(players, roundRows, session.fixedTeams) : [],
+    warnings: myRole === "organizer" ? computeWarnings(players, roundRows, session.fixedTeams, parseCourtLabels(session.courtLabels ?? "")) : [],
     counts,
     createdAt: session.createdAt,
   };

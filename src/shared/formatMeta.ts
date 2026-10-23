@@ -34,11 +34,11 @@ export const FORMAT_META: Record<FormatKey, FormatMeta> = {
     emoji: "🏆",
     tagline: "Play your level",
     blurb:
-      "Round 1 is a random draw. After that the standings deal the courts: top four on court 1, next four on court 2… 1st & 4th vs 2nd & 3rd, so every match stays close.",
+      "Round 1 is a random draw. After that the standings deal the courts: top four on the first court, the next four on the next… 1st & 4th vs 2nd & 3rd, so every match stays close.",
     groupedBlurb:
-      "Each player's first two games are grouped by playing level. After that the standings deal the courts: top four on court 1, next four on court 2… 1st & 4th vs 2nd & 3rd, so every match stays close.",
+      "Each player's first two games are grouped by playing level. After that the standings deal the courts: top four on the first court, the next four on the next… 1st & 4th vs 2nd & 3rd, so every match stays close.",
     teamsBlurb:
-      "Same partner all night. After each round the standings deal the courts: top two teams on court 1, the next two on court 2… winners play winners.",
+      "Same partner all night. After each round the standings deal the courts: top two teams on the first court, the next two on the next… winners play winners.",
   },
 };
 

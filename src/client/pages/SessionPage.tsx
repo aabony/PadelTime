@@ -33,6 +33,8 @@ import { LevelSelect } from "../components/LevelSelect";
 import { GroupByLevelToggle } from "../components/GroupByLevelToggle";
 import { TeamsToggle } from "../components/TeamsToggle";
 import { PartnerSelect } from "../components/PartnerSelect";
+import { CourtNumbersField } from "../components/CourtNumbersField";
+import { courtLabel, fitCourtLabels, parseCourtLabels } from "../../shared/courts";
 import { NightSummary } from "../components/NightSummary";
 import { FORMAT_META, blurbFor, formatMeta } from "../../shared/formatMeta";
 
@@ -247,7 +249,7 @@ function Hero({ d, isOrganizer, onSettings }: { d: SessionDetail; isOrganizer: b
         <div className="mt-4 grid grid-cols-[1.5fr_1fr_1fr_1fr] gap-2 border-t border-line pt-4">
           <StatCell label="Format" value={formatMeta(d.format).name} />
           <StatCell label="Points" value={d.pointsPerMatch} />
-          <StatCell label="Courts" value={d.courts} />
+          <StatCell label="Courts" value={d.courtLabels.length ? d.courtLabels.join(",") : d.courts} />
           <StatCell label="Time" value={d.durationMin ? `${d.durationMin}m` : "—"} />
         </div>
       </Card>
@@ -397,6 +399,7 @@ function SettingsModal({
     when: toLocalInputValue(d.startsAt),
     durationMin: d.durationMin ?? 0,
     courts: d.courts,
+    courtLabels: d.courtLabels.join(", "),
     maxPlayers: d.maxPlayers,
     pointsPerMatch: d.pointsPerMatch,
     format: d.format,
@@ -445,7 +448,17 @@ function SettingsModal({
         </Field>
         <div className="grid grid-cols-3 gap-3">
           <Field label="Courts">
-            <Input type="number" min={1} max={12} value={form.courts} onChange={(e) => setForm({ ...form, courts: num(e.target.value, d.courts) })} />
+            <Input
+              type="number"
+              min={1}
+              max={12}
+              value={form.courts}
+              onChange={(e) => {
+                const courts = num(e.target.value, d.courts);
+                const labels = parseCourtLabels(form.courtLabels);
+                setForm({ ...form, courts, courtLabels: labels.length ? fitCourtLabels(labels, courts).join(", ") : "" });
+              }}
+            />
           </Field>
           <Field label="Max players">
             <Input type="number" min={4} max={64} value={form.maxPlayers} onChange={(e) => setForm({ ...form, maxPlayers: num(e.target.value, d.maxPlayers) })} />
@@ -454,6 +467,7 @@ function SettingsModal({
             <Input type="number" min={4} max={99} disabled={pointsLocked} value={pointsLocked ? d.pointsPerMatch : form.pointsPerMatch} onChange={(e) => setForm({ ...form, pointsPerMatch: num(e.target.value, d.pointsPerMatch) })} />
           </Field>
         </div>
+        <CourtNumbersField courts={form.courts} value={form.courtLabels} onChange={(courtLabels, courts) => setForm({ ...form, courtLabels, courts })} />
         <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-line px-3.5 py-3">
           <input
             type="checkbox"
@@ -492,6 +506,7 @@ function SettingsModal({
                 startsAt: fromLocalInputValue(form.when),
                 durationMin: form.durationMin || null,
                 courts: form.courts,
+                courtLabels: parseCourtLabels(form.courtLabels),
                 maxPlayers: form.maxPlayers,
                 // Locked once a round is dealt (a round may have started since the form opened).
                 pointsPerMatch: pointsLocked ? d.pointsPerMatch : form.pointsPerMatch,
@@ -1533,7 +1548,7 @@ function CourtCard({
         <div className="mb-3 flex items-center justify-between gap-2">
           <span className="flex items-center gap-2 text-2xl font-black uppercase tracking-tight text-royal">
             <span aria-hidden>🏟️</span>
-            <span>Court {m.court}</span>
+            <span>Court {courtLabel(d.courtLabels, m.court)}</span>
           </span>
           <MatchStatusBadge m={m} />
         </div>
@@ -1549,7 +1564,7 @@ function CourtCard({
         </div>
         {isOrganizer && <p className="mt-2 text-xs text-faint">{scored ? "Tap to edit score" : "Tap to enter score"}</p>}
       </button>
-      <Modal open={editing} onClose={() => setEditing(false)} title={`Court ${m.court} — score`}>
+      <Modal open={editing} onClose={() => setEditing(false)} title={`Court ${courtLabel(d.courtLabels, m.court)} — score`}>
         <ScoreEntry
           total={d.pointsPerMatch}
           teamA={teamNames(m.a, nameOf)}
@@ -1622,7 +1637,7 @@ function MyMatchCard({
         <MatchStatusBadge m={myMatch} />
       </div>
       <p className="text-center text-4xl font-black tracking-tight text-royal">
-        <span aria-hidden>🏟️</span> COURT {myMatch.court}
+        <span aria-hidden>🏟️</span> COURT {courtLabel(d.courtLabels, myMatch.court)}
       </p>
       <div className="mt-4 flex items-center justify-center gap-4">
         <div className="flex flex-col items-center gap-1">

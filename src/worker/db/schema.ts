@@ -105,6 +105,8 @@ export const gameSessions = sqliteTable(
     startsAt: integer("starts_at"),
     durationMin: integer("duration_min"),
     courts: integer("courts").notNull().default(2),
+    /** The courts actually rented, comma-separated ("3,4"); null = numbered 1..n. */
+    courtLabels: text("court_labels"),
     maxPlayers: integer("max_players").notNull().default(12),
     pointsPerMatch: integer("points_per_match").notNull().default(24),
     format: text("format").notNull().default("americano"),

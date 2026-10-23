@@ -1,5 +1,6 @@
 import { and, desc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { Hono } from "hono";
+import { parseCourtLabels } from "../../shared/courts";
 import { getFormat } from "../../shared/formats/registry";
 import { computeTeamStandings, minGamesToRank, pointsPerGame } from "../../shared/standings";
 import type { GroupRole, MeResponse, SessionStatus, SessionSummary } from "../../shared/types";
@@ -133,7 +134,9 @@ async function createSession(
   const formatKey = typeof body.format === "string" ? body.format : "americano";
   const format = getFormat(formatKey);
   if (!format) return { error: `Unknown format "${formatKey}"` };
-  const courts = Math.min(Math.max(asInt(body.courts) ?? 2, 1), 12);
+  // Rented court names ("3, 4") decide the count when given.
+  const labels = parseCourtLabels(body.courtLabels);
+  const courts = labels.length || Math.min(Math.max(asInt(body.courts) ?? 2, 1), 12);
   const maxPlayers = Math.min(Math.max(asInt(body.maxPlayers) ?? 12, format.minPlayers), 64);
   const pointsPerMatch = Math.min(Math.max(asInt(body.pointsPerMatch) ?? format.defaultPoints, 4), 99);
   const startsAt = asInt(body.startsAt);
@@ -153,6 +156,7 @@ async function createSession(
         startsAt,
         durationMin,
         courts,
+        courtLabels: labels.length ? labels.join(",") : null,
         maxPlayers,
         pointsPerMatch,
         format: format.key,
