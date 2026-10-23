@@ -1,6 +1,7 @@
 import type { EngineContext, PlannedMatch, RoundPlan } from "./types";
 import { pairKey, shuffle } from "./types";
 import { UNSET_LEVEL } from "../levels";
+import { waitingCourts } from "./byes";
 
 // "Keep teams together" (session switch): partners play the whole night as a
 // fixed pair, for either style.
@@ -164,6 +165,8 @@ function rotateCourts(
       // have more chances to meet: spend the rarer match-ups first.
       if (sameRhythm(t1, t2, ctx)) cost += 1;
       if (ctx.groupByLevel && ctx.levels) cost += Math.abs(teamLevel(t1, ctx) - teamLevel(t2, ctx));
+      // Dealing ahead: a court that has to wait for a team still finishing elsewhere.
+      cost += 30 * waitingCourts(ctx, [[...t1, ...t2]]);
       courts.push([t1, t2]);
     }
     // Looking one round ahead: a fresh round now that forces a rematch next time is worse.
@@ -250,12 +253,15 @@ export function planFixedTeams(ctx: EngineContext, mode: "rotate" | "ladder"): R
   const lastOnCourt = new Map<string, number>();
   history?.forEach((ids, i) => ids.forEach((p) => lastOnCourt.set(p, i + 1)));
   const byes = ([a, b]: Team) => ((ctx.byeCounts[a] ?? 0) + (ctx.byeCounts[b] ?? 0)) / 2;
+  // Dealing ahead, a team still finishing a game sits before others equally due.
+  const busy = new Set(ctx.busy ?? []);
   const fair = (t: Team) => [
     byes(t),
+    t.some((p) => busy.has(p)) ? 0 : 1,
     history ? -Math.max(...t.map((p) => lastOnCourt.get(p) ?? 0)) : Math.max(...t.map((p) => ctx.lastByeRound[p] ?? 0)),
   ];
   const sitCount = teams.length - courtCount * 2;
-  const cmp = (fx: number[], fy: number[]) => fx[0] - fy[0] || fx[1] - fy[1];
+  const cmp = (fx: number[], fy: number[]) => fx[0] - fy[0] || fx[1] - fy[1] || fx[2] - fy[2];
   const byFairness = shuffle([...teams], ctx.rng).sort((x, y) => cmp(fair(x), fair(y)));
 
   // Who may sit: every team below the cut-off, plus any of the teams tied at it.
@@ -310,7 +316,9 @@ export function planFixedTeams(ctx: EngineContext, mode: "rotate" | "ladder"): R
     const after = new Set(met);
     for (const [t1, t2] of courts) after.add(matchupKey(t1, t2));
     const next = (t: Team) =>
-      sitting.has(t) ? [fair(t)[0] + 1, history ? fair(t)[1] : ctx.roundNumber] : history ? [fair(t)[0], -(history.length + 1)] : fair(t);
+      sitting.has(t)
+        ? [fair(t)[0] + 1, 1, history ? fair(t)[2] : ctx.roundNumber]
+        : [fair(t)[0], 1, history ? -(history.length + 1) : fair(t)[2]];
     return sitOptions(next, true).some((sit) => freshRoundPossible(teams.filter((t) => !sit.includes(t)), after));
   };
   let tryRound: (sit: Team[], extra: number, restarts?: number) => Option;

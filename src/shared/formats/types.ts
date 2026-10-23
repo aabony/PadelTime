@@ -41,6 +41,12 @@ export interface EngineContext {
   mixedPairs?: boolean;
   /** Keep teams together: the fixed pairs (either format then plans by team). */
   teams?: [string, string][];
+  /**
+   * Dealing ahead: players still finishing a game on another court. Among
+   * players equally due a sit-out they sit first, and the ones who must play
+   * are packed onto as few courts as possible, so the rest can start now.
+   */
+  busy?: string[];
   /** Random source, injectable for deterministic tests. */
   rng: () => number;
 }

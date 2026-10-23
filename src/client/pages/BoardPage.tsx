@@ -5,6 +5,7 @@ import { StandingsTable, perGame } from "../components/StandingsTable";
 import { Avatar, Badge, PageSpinner, cls } from "../components/ui";
 import { formatMeta } from "../../shared/formatMeta";
 import { courtLabel } from "../../shared/courts";
+import type { MatchRow } from "../../shared/types";
 
 // TV / court display (plan §16): read-only, huge type, auto-refreshing.
 export function BoardPage() {
@@ -20,6 +21,14 @@ export function BoardPage() {
   if (!data) return <PageSpinner />;
 
   const current = data.rounds[data.rounds.length - 1];
+  // Dealt ahead: a court of the round before can still be finishing its game.
+  const prior = data.rounds[data.rounds.length - 2];
+  const finishing = prior && !prior.complete ? prior.matches.filter((m) => m.status !== "confirmed") : [];
+  const finishingOn = new Map<string, number>();
+  for (const m of finishing) for (const p of [...m.a, ...m.b]) finishingOn.set(p, m.court);
+  const occupied = new Set(finishing.map((m) => m.court));
+  const waitsFor = (m: MatchRow) =>
+    [...m.a, ...m.b].map((p) => finishingOn.get(p)).find((c) => c != null) ?? (occupied.has(m.court) ? m.court : undefined);
   const done = data.status === "complete";
   const paused = data.status === "checkin" && data.rounds.length > 0;
   const table = data.teamStandings ?? data.standings;
@@ -75,15 +84,22 @@ export function BoardPage() {
           <section>
             {current && !done ? (
               <div className="space-y-4">
-                {current.matches.map((m) => (
-                  <div key={m.id} className="rounded-3xl border border-line bg-white p-6">
+                {[...finishing.map((m) => ({ m, round: prior!.number })), ...current.matches.map((m) => ({ m, round: null }))].map(({ m, round }) => (
+                  <div key={m.id} className={cls("rounded-3xl border bg-white p-6", round ? "border-amber-soft" : "border-line")}>
                     <div className="mb-3 flex items-center justify-between">
                       <span className="flex items-center gap-2 text-2xl font-black uppercase tracking-tight text-royal">
                         <span aria-hidden>🏟️</span>
                         <span>Court {courtLabel(data.courtLabels, m.court)}</span>
+                        {round && <span className="text-base font-bold normal-case text-amber-dark">· finishing round {round}</span>}
                       </span>
                       <span className={cls("text-xs font-bold uppercase tracking-wider", m.status === "confirmed" ? "text-mint-dark" : "text-muted")}>
-                        {m.status === "confirmed" ? "✓ complete" : m.status === "submitted" || m.status === "disputed" ? "confirming…" : "live"}
+                        {m.status === "confirmed"
+                          ? "✓ complete"
+                          : m.status === "submitted" || m.status === "disputed"
+                            ? "confirming…"
+                            : !round && waitsFor(m) != null
+                              ? `next · after court ${courtLabel(data.courtLabels, waitsFor(m)!)}`
+                              : "live"}
                       </span>
                     </div>
                     <div className="grid grid-cols-[1fr_auto] items-center gap-x-6 gap-y-2">

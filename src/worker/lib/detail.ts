@@ -157,6 +157,11 @@ export function computeWarnings(players: PlayerRow[], allRounds: RoundRow[], fix
   const history = buildHistory(allRounds);
 
   const latest = allRounds[allRounds.length - 1];
+  // Dealt ahead: a court of the round before can still be finishing.
+  const finishing = allRounds[allRounds.length - 2];
+  for (const m of finishing && !finishing.complete ? finishing.matches : []) {
+    if (m.status === "disputed") warnings.push(`Round ${finishing.number}, Court ${courtLabel(labels, m.court)} score is disputed.`);
+  }
   if (latest) {
     for (const m of latest.matches) {
       if (m.status === "disputed") warnings.push(`Court ${courtLabel(labels, m.court)} score is disputed.`);

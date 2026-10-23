@@ -1080,7 +1080,18 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
   const nameOf = useNameOf(d);
   const me = d.players.find((p) => p.id === d.myPlayerId);
   const current = d.rounds[d.rounds.length - 1];
-  const previous = d.rounds.slice(0, -1);
+  // Dealt ahead: the round before can still have a court finishing its game.
+  const prior = d.rounds[d.rounds.length - 2];
+  const finishingRound = prior && !prior.complete ? prior : undefined;
+  const finishing = finishingRound?.matches.filter((m) => m.status !== "confirmed") ?? [];
+  const previous = d.rounds.slice(0, -1).filter((r) => r !== finishingRound);
+  const waitingFor = waitingForCourt(d, finishing);
+  const meFinishing = finishing.find((m) => [...m.a, ...m.b].includes(d.myPlayerId ?? ""));
+  // Courts done while others play: the next round can start on them now.
+  const freeCourts = current?.matches.filter((m) => m.status === "confirmed") ?? [];
+  const playingCourts = current?.matches.filter((m) => m.status !== "confirmed") ?? [];
+  const canDealAhead = !!current && !finishingRound && freeCourts.length > 0 && playingCourts.length > 0;
+  const label = (m: MatchRow) => `Court ${courtLabel(d.courtLabels, m.court)}`;
   const est = estimateRounds(d.durationMin, d.pointsPerMatch);
   const scrollToPlayers = () => document.getElementById("players")?.scrollIntoView({ behavior: "smooth", block: "start" });
 
@@ -1120,8 +1131,14 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
         </div>
       )}
 
-      {!isOrganizer && me && me.status === "checked_in" && current && (
-        <MyMatchCard d={d} round={current} nameOf={nameOf} run={run} busyKey={busyKey} />
+      {!isOrganizer && me && me.status === "checked_in" && current && finishingRound && meFinishing && (
+        <>
+          <MyMatchCard d={d} round={finishingRound} nameOf={nameOf} run={run} busyKey={busyKey} />
+          <NextUp d={d} round={current} nameOf={nameOf} />
+        </>
+      )}
+      {!isOrganizer && me && me.status === "checked_in" && current && !meFinishing && (
+        <MyMatchCard d={d} round={current} nameOf={nameOf} run={run} busyKey={busyKey} waitingFor={waitingFor} />
       )}
       {!isOrganizer && me && me.status === "confirmed" && (
         <Card className="border-royal/30 bg-royal-soft/40">
@@ -1141,6 +1158,24 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
           <p className="text-sm font-semibold text-amber-dark">
             You're on the waitlist — the organizer can bring you in between rounds.
           </p>
+        </Card>
+      )}
+
+      {finishingRound && finishing.length > 0 && (
+        <Card className="border-amber-soft">
+          <SectionHeader
+            title={
+              <>
+                Round {finishingRound.number} <span className="ml-1 text-sm font-semibold text-muted">· finishing</span>
+              </>
+            }
+            action={<Badge tone="amber">still playing</Badge>}
+          />
+          <div className="grid gap-3 sm:grid-cols-2">
+            {finishing.map((m) => (
+              <CourtCard key={m.id} d={d} m={m} nameOf={nameOf} isOrganizer={isOrganizer} run={run} busyKey={busyKey} />
+            ))}
+          </div>
         </Card>
       )}
 
@@ -1172,7 +1207,16 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
           />
           <div className="grid gap-3 sm:grid-cols-2">
             {current.matches.map((m) => (
-              <CourtCard key={m.id} d={d} m={m} nameOf={nameOf} isOrganizer={isOrganizer} run={run} busyKey={busyKey} />
+              <CourtCard
+                key={m.id}
+                d={d}
+                m={m}
+                nameOf={nameOf}
+                isOrganizer={isOrganizer}
+                run={run}
+                busyKey={busyKey}
+                waitingFor={waitingFor(m)}
+              />
             ))}
           </div>
           {current.byes.length > 0 && (
@@ -1187,15 +1231,35 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
         <Card>
           <SectionHeader title="Organizer controls" />
           <div className="flex flex-wrap gap-2">
-            <Button
-              busy={busyKey === "next"}
-              onClick={() => {
-                if (!current.complete && !window.confirm("Some scores aren't confirmed yet. Generate the next round anyway?")) return;
-                run("next", () => Api.nextRound(d.id, { force: !current.complete }));
-              }}
-            >
-              Next round →
-            </Button>
+            {canDealAhead ? (
+              <Button
+                busy={busyKey === "next"}
+                onClick={() => {
+                  const still = playingCourts.map(label).join(" and ");
+                  if (
+                    !window.confirm(
+                      `${still} ${playingCourts.length === 1 ? "is" : "are"} still playing. Deal round ${current.number + 1} now? ${freeCourts.map(label).join(" & ")} start${freeCourts.length === 1 ? "s" : ""} straight away; the rest start as ${still} finish${playingCourts.length === 1 ? "es" : ""}. ${still}'s players sit round ${current.number + 1} when the rotation allows.`,
+                    )
+                  )
+                    return;
+                  run("next", () => Api.nextRound(d.id, { force: true }));
+                }}
+              >
+                ▶️ Start round {current.number + 1} on {freeCourts.map(label).join(" & ")}
+              </Button>
+            ) : (
+              <Button
+                busy={busyKey === "next"}
+                disabled={!current.complete && !!finishingRound}
+                title={finishingRound && !current.complete ? `Round ${finishingRound.number} is still finishing` : undefined}
+                onClick={() => {
+                  if (!current.complete && !window.confirm("Some scores aren't confirmed yet. Generate the next round anyway?")) return;
+                  run("next", () => Api.nextRound(d.id, { force: !current.complete }));
+                }}
+              >
+                Next round →
+              </Button>
+            )}
             {!current.matches.some((m) => m.status === "confirmed") && (
               <Button
                 variant="secondary"
@@ -1219,11 +1283,11 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
             <Button
               variant="secondary"
               busy={busyKey === "pause"}
-              disabled={!current.complete}
+              disabled={!current.complete || !!finishingRound}
               title={
-                current.complete
+                current.complete && !finishingRound
                   ? "Back to check-in between rounds — every round and the standings are kept"
-                  : "Enter all of this round's scores first"
+                  : "Enter all of the scores first"
               }
               onClick={() => run("pause", () => Api.sessionAction(d.id, "pause"))}
             >
@@ -1518,9 +1582,43 @@ function LiveRosterCard({ d, isOrganizer, run, busyKey }: ViewProps) {
   );
 }
 
+/**
+ * Dealt ahead: what a next-round game waits for — the court its players are
+ * still finishing on, or its own court while the last game there finishes.
+ */
+function waitingForCourt(d: SessionDetail, finishing: MatchRow[]) {
+  const on = new Map<string, number>();
+  for (const m of finishing) for (const p of [...m.a, ...m.b]) on.set(p, m.court);
+  const occupied = new Set(finishing.map((m) => m.court));
+  return (m: MatchRow) => {
+    const court = [...m.a, ...m.b].map((p) => on.get(p)).find((c) => c != null) ?? (occupied.has(m.court) ? m.court : undefined);
+    return court == null ? undefined : `Court ${courtLabel(d.courtLabels, court)}`;
+  };
+}
+
+/** While you finish a game, what's next for you in the round already dealt. */
+function NextUp({ d, round, nameOf }: { d: SessionDetail; round: RoundRow; nameOf: (id: string) => string }) {
+  const me = d.myPlayerId!;
+  const next = round.matches.find((m) => [...m.a, ...m.b].includes(me));
+  return (
+    <Card className="border-line bg-canvas/60">
+      <p className="text-xs font-bold uppercase tracking-wider text-muted">Next · round {round.number}</p>
+      {next ? (
+        <p className="mt-1 text-sm text-ink">
+          <b className="text-navy">Court {courtLabel(d.courtLabels, next.court)}</b> —{" "}
+          {teamNames(next.a.includes(me) ? next.a : next.b, nameOf)} vs {teamNames(next.a.includes(me) ? next.b : next.a, nameOf)}
+        </p>
+      ) : (
+        <p className="mt-1 text-sm text-ink">You sit round {round.number} out — finish up and grab a drink.</p>
+      )}
+    </Card>
+  );
+}
+
 function CourtCard({
   d,
   m,
+  waitingFor,
   nameOf,
   isOrganizer,
   run,
@@ -1528,6 +1626,8 @@ function CourtCard({
 }: {
   d: SessionDetail;
   m: MatchRow;
+  /** Dealt ahead: the court this game waits on ("Court 4"), while its players finish there. */
+  waitingFor?: string;
   nameOf: (id: string) => string;
   isOrganizer: boolean;
   run: Run;
@@ -1552,6 +1652,9 @@ function CourtCard({
           </span>
           <MatchStatusBadge m={m} />
         </div>
+        {waitingFor && (
+          <p className="-mt-1 mb-2 text-xs font-bold text-amber-dark">⏳ Starts when {waitingFor} finishes</p>
+        )}
         <div className="space-y-1.5 text-sm">
           <div className="flex items-center justify-between gap-2">
             <span className="min-w-0 truncate font-bold text-navy">{teamNames(m.a, nameOf)}</span>
@@ -1590,12 +1693,14 @@ function MyMatchCard({
   nameOf,
   run,
   busyKey,
+  waitingFor,
 }: {
   d: SessionDetail;
   round: RoundRow;
   nameOf: (id: string) => string;
   run: Run;
   busyKey: string | null;
+  waitingFor?: (m: MatchRow) => string | undefined;
 }) {
   const me = d.myPlayerId!;
   const myMatch = round.matches.find((m) => [...m.a, ...m.b].includes(me));
@@ -1639,6 +1744,9 @@ function MyMatchCard({
       <p className="text-center text-4xl font-black tracking-tight text-royal">
         <span aria-hidden>🏟️</span> COURT {courtLabel(d.courtLabels, myMatch.court)}
       </p>
+      {waitingFor?.(myMatch) && (
+        <p className="mt-1 text-center text-sm font-bold text-amber-dark">⏳ Starts when {waitingFor(myMatch)} finishes</p>
+      )}
       <div className="mt-4 flex items-center justify-center gap-4">
         <div className="flex flex-col items-center gap-1">
           <div className="flex -space-x-2">

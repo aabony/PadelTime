@@ -1,7 +1,7 @@
 import type { EngineContext } from "./types";
 import { shuffle } from "./types";
 import { ADVANCED, UNSET_LEVEL, isBeginner } from "../levels";
-import { pickByes } from "./byes";
+import { byeFairness, pickByes } from "./byes";
 
 // "Group players by playing level" — shared by both formats.
 // Beginners play beginners; intermediate and advanced play each other. Levels
@@ -72,8 +72,8 @@ export function chooseSitOuts<T>(
   let best = { sitters: base, ...score(base) };
   if (count <= 0 || best.cost === 0) return done();
 
-  const fair = (id: string): [number, number] => [ctx.byeCounts[id] ?? 0, ctx.lastByeRound[id] ?? 0];
-  const cmp = (a: [number, number], b: [number, number]) => a[0] - b[0] || a[1] - b[1];
+  const fair = (id: string) => byeFairness(ctx, id);
+  const cmp = (a: number[], b: number[]) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
   const cut = base.map(fair).reduce((m, f) => (cmp(f, m) > 0 ? f : m));
   const mustSit = ctx.players.filter((p) => cmp(fair(p), cut) < 0);
   const tied = ctx.players.filter((p) => cmp(fair(p), cut) === 0);

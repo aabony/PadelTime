@@ -1,7 +1,7 @@
 import type { EngineContext, FormatStrategy, PlannedMatch, RoundPlan } from "./types";
 import { pairKey, shuffle } from "./types";
 import { americano } from "./americano";
-import { pickByes } from "./byes";
+import { pickByes, waitingCourts } from "./byes";
 import { planFixedTeams } from "./teams";
 import { chooseSitOuts, groupingLevels, levelIn, levelMixCost } from "./levelGrouping";
 import { ADVANCED, isBeginner } from "../levels";
@@ -316,6 +316,15 @@ export const mexicano: FormatStrategy = {
     } else {
       byes = pickByes(ctx, sitCount);
       groups = courtGroups(orderOnCourt(ctx, onCourtFor(byes), null), courtCount, ctx);
+    }
+    // Dealing ahead: players still finishing a game who have to play share as
+    // few courts as possible (bending the ladder just for them), so the rest start now.
+    if (ctx.busy?.length) {
+      const busy = new Set(ctx.busy);
+      const least = Math.ceil(groups.flat().filter((p) => busy.has(p)).length / 4);
+      if (waitingCourts(ctx, groups) > least) {
+        groups = untangle(groups, orderOnCourt(ctx, groups.flat(), levels), (g) => waitingCourts(ctx, g), ctx, least, true);
+      }
     }
 
     const matches: PlannedMatch[] = [];

@@ -441,6 +441,38 @@ const winner = me.sessions.find((s) => s.id === ft.id)?.winnerName;
 if (!winner?.includes(" & ")) fail(`past-session winner should name both partners, got "${winner}"`);
 await shot(org, "16-teams-final");
 log(`final: champion "${champ}" on the podium, TV board and past-sessions list name the team`);
+// --- Deal ahead: Court 3 finishes first → round 2 starts there while Court 4 plays on ----
+const ah = await api("POST", "/sessions", { name: "Ahead Night", format: "americano", courtLabels: ["3", "4"], pointsPerMatch: 16 });
+for (let i = 1; i <= 12; i++) await api("POST", `/sessions/${ah.id}/players`, { guestName: `A${i}` });
+await api("POST", `/sessions/${ah.id}/status`, { action: "start" });
+let ad = await api("GET", `/sessions/${ah.id}`);
+if (ad.courts !== 2 || ad.courtLabels.join() !== "3,4") fail(`courts 3 and 4 expected, got ${ad.courts} / ${ad.courtLabels}`);
+const [fast, slow] = ad.rounds[0].matches;
+await api("POST", `/matches/${fast.id}/score`, { scoreA: 10, scoreB: 6 });
+await org.goto(`${BASE}/app/sessions/${ah.id}`);
+await org.getByRole("button", { name: /Start round 2 on Court 3/ }).click();
+await org.getByText("still playing").waitFor({ timeout: 15000 });
+ad = await api("GET", `/sessions/${ah.id}`);
+if (ad.rounds.length !== 2) fail("round 2 should be dealt while Court 4 plays");
+const stillOn = [...slow.a, ...slow.b];
+const r2On = ad.rounds[1].matches.flatMap((m) => [...m.a, ...m.b]);
+if (r2On.some((p) => stillOn.includes(p))) fail("12 players: the Court 4 players should sit round 2, so both courts start now");
+// Court 3 starts now; round 2's other game is on Court 4, so it starts when round 1 finishes there.
+if ((await org.getByText("Starts when Court 4 finishes").count()) !== 1) fail("round 2's Court 4 game should wait for Court 4");
+if (!(await org.getByRole("button", { name: /Pause game/ }).isDisabled())) fail("can't pause while Court 4 is still playing");
+await shot(org, "12a-deal-ahead");
+log("deal ahead: Court 3 done → round 2 dealt now; Court 4's players sit it, Court 4 keeps playing round 1");
+// Court 4 finishes: its score still goes in, and round 1 closes.
+await org.locator("button", { hasText: "Court 4" }).first().click();
+await org.locator(".fixed").getByRole("button", { name: "+", exact: true }).click();
+await org.getByRole("button", { name: /Save score/ }).click();
+await org.locator(".fixed").waitFor({ state: "detached", timeout: 10000 });
+await org.getByText("still playing").waitFor({ state: "detached", timeout: 10000 });
+ad = await api("GET", `/sessions/${ah.id}`);
+if (!ad.rounds[0].complete) fail("round 1 should be complete once Court 4's score is in");
+if (ad.standings.filter((r) => r.played > 0).length !== 8) fail("all 8 round-1 players should have a result");
+log("Court 4's round-1 score entered after round 2 started; round 1 complete, standings updated");
+
 await org.goto(`${BASE}/app`);
 await org.getByRole("button", { name: "+ New session" }).click();
 await org.getByPlaceholder("Thursday Padel Jam").fill("Quick Start Night");

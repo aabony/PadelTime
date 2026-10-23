@@ -204,10 +204,10 @@ sessionRoutes.post("/sessions/:id/status", async (c) => {
       // next round with whoever is checked in. Only between rounds — a round
       // with scores still missing has players on court.
       if (session.status !== "active") return c.json({ error: "Session isn't live" }, 400);
-      const played = await loadRounds(db, session.id);
-      const latest = played[played.length - 1];
-      if (latest && !latest.complete) {
-        return c.json({ error: `Enter all of round ${latest.number}'s scores first` }, 400);
+      // A round dealt ahead can leave an earlier round's court still playing.
+      const open = (await loadRounds(db, session.id)).find((r) => !r.complete);
+      if (open) {
+        return c.json({ error: `Enter all of round ${open.number}'s scores first` }, 400);
       }
       await setStatus("checkin");
       return c.json({ ok: true });

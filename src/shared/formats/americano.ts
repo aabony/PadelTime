@@ -1,7 +1,7 @@
 import type { EngineContext, FormatStrategy, PlannedMatch, RoundPlan } from "./types";
 import { pairKey, shuffle } from "./types";
 import { ADVANCED, UNSET_LEVEL, isBeginner } from "../levels";
-import { pickByes } from "./byes";
+import { pickByes, waitingCourts } from "./byes";
 import { planFixedTeams } from "./teams";
 import { chooseSitOuts, groupingLevels, levelIn, levelMixCost, levelSides } from "./levelGrouping";
 
@@ -38,6 +38,8 @@ const SHARED_WEIGHT = 2;
 // A same-gender team when "mixed pairs" is on. Two of them on a court (60)
 // outweigh one repeat partnership (40), a double repeat (80) does not.
 const MIXED_WEIGHT = 30;
+// Dealing ahead: a court that has to wait for a player still finishing elsewhere.
+const WAIT_WEIGHT = 100;
 
 function sameGenderTeam(t: [string, string], ctx: EngineContext): boolean {
   const g0 = ctx.genders?.[t[0]];
@@ -216,7 +218,7 @@ export const americano: FormatStrategy = {
         const four = order.slice(c * 4, c * 4 + 4);
         const split = bestSplit(four, ctx, !!sides);
         matches.push({ court: c + 1, a: split.a, b: split.b });
-        cost += split.cost;
+        cost += split.cost + WAIT_WEIGHT * waitingCourts(ctx, [four]);
         if (cost >= bestCost) break; // prune hopeless orderings early
       }
       if (cost < bestCost) {

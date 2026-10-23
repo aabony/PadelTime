@@ -1,7 +1,8 @@
 import { eq } from "drizzle-orm";
 import { getFormat } from "../../shared/formats/registry";
 import { autoPair } from "../../shared/formats/teams";
-import type { EngineContext } from "../../shared/formats/types";
+import type { EngineContext, PlannedMatch } from "../../shared/formats/types";
+import type { MatchRow } from "../../shared/types";
 import { buildHistory, creditAbsences } from "../../shared/history";
 import { computeStandings, rankForCourts } from "../../shared/standings";
 import { normalizeLevel } from "../../shared/levels";
@@ -46,6 +47,13 @@ export async function generateNextRound(
   if (latest && !latest.complete && !opts.force) {
     return { error: "The current round still has unconfirmed scores. Confirm them first, or force-generate." };
   }
+  // Dealing ahead: the next round can start while a court is still finishing,
+  // but only one round can be finishing at a time.
+  const before = played[played.length - 2];
+  if (latest && !latest.complete && before && !before.complete) {
+    return { error: `Round ${before.number} is still finishing — enter its last score first.` };
+  }
+  const finishing = latest && !latest.complete ? latest.matches.filter((m) => m.status !== "confirmed") : [];
 
   // Late arrivals are credited for the rounds they missed, so they join the rotation.
   const history = creditAbsences(buildHistory(played), played, eligible);
@@ -64,6 +72,7 @@ export async function generateNextRound(
     groupByLevel: session.groupByLevel,
     genders,
     mixedPairs: session.mixedPairs,
+    busy: finishing.length ? finishing.flatMap((m) => [...m.a, ...m.b]) : undefined,
     rng: Math.random,
   };
   if (session.fixedTeams) ctx.teams = await fixTeams(db, players, eligible, { ...ctx, levels });
@@ -75,6 +84,8 @@ export async function generateNextRound(
     }
     return { error: "Not enough players to fill a court." };
   }
+
+  if (latest && finishing.length) plan.matches = courtsWhenDealtAhead(plan.matches, latest.matches, ctx.courts);
 
   const ts = now();
   const roundId = newId();
@@ -99,6 +110,32 @@ export async function generateNextRound(
     })),
   );
   return { roundNumber: ctx.roundNumber };
+}
+
+/**
+ * Dealing ahead: courts whose players are all free take the courts that just
+ * came free (they start now); a court waiting for players still finishing a
+ * game takes the court those players are on (it starts when they're done).
+ */
+export function courtsWhenDealtAhead(planned: PlannedMatch[], current: MatchRow[], courts: number): PlannedMatch[] {
+  const finishingOn = new Map<string, number>();
+  for (const m of current) if (m.status !== "confirmed") for (const p of [...m.a, ...m.b]) finishingOn.set(p, m.court);
+  const busyCourts = new Set(finishingOn.values());
+  const free = Array.from({ length: courts }, (_, i) => i + 1).filter((c) => !busyCourts.has(c));
+  const taken = new Set<number>();
+  const out = planned.map((m) => ({ ...m, court: 0 }));
+  // Waiting courts first, onto the court their players are finishing on.
+  for (const m of out) {
+    const on = [...m.a, ...m.b].map((p) => finishingOn.get(p)).find((c) => c != null && !taken.has(c));
+    if (on != null) taken.add((m.court = on));
+  }
+  // Ready courts onto free courts; anything left takes whatever number is left.
+  for (const m of out) {
+    if (m.court) continue;
+    const c = [...free, ...Array.from({ length: courts }, (_, i) => i + 1)].find((n) => !taken.has(n))!;
+    taken.add((m.court = c));
+  }
+  return out.sort((a, b) => a.court - b.court);
 }
 
 /**

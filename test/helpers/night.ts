@@ -24,6 +24,8 @@ export interface NightOptions {
   arrivals?: Record<string, number>;
   /** Keep teams together: the fixed pairs. */
   teams?: [string, string][];
+  /** Dealing ahead: every round is dealt while the last court of the round before is still playing. */
+  dealAhead?: boolean;
 }
 
 export interface NightRound {
@@ -55,6 +57,7 @@ export function playNight(planner: Planner, o: NightOptions): NightRound[] {
       genders: o.genders,
       mixedPairs: o.mixedPairs,
       teams: o.teams,
+      busy: o.dealAhead && played.length > 0 ? (({ a, b }) => [...a, ...b])(played[played.length - 1].matches.at(-1)!) : undefined,
       rng,
     };
     const plan = planner(ctx);
