@@ -1,5 +1,6 @@
-// Player ability, set by the organizer in the roster and never shown to
-// players. Three coarse levels on purpose. Only used when the session has
+// Player ability: players rate themselves, the organizer can set or override it
+// in the roster. Private — a player only ever sees their own. Three coarse
+// levels on purpose. Only used when the session has
 // "Group players by playing level" on: beginners together, intermediate and
 // advanced together — every round in Casual (Americano, which also balances
 // teams by level), for each player's first two games in Competitive (Mexicano).

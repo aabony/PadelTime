@@ -281,8 +281,8 @@ export async function buildDetail(
     inviteCode: session.inviteCode,
     myRole,
     myPlayerId,
-    // Levels are the organizer's private assessment: strip them for everyone else.
-    players: myRole === "organizer" ? players : players.map((p) => ({ ...p, level: null })),
+    // Levels are private: the organizer sees everyone's, a player only their own.
+    players: myRole === "organizer" ? players : players.map((p) => (p.id === myPlayerId ? p : { ...p, level: null })),
     rounds: roundRows,
     standings,
     teamStandings: session.fixedTeams ? computeTeamStandings(players, roundRows) : undefined,

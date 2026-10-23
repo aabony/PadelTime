@@ -133,15 +133,16 @@ await org.getByText("Invite players").waitFor({ timeout: 10000 });
 if ((await genderOf(org, "George").inputValue()) !== "man") fail("George's gender should persist");
 log("organizer set George as a man — persists");
 
-// Group players by playing level: off by default, switched on in Settings, then
-// the organizer's roster grows a Level select per player.
+// Levels can be set any time (they carry over to later nights); grouping by
+// level is off by default and switched on in Settings.
 const levelOf = (pg, name) => pg.locator("li", { hasText: name }).getByRole("combobox", { name: "Level" });
-if ((await levelOf(org, "George").count()) !== 0) fail("no Level selects until the session groups by level");
+if ((await levelOf(org, "George").count()) !== 1) fail("the organizer can set levels before grouping is on");
+await levelOf(org, "George").selectOption("4");
+await org.waitForTimeout(800);
 await org.getByRole("button", { name: "Settings" }).click();
 await org.getByRole("checkbox", { name: /Group players by playing level/ }).check();
 await org.getByRole("button", { name: "Save changes" }).click();
 await org.getByText("🎚️ Grouped by level").waitFor({ timeout: 10000 });
-await levelOf(org, "George").selectOption("4");
 await org.getByText(/Levels set: 1 of \d+/).waitFor({ timeout: 10000 });
 await org.reload();
 await org.getByText("Invite players").waitFor({ timeout: 10000 });
@@ -159,6 +160,8 @@ await paula.getByRole("button", { name: "Continue with email →" }).click();
 await paula.waitForURL("**/login**");
 await otpSignIn(paula, "Paula", `paula${run}@test.com`);
 await paula.waitForURL("**/join/**", { timeout: 15000 });
+// Players rate themselves (privately) before joining.
+await paula.getByRole("group", { name: "Your level" }).getByRole("button", { name: /Beginner/ }).click();
 await paula.getByRole("button", { name: /Join session|Join waitlist/ }).click({ timeout: 15000 });
 await paula.getByText("You're in ✓").waitFor({ timeout: 10000 });
 await paula.getByRole("button", { name: "Open session" }).click();
@@ -168,8 +171,14 @@ await paula.getByText("George").first().waitFor({ timeout: 10000 });
 if ((await paula.getByRole("combobox", { name: "Level" }).count()) !== 0) fail("players must not see Level selects");
 const paulaView = await (await paula.request.get(`${BASE}/api/sessions/${sessionId}`)).json();
 if (!paulaView.groupByLevel) fail("Paula's view should say the session groups by level");
-if (paulaView.players.some((p) => p.level != null)) fail("levels must not reach players' API responses");
-log("levels are organizer-only: no selects for Paula, null in her API payload");
+if (paulaView.players.find((p) => p.id === paulaView.myPlayerId)?.level !== 2) fail("Paula should see her own level (Beginner)");
+if (paulaView.players.some((p) => p.id !== paulaView.myPlayerId && p.level != null)) fail("players must not see anyone else's level");
+// Changing it from her status card.
+await paula.getByRole("group", { name: "Your level" }).getByRole("button", { name: /Intermediate/ }).click();
+await paula.waitForTimeout(800);
+const orgSeesPaula = await (await org.request.get(`${BASE}/api/sessions/${sessionId}`)).json();
+if (orgSeesPaula.players.find((p) => p.name === "Paula")?.level !== 3) fail("the organizer should see Paula's own rating (Intermediate)");
+log("Paula rated herself Beginner on joining, changed it to Intermediate; only she and the organizer see it");
 
 // --- Start: no check-in step — everyone signed up plays --------------------
 if ((await org.getByRole("button", { name: "Start check-in" }).count()) !== 0) fail("check-in is no longer a step");

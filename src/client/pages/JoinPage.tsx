@@ -8,6 +8,7 @@ import { Logo } from "../App";
 import { statusTone } from "./Home";
 import { blurbFor, formatMeta } from "../../shared/formatMeta";
 import { GenderToggle } from "../components/GenderSelect";
+import { LevelToggle } from "../components/LevelSelect";
 import { StandingsTable } from "../components/StandingsTable";
 import type { Gender } from "../../shared/genders";
 
@@ -38,6 +39,7 @@ export function JoinPage() {
   const [busy, setBusy] = useState<string | null>(null);
   // undefined = untouched → fall back to what the server remembers
   const [genderPick, setGenderPick] = useState<Gender | null | undefined>(undefined);
+  const [levelPick, setLevelPick] = useState<number | null | undefined>(undefined);
   const navigate = useNavigate();
 
   if (loading || isPending) return <PageSpinner />;
@@ -89,7 +91,12 @@ export function JoinPage() {
               : "Cancelled";
 
   const gender = genderPick === undefined ? data.myGender : genderPick;
-  const join = (here: boolean) => act(here ? "here" : "join", () => Api.join(code, { here, gender }));
+  const level = levelPick === undefined ? data.myLevel : levelPick;
+  const join = (here: boolean) => act(here ? "here" : "join", () => Api.join(code, { here, gender, level }));
+  const pickLevel = (l: number | null) => {
+    setLevelPick(l);
+    if (joined) act("level", () => Api.setMyLevel(data.sessionId, l));
+  };
   const pickGender = (g: Gender | null) => {
     setGenderPick(g);
     if (joined) act("gender", () => Api.setMyGender(data.sessionId, g));
@@ -184,6 +191,14 @@ export function JoinPage() {
                 Mixed pairs night: every team is one woman + one man, so the draw needs to know.
               </p>
               <GenderToggle value={gender} busy={busy === "gender"} onChange={pickGender} />
+            </Card>
+          )}
+
+          {!over && (
+            <Card className="mt-4">
+              <h3 className="text-lg font-black text-navy">Your level</h3>
+              <p className="mb-3 text-xs text-muted">Only you and the organizer see it.</p>
+              <LevelToggle value={level} busy={busy === "level"} onChange={pickLevel} />
             </Card>
           )}
 

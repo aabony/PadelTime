@@ -362,7 +362,7 @@ sessionRoutes.patch("/sessions/:id/players/:pid", async (c) => {
       break;
     }
     case "set_level":
-      // Organizer-only (this route is guarded by canManage); players never set or see levels.
+      // The organizer can set or override anyone's level (players set their own via /level).
       await db.update(sessionPlayers).set({ level: parseLevel(body.level) }).where(eq(sessionPlayers.id, player.id));
       break;
     case "merge": {
@@ -435,6 +435,26 @@ sessionRoutes.post("/sessions/:id/gender", async (c) => {
     .limit(1);
   if (!me) return c.json({ error: "Join the session first" }, 400);
   await db.update(sessionPlayers).set({ gender: parseGender(body.gender) }).where(eq(sessionPlayers.id, me.id));
+  return c.json({ ok: true });
+});
+
+// Players rate their own level (private: only they and the organizer see it); the organizer can override.
+sessionRoutes.post("/sessions/:id/level", async (c) => {
+  const u = c.get("user");
+  if (!u) return c.json({ error: "Sign in required" }, 401);
+  const db = c.get("db");
+  const loaded = await loadSession(db, c.req.param("id"));
+  if (!loaded) return c.json({ error: "Session not found" }, 404);
+  const { session } = loaded;
+  if (["complete", "cancelled"].includes(session.status)) return c.json({ error: "This session is over" }, 400);
+  const body = await c.req.json().catch(() => ({}));
+  const [me] = await db
+    .select()
+    .from(sessionPlayers)
+    .where(and(eq(sessionPlayers.sessionId, session.id), eq(sessionPlayers.userId, u.id)))
+    .limit(1);
+  if (!me) return c.json({ error: "Join the session first" }, 400);
+  await db.update(sessionPlayers).set({ level: parseLevel(body.level) }).where(eq(sessionPlayers.id, me.id));
   return c.json({ ok: true });
 });
 

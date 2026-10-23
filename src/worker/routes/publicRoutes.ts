@@ -8,6 +8,7 @@ import type { DB } from "../lib/detail";
 import { loadPlayers, loadRounds, loadSessionByCode } from "../lib/detail";
 import { parseGender } from "../../shared/genders";
 import type { Gender } from "../../shared/genders";
+import { normalizeLevel, parseLevel } from "../../shared/levels";
 import { newId, now } from "../lib/util";
 import type { ApiCtx } from "./context";
 
@@ -40,6 +41,17 @@ async function rememberedGender(db: DB, userId: string): Promise<Gender | null> 
     .orderBy(desc(sessionPlayers.joinedAt))
     .limit(1);
   return parseGender(row?.gender);
+}
+
+/** The level a player last had (their own or the organizer's rating), so they don't answer every session. */
+async function rememberedLevel(db: DB, userId: string): Promise<number | null> {
+  const [row] = await db
+    .select({ level: sessionPlayers.level })
+    .from(sessionPlayers)
+    .where(and(eq(sessionPlayers.userId, userId), isNotNull(sessionPlayers.level)))
+    .orderBy(desc(sessionPlayers.joinedAt))
+    .limit(1);
+  return normalizeLevel(row?.level);
 }
 
 const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
@@ -94,6 +106,7 @@ publicRoutes.get("/join/:code", async (c) => {
     roundsPlayed: (await loadRounds(db, session.id)).length,
     myStatus: (mine?.status as PlayerStatus) ?? null,
     myGender: parseGender(mine?.gender) ?? (u ? await rememberedGender(db, u.id) : null),
+    myLevel: normalizeLevel(mine?.level) ?? (u ? await rememberedLevel(db, u.id) : null),
     mixedPairs: session.mixedPairs,
     groupByLevel: session.groupByLevel,
     fixedTeams: session.fixedTeams,
@@ -130,6 +143,7 @@ publicRoutes.post("/join/:code", async (c) => {
   const target: PlayerStatus = taken >= session.maxPlayers ? "waitlist" : here ? "checked_in" : "confirmed";
   const checkedInAt = target === "checked_in" ? now() : null;
   const requestedGender = parseGender(body.gender);
+  const requestedLevel = parseLevel(body.level);
 
   const existing = players.find((p) => p.userId === u.id);
   if (existing) {
@@ -140,6 +154,7 @@ publicRoutes.post("/join/:code", async (c) => {
       Object.assign(changes, { status: "checked_in", checkedInAt: now() });
     }
     if (requestedGender != null) changes.gender = requestedGender;
+    if (requestedLevel != null) changes.level = requestedLevel;
     if (Object.keys(changes).length > 0) {
       await db.update(sessionPlayers).set(changes).where(eq(sessionPlayers.id, existing.id));
     }
@@ -147,6 +162,7 @@ publicRoutes.post("/join/:code", async (c) => {
   }
 
   const gender = requestedGender ?? (await rememberedGender(db, u.id));
+  const level = requestedLevel ?? (await rememberedLevel(db, u.id));
   const guest = claimableGuest(players, u.name);
   if (guest) {
     // The organizer already added this person by name — take that entry over.
@@ -159,6 +175,8 @@ publicRoutes.post("/join/:code", async (c) => {
         status,
         checkedInAt: status === "checked_in" ? (guest.checkedInAt ?? now()) : guest.checkedInAt,
         gender: parseGender(guest.gender) ?? gender,
+        // A level the organizer already gave this guest wins over the player's own.
+        level: normalizeLevel(guest.level) ?? level,
       })
       .where(eq(sessionPlayers.id, guest.id));
     return c.json({ status });
@@ -173,6 +191,7 @@ publicRoutes.post("/join/:code", async (c) => {
     joinedAt: now(),
     checkedInAt,
     gender,
+    level,
   });
 
   // Joining a session makes you part of its group (recurring-group model, plan §18).

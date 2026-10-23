@@ -170,8 +170,10 @@ export interface JoinInfo {
   myStatus: PlayerStatus | null;
   /** Gender on this session, or the one remembered from the last session played. */
   myGender: "woman" | "man" | null;
+  /** Your level on this session (private to you and the organizer), or the one remembered from your last session. */
+  myLevel: number | null;
   mixedPairs: boolean;
-  /** Group players by playing level is on (levels themselves are never shared). */
+  /** Group players by playing level is on (players only ever see their own level). */
   groupByLevel: boolean;
   /** Keep teams together is on. */
   fixedTeams: boolean;

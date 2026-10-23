@@ -28,7 +28,7 @@ import { StandingsTable, perGame, rankStyle } from "../components/StandingsTable
 import { statusTone } from "./Home";
 import { StylePicker } from "../components/StylePicker";
 import { GenderBadge, GenderSelect, GenderToggle } from "../components/GenderSelect";
-import { LevelSelect } from "../components/LevelSelect";
+import { LevelSelect, LevelToggle } from "../components/LevelSelect";
 import { GroupByLevelToggle } from "../components/GroupByLevelToggle";
 import { TeamsToggle } from "../components/TeamsToggle";
 import { PartnerSelect } from "../components/PartnerSelect";
@@ -601,7 +601,7 @@ function LevelHint({ players }: { players: PlayerRow[] }) {
   return (
     <p className="-mt-1 mb-3 rounded-xl bg-canvas px-3 py-2 text-xs text-muted">
       🎚️ Levels set: <b className={set < players.length ? "text-amber-dark" : "text-navy"}>{set}</b> of {players.length}
-      {set < players.length && " (unset = intermediate)"} · only you see them
+      {set < players.length && " (unset = intermediate)"} · players only see their own
     </p>
   );
 }
@@ -726,7 +726,7 @@ function PlayersCard({ d, isOrganizer, run, busyKey }: ViewProps) {
                 {p.isGuest && <span className="ml-1.5 text-xs font-medium text-faint">guest</span>}
                 {p.id === d.myPlayerId && <span className="ml-1.5 text-xs font-bold text-royal">you</span>}
               </span>
-              {/* Gender and level on one line; levels only matter for grouping and team balancing. */}
+              {/* Gender and level on one line, always settable (they carry over to the next night). */}
               {isOrganizer && (
                 <span className="mt-1 flex flex-wrap items-center gap-1">
                   <GenderSelect
@@ -734,14 +734,12 @@ function PlayersCard({ d, isOrganizer, run, busyKey }: ViewProps) {
                     busy={busyKey === `g-${p.id}`}
                     onChange={(gender) => run(`g-${p.id}`, () => Api.playerAction(d.id, p.id, "set_gender", { gender }))}
                   />
-                  {(d.groupByLevel || d.fixedTeams) && (
-                    <LevelSelect
-                      compact
-                      value={p.level}
-                      busy={busyKey === `lvl-${p.id}`}
-                      onChange={(level) => run(`lvl-${p.id}`, () => Api.playerAction(d.id, p.id, "set_level", { level }))}
-                    />
-                  )}
+                  <LevelSelect
+                    compact
+                    value={p.level}
+                    busy={busyKey === `lvl-${p.id}`}
+                    onChange={(level) => run(`lvl-${p.id}`, () => Api.playerAction(d.id, p.id, "set_level", { level }))}
+                  />
                   {d.fixedTeams && (
                     <PartnerSelect
                       player={p}
@@ -851,6 +849,11 @@ function MyStatusCard({ d, run, busyKey }: { d: SessionDetail; run: Run; busyKey
           <GenderToggle value={me.gender} busy={busyKey === "mygender"} onChange={(gender) => run("mygender", () => Api.setMyGender(d.id, gender))} />
         </div>
       )}
+      <div className="mt-3 border-t border-line/60 pt-3">
+        <p className="text-sm font-semibold text-navy">Your level</p>
+        <p className="mb-2 text-xs text-muted">Only you and the organizer see it.</p>
+        <LevelToggle value={me.level} busy={busyKey === "mylevel"} onChange={(level) => run("mylevel", () => Api.setMyLevel(d.id, level))} />
+      </div>
     </Card>
   );
 }
@@ -1351,14 +1354,12 @@ function LiveRosterCard({ d, isOrganizer, run, busyKey }: ViewProps) {
                               busy={busyKey === `g-${p.id}`}
                               onChange={(gender) => run(`g-${p.id}`, () => Api.playerAction(d.id, p.id, "set_gender", { gender }))}
                             />
-                            {(d.groupByLevel || d.fixedTeams) && (
-                              <LevelSelect
-                                compact
-                                value={p.level}
-                                busy={busyKey === `lvl-${p.id}`}
-                                onChange={(level) => run(`lvl-${p.id}`, () => Api.playerAction(d.id, p.id, "set_level", { level }))}
-                              />
-                            )}
+                            <LevelSelect
+                              compact
+                              value={p.level}
+                              busy={busyKey === `lvl-${p.id}`}
+                              onChange={(level) => run(`lvl-${p.id}`, () => Api.playerAction(d.id, p.id, "set_level", { level }))}
+                            />
                             {d.fixedTeams && (
                               <PartnerSelect
                                 player={p}

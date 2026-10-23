@@ -69,6 +69,7 @@ export const Api = {
     req(`/sessions/${id}/players/${playerId}`, patch({ action, ...extra })),
   selfCheckin: (id: string) => req(`/sessions/${id}/checkin`, post({})),
   setMyGender: (id: string, gender: "woman" | "man" | null) => req(`/sessions/${id}/gender`, post({ gender })),
+  setMyLevel: (id: string, level: number | null) => req(`/sessions/${id}/level`, post({ level })),
   leave: (id: string) => req(`/sessions/${id}/leave`, post({})),
 
   nextRound: (id: string, opts: { force?: boolean; regenerate?: boolean } = {}) =>
@@ -84,7 +85,7 @@ export const Api = {
   disputeScore: (matchId: string) => req(`/matches/${matchId}/dispute`, post({})),
 
   joinInfo: (code: string) => req<JoinInfo>(`/join/${code}`),
-  join: (code: string, opts: { here?: boolean; gender?: "woman" | "man" | null } = {}) =>
+  join: (code: string, opts: { here?: boolean; gender?: "woman" | "man" | null; level?: number | null } = {}) =>
     req<{ status: PlayerStatus }>(`/join/${code}`, post(opts)),
   results: (code: string) => req<ResultsData>(`/results/${code}`),
 };
