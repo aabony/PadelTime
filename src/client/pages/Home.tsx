@@ -10,7 +10,7 @@ import { CourtNumbersField } from "../components/CourtNumbersField";
 import { fitCourtLabels, parseCourtLabels } from "../../shared/courts";
 import { GroupByLevelToggle } from "../components/GroupByLevelToggle";
 import { TeamsToggle } from "../components/TeamsToggle";
-import { Badge, Button, Card, EmptyState, ErrorNote, Field, Input, Modal, PageSpinner, ProgressBar, cls } from "../components/ui";
+import { Badge, Button, Card, EmptyState, ErrorNote, Field, Input, Modal, PageSpinner, ProgressBar, StepperField, cls } from "../components/ui";
 
 export const statusTone = (s: SessionStatus) =>
   s === "active" ? "lime" : s === "checkin" ? "amber" : s === "open" ? "sky" : s === "complete" ? "emerald" : "zinc";
@@ -182,11 +182,6 @@ export function NewSessionModal({
     groupByLevel: false,
     fixedTeams: false,
   });
-  const num = (v: string, fallback: number) => {
-    const n = parseInt(v, 10);
-    return Number.isFinite(n) ? n : fallback;
-  };
-
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
@@ -227,45 +222,27 @@ export function NewSessionModal({
           teams={form.fixedTeams}
           hint="You can switch styles later — even mid-session."
         />
-        <div className="grid grid-cols-[minmax(0,1fr)_6rem] gap-3">
-          <Field label="When">
-            <Input type="datetime-local" value={form.when} onChange={(e) => setForm({ ...form, when: e.target.value })} />
-          </Field>
-          <Field label="Court time (min)">
-            <Input
-              type="number"
-              min={15}
-              max={600}
-              step={15}
-              className="w-24"
-              value={form.durationMin}
-              onChange={(e) => setForm({ ...form, durationMin: num(e.target.value, 90) })}
-            />
-          </Field>
-        </div>
+        <Field label="When">
+          <Input type="datetime-local" value={form.when} onChange={(e) => setForm({ ...form, when: e.target.value })} />
+        </Field>
         <Field label="Venue">
           <Input value={form.venue} onChange={(e) => setForm({ ...form, venue: e.target.value })} placeholder="Real Padel" />
         </Field>
-        <div className="grid grid-cols-3 gap-3">
-          <Field label="Courts">
-            <Input
-              type="number"
-              min={1}
-              max={12}
-              value={form.courts}
-              onChange={(e) => {
-                const courts = num(e.target.value, 2);
-                const labels = parseCourtLabels(form.courtLabels);
-                setForm({ ...form, courts, courtLabels: labels.length ? fitCourtLabels(labels, courts).join(", ") : "" });
-              }}
-            />
-          </Field>
-          <Field label="Max players">
-            <Input type="number" min={4} max={64} value={form.maxPlayers} onChange={(e) => setForm({ ...form, maxPlayers: num(e.target.value, 12) })} />
-          </Field>
-          <Field label="Points">
-            <Input type="number" min={4} max={99} value={form.pointsPerMatch} onChange={(e) => setForm({ ...form, pointsPerMatch: num(e.target.value, 24) })} />
-          </Field>
+        {/* − / + rows: one tap per change, and the number itself can be typed over. */}
+        <div className="divide-y divide-line rounded-2xl border border-line px-3.5 py-1">
+          <StepperField
+            label="Courts"
+            value={form.courts}
+            min={1}
+            max={12}
+            onChange={(courts) => {
+              const labels = parseCourtLabels(form.courtLabels);
+              setForm({ ...form, courts, courtLabels: labels.length ? fitCourtLabels(labels, courts).join(", ") : "" });
+            }}
+          />
+          <StepperField label="Max players" value={form.maxPlayers} min={4} max={64} onChange={(maxPlayers) => setForm({ ...form, maxPlayers })} />
+          <StepperField label="Points per game" value={form.pointsPerMatch} min={4} max={99} onChange={(pointsPerMatch) => setForm({ ...form, pointsPerMatch })} />
+          <StepperField label="Court time (min)" step={15} value={form.durationMin} min={15} max={600} onChange={(durationMin) => setForm({ ...form, durationMin })} />
         </div>
         <CourtNumbersField courts={form.courts} value={form.courtLabels} onChange={(courtLabels, courts) => setForm({ ...form, courtLabels, courts })} />
         <NightSummary

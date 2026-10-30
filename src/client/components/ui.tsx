@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from "react";
 
 export function cls(...parts: (string | false | null | undefined)[]): string {
@@ -166,6 +167,51 @@ export function Modal({
   );
 }
 
+/**
+ * A number box you can clear and retype on a phone: the text is free while you
+ * type, a whole number in range is passed on as soon as there is one, and
+ * leaving the box puts back the last good value. Tapping it selects the number,
+ * so typing replaces it.
+ */
+export function NumberInput({
+  value,
+  onChange,
+  min,
+  max,
+  className,
+  ...rest
+}: {
+  value: number;
+  onChange: (v: number) => void;
+  min: number;
+  max: number;
+} & Omit<InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "min" | "max" | "type">) {
+  const [draft, setDraft] = useState<string | null>(null);
+  return (
+    <input
+      {...rest}
+      type="text"
+      inputMode="numeric"
+      pattern="[0-9]*"
+      className={className}
+      value={draft ?? String(value)}
+      onFocus={(e) => {
+        const el = e.currentTarget;
+        setTimeout(() => el.select(), 0); // after iOS places the caret
+      }}
+      // A tap places the caret after focus, undoing the selection: select again so typing replaces the number.
+      onClick={(e) => e.currentTarget.select()}
+      onChange={(e) => {
+        const text = e.target.value.replace(/\D/g, "").slice(0, 4);
+        setDraft(text);
+        const n = parseInt(text, 10);
+        if (Number.isFinite(n) && n >= min && n <= max) onChange(n);
+      }}
+      onBlur={() => setDraft(null)}
+    />
+  );
+}
+
 export function Stepper({
   value,
   onChange,
@@ -175,6 +221,8 @@ export function Stepper({
   step = 1,
   label,
   unit,
+  editable = false,
+  disabled = false,
 }: {
   value: number;
   onChange: (v: number) => void;
@@ -185,6 +233,9 @@ export function Stepper({
   /** Names the buttons for screen readers and tests ("Increase players"). */
   label?: string;
   unit?: string;
+  /** The number itself can be tapped and typed over, not just stepped. */
+  editable?: boolean;
+  disabled?: boolean;
 }) {
   const btn = cls(
     "flex items-center justify-center rounded-full bg-royal-soft text-royal hover:bg-royal-soft-2 active:bg-royal-soft-2 disabled:opacity-30 font-black select-none",
@@ -196,24 +247,56 @@ export function Stepper({
         type="button"
         className={btn}
         aria-label={label ? `Decrease ${label}` : undefined}
-        disabled={value <= min}
+        disabled={disabled || value <= min}
         onClick={() => onChange(Math.max(min, value - step))}
       >
         −
       </button>
-      <span className={cls("tabular text-center font-black text-navy", big ? "w-14 text-4xl" : "min-w-10 text-xl")}>
-        {value}
-        {unit && <span className="ml-0.5 text-xs font-bold text-muted">{unit}</span>}
-      </span>
+      {editable ? (
+        <span className="inline-flex items-baseline">
+          <NumberInput
+            aria-label={label}
+            value={value}
+            min={min}
+            max={max}
+            disabled={disabled}
+            onChange={onChange}
+            className="tabular w-12 rounded-lg border border-transparent bg-transparent py-0.5 text-center text-xl font-black text-navy outline-none focus:border-royal focus:bg-white disabled:text-muted"
+          />
+          {unit && <span className="text-xs font-bold text-muted">{unit}</span>}
+        </span>
+      ) : (
+        <span className={cls("tabular text-center font-black text-navy", big ? "w-14 text-4xl" : "min-w-10 text-xl")}>
+          {value}
+          {unit && <span className="ml-0.5 text-xs font-bold text-muted">{unit}</span>}
+        </span>
+      )}
       <button
         type="button"
         className={btn}
         aria-label={label ? `Increase ${label}` : undefined}
-        disabled={value >= max}
+        disabled={disabled || value >= max}
         onClick={() => onChange(Math.min(max, value + step))}
       >
         +
       </button>
+    </div>
+  );
+}
+
+/** A form row: label on the left, − value + on the right. */
+export function StepperField({
+  label,
+  hint,
+  ...stepper
+}: { label: string; hint?: string } & Omit<Parameters<typeof Stepper>[0], "label" | "editable">) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-1.5">
+      <span className="min-w-0">
+        <span className="block text-xs font-bold uppercase tracking-wider text-muted">{label}</span>
+        {hint && <span className="block text-xs text-faint">{hint}</span>}
+      </span>
+      <Stepper editable label={label} {...stepper} />
     </div>
   );
 }

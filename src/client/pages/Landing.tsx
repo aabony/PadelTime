@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
 import { authClient } from "../lib/auth";
-import { Button } from "../components/ui";
+import { Button, NumberInput } from "../components/ui";
 import { Logo } from "../App";
 
 const steps = [
@@ -16,16 +16,12 @@ function PaperSheetForm() {
   const field = (label: string, key: keyof typeof form, min: number, max: number) => (
     <label className="block text-center">
       <span className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-muted">{label}</span>
-      <input
-        type="number"
+      <NumberInput
         className="w-16 rounded-xl border border-line-strong bg-white px-2 py-1.5 text-center text-sm text-ink outline-none focus:border-royal"
         min={min}
         max={max}
         value={form[key]}
-        onChange={(e) => {
-          const n = parseInt(e.target.value, 10);
-          setForm({ ...form, [key]: Number.isFinite(n) ? Math.min(Math.max(n, min), max) : form[key] });
-        }}
+        onChange={(v) => setForm({ ...form, [key]: v })}
       />
     </label>
   );

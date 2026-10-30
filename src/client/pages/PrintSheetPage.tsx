@@ -12,7 +12,7 @@ import type { SessionDetail } from "../../shared/types";
 import { estimateRounds } from "../../shared/timing";
 import { Api, useLoad } from "../lib/api";
 import { fmtDateTime } from "../lib/format";
-import { Button, ErrorNote, PageSpinner, cls } from "../components/ui";
+import { Button, ErrorNote, NumberInput, PageSpinner, cls } from "../components/ui";
 
 // Pen & paper mode: a one-page, print-optimised Americano sheet.
 //
@@ -270,14 +270,7 @@ export function PrintSheetPage() {
   const field = (label: string, key: string, value: number, min: number, max: number) => (
     <label key={key} className="block text-center">
       <span className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-muted">{label}</span>
-      <input
-        type="number"
-        className={numInput}
-        min={min}
-        max={max}
-        value={value}
-        onChange={(e) => set(key, clampInt(e.target.value, value, min, max))}
-      />
+      <NumberInput className={numInput} min={min} max={max} value={value} onChange={(v) => set(key, v)} />
     </label>
   );
 

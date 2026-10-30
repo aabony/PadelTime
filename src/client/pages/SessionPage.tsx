@@ -21,6 +21,7 @@ import {
   SectionHeader,
   Spinner,
   StatCell,
+  StepperField,
   cls,
 } from "../components/ui";
 import { ScoreEntry } from "../components/ScoreEntry";
@@ -391,10 +392,6 @@ function SettingsModal({
     fixedTeams: d.fixedTeams,
   });
   const pointsLocked = d.rounds.length > 0;
-  const num = (v: string, fallback: number) => {
-    const n = parseInt(v, 10);
-    return Number.isFinite(n) ? n : fallback;
-  };
   return (
     <Modal open={open} onClose={onClose} title="Session settings">
       <div className="space-y-4">
@@ -409,45 +406,35 @@ function SettingsModal({
             hint={d.rounds.length > 0 ? "A change applies from the next round dealt." : undefined}
           />
         )}
-        <div className="grid grid-cols-[minmax(0,1fr)_6rem] gap-3">
-          <Field label="When">
-            <Input type="datetime-local" value={form.when} onChange={(e) => setForm({ ...form, when: e.target.value })} />
-          </Field>
-          <Field label="Court time (min)">
-            <Input
-              type="number"
-              min={0}
-              max={600}
-              step={15}
-              className="w-24"
-              value={form.durationMin}
-              onChange={(e) => setForm({ ...form, durationMin: num(e.target.value, d.durationMin ?? 0) })}
-            />
-          </Field>
-        </div>
+        <Field label="When">
+          <Input type="datetime-local" value={form.when} onChange={(e) => setForm({ ...form, when: e.target.value })} />
+        </Field>
         <Field label="Venue">
           <Input value={form.venue} onChange={(e) => setForm({ ...form, venue: e.target.value })} />
         </Field>
-        <div className="grid grid-cols-3 gap-3">
-          <Field label="Courts">
-            <Input
-              type="number"
-              min={1}
-              max={12}
-              value={form.courts}
-              onChange={(e) => {
-                const courts = num(e.target.value, d.courts);
-                const labels = parseCourtLabels(form.courtLabels);
-                setForm({ ...form, courts, courtLabels: labels.length ? fitCourtLabels(labels, courts).join(", ") : "" });
-              }}
-            />
-          </Field>
-          <Field label="Max players">
-            <Input type="number" min={4} max={64} value={form.maxPlayers} onChange={(e) => setForm({ ...form, maxPlayers: num(e.target.value, d.maxPlayers) })} />
-          </Field>
-          <Field label="Points">
-            <Input type="number" min={4} max={99} disabled={pointsLocked} value={pointsLocked ? d.pointsPerMatch : form.pointsPerMatch} onChange={(e) => setForm({ ...form, pointsPerMatch: num(e.target.value, d.pointsPerMatch) })} />
-          </Field>
+        {/* − / + rows: one tap per change, and the number itself can be typed over. */}
+        <div className="divide-y divide-line rounded-2xl border border-line px-3.5 py-1">
+          <StepperField
+            label="Courts"
+            value={form.courts}
+            min={1}
+            max={12}
+            onChange={(courts) => {
+              const labels = parseCourtLabels(form.courtLabels);
+              setForm({ ...form, courts, courtLabels: labels.length ? fitCourtLabels(labels, courts).join(", ") : "" });
+            }}
+          />
+          <StepperField label="Max players" value={form.maxPlayers} min={4} max={64} onChange={(maxPlayers) => setForm({ ...form, maxPlayers })} />
+          <StepperField
+            label="Points per game"
+            hint={pointsLocked ? "Locked once a round is played" : undefined}
+            disabled={pointsLocked}
+            value={pointsLocked ? d.pointsPerMatch : form.pointsPerMatch}
+            min={4}
+            max={99}
+            onChange={(pointsPerMatch) => setForm({ ...form, pointsPerMatch })}
+          />
+          <StepperField label="Court time (min)" step={15} value={form.durationMin} min={0} max={600} onChange={(durationMin) => setForm({ ...form, durationMin })} />
         </div>
         <CourtNumbersField courts={form.courts} value={form.courtLabels} onChange={(courtLabels, courts) => setForm({ ...form, courtLabels, courts })} />
         <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-line px-3.5 py-3">
@@ -1546,11 +1533,11 @@ function CourtCard({
       </div>
       {waitingFor && <p className="-mt-1 mb-2 text-xs font-bold text-amber-dark">⏳ Starts when {waitingFor} finishes</p>}
       <div className="space-y-1.5 text-sm">
-        <div className="flex items-center justify-between gap-2">
+        <div className={cls("flex items-center justify-between gap-2 border-l-4 pl-2", TEAM_BAND[0])}>
           <span className="min-w-0 truncate font-bold text-navy">{teamNames(m.a, nameOf)}</span>
           <span className="tabular text-2xl font-black text-navy">{m.scoreA ?? "–"}</span>
         </div>
-        <div className="flex items-center justify-between gap-2">
+        <div className={cls("flex items-center justify-between gap-2 border-l-4 pl-2", TEAM_BAND[1])}>
           <span className="min-w-0 truncate font-bold text-navy">{teamNames(m.b, nameOf)}</span>
           <span className="tabular text-2xl font-black text-navy">{m.scoreB ?? "–"}</span>
         </div>
@@ -1590,6 +1577,12 @@ function CourtCard({
   );
 }
 
+// Each game's two teams get a colour band — on the court card and in the swap
+// sheet — so whoever runs the night can tell who's partnered with whom at a glance.
+const TEAM_BAND = ["border-royal", "border-amber-dark"] as const;
+const TEAM_TEXT = ["text-royal", "text-amber-dark"] as const;
+const TEAM_DOT = ["bg-royal", "bg-amber-dark"] as const;
+
 /** Swap a player in a game: tap who's going off, then who's coming on. */
 function SwapModal({
   open,
@@ -1615,13 +1608,13 @@ function SwapModal({
   const inRound = new Set([...round.byes, ...round.matches.flatMap((x) => [...x.a, ...x.b])]);
   // Who can come on: sitting out first, then players on other courts without a score yet, then late arrivals.
   const candidates = [
-    ...round.byes.map((id) => ({ id, note: "sitting out" })),
+    ...round.byes.map((id) => ({ id, note: "sitting out", team: null as number | null })),
     ...round.matches
       .filter((x) => x.id !== m.id && x.scoreA == null && x.status === "pending")
-      .flatMap((x) => [...x.a, ...x.b].map((id) => ({ id, note: label(x.court) }))),
+      .flatMap((x) => [...x.a, ...x.b].map((id) => ({ id, note: label(x.court), team: x.a.includes(id) ? 0 : 1 }))),
     ...d.players
       .filter((p) => p.status === "checked_in" && !inRound.has(p.id))
-      .map((p) => ({ id: p.id, note: "just arrived" })),
+      .map((p) => ({ id: p.id, note: "just arrived", team: null as number | null })),
   ];
   const close = () => {
     setOut(null);
@@ -1630,25 +1623,40 @@ function SwapModal({
   return (
     <Modal open={open} onClose={close} title={`${label(m.court)} — swap a player`}>
       <p className="mb-2 text-xs font-bold uppercase tracking-wider text-muted">Going off</p>
-      <div className="grid grid-cols-2 gap-2">
-        {[...m.a, ...m.b].map((id) => (
-          <button
-            key={id}
-            type="button"
-            aria-pressed={out === id}
-            onClick={() => setOut(id)}
-            className={cls(
-              "truncate rounded-xl border px-3 py-2 text-left text-sm font-bold",
-              out === id ? "border-royal bg-royal text-white" : "border-line bg-white text-navy hover:border-line-strong",
-            )}
-          >
-            {nameOf(id)}
-          </button>
+      <div className="space-y-1">
+        {[m.a, m.b].map((team, t) => (
+          <Fragment key={t}>
+            {t === 1 && <p className="text-center text-[11px] font-black uppercase tracking-widest text-faint">vs</p>}
+            <div className={cls("rounded-xl border-l-4 bg-canvas/60 p-2", TEAM_BAND[t])}>
+              <p className={cls("mb-1.5 text-[11px] font-bold uppercase tracking-wider", TEAM_TEXT[t])}>Team {t + 1}</p>
+              <div className="grid grid-cols-2 gap-2">
+                {team.map((id) => (
+                  <button
+                    key={id}
+                    type="button"
+                    aria-pressed={out === id}
+                    onClick={() => setOut(id)}
+                    className={cls(
+                      "truncate rounded-xl border px-3 py-2 text-left text-sm font-bold",
+                      out === id ? "border-royal bg-royal text-white" : "border-line bg-white text-navy hover:border-line-strong",
+                    )}
+                  >
+                    {nameOf(id)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </Fragment>
         ))}
       </div>
       {out && (
         <>
-          <p className="mb-2 mt-4 text-xs font-bold uppercase tracking-wider text-muted">Coming on for {nameOf(out)}</p>
+          <p className="mb-2 mt-4 text-xs font-bold uppercase tracking-wider text-muted">
+            Coming on for {nameOf(out)}{" "}
+            <span className={TEAM_TEXT[m.a.includes(out) ? 0 : 1]}>
+              (Team {m.a.includes(out) ? 1 : 2}, with {nameOf((m.a.includes(out) ? m.a : m.b).find((x) => x !== out)!)})
+            </span>
+          </p>
           {candidates.length === 0 ? (
             <p className="text-sm text-muted">Nobody free to swap in.</p>
           ) : (
@@ -1667,7 +1675,11 @@ function SwapModal({
                   className="flex w-full items-center justify-between gap-2 rounded-xl border border-line bg-white px-3 py-2 text-left text-sm hover:border-royal disabled:opacity-50"
                 >
                   <span className="truncate font-bold text-navy">{nameOf(c.id)}</span>
-                  <span className="shrink-0 text-xs text-muted">{c.note}</span>
+                  <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted">
+                    {c.team != null && <span aria-hidden className={cls("size-2 rounded-full", TEAM_DOT[c.team])} />}
+                    {c.note}
+                    {c.team != null && ` · Team ${c.team + 1}`}
+                  </span>
                 </button>
               ))}
             </div>

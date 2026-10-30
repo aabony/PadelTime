@@ -88,7 +88,29 @@ const row18Text = (await row18.textContent()) ?? "";
 if (!/★ best/.test(row18Text) || !/64 ✓2/.test(row18Text)) fail(`18-point row should read 6 rounds, 4 games ✓, 2 sits, ★ best: "${row18Text}"`);
 await lengths.getByRole("button", { name: /^24 pts/ }).filter({ hasText: "3–4" }).waitFor();
 await lengths.getByRole("button", { name: /^18 pts/ }).click();
-if ((await org.getByLabel("Points", { exact: true }).inputValue()) !== "18") fail("tapping the 18-point row should set Points to 18");
+if ((await org.getByLabel("Points per game", { exact: true }).inputValue()) !== "18") fail("tapping the 18-point row should set Points to 18");
+// Points step with − / +, and any number box can be cleared and retyped (it used to snap back when empty).
+await org.getByRole("button", { name: "Increase Points per game" }).click();
+await org.getByRole("button", { name: "Increase Points per game" }).click();
+if ((await org.getByLabel("Points per game", { exact: true }).inputValue()) !== "20") fail("+ twice from 18 should give 20 points");
+const courtsBox = org.getByLabel("Courts", { exact: true });
+await courtsBox.click();
+await courtsBox.press("Backspace");
+if ((await courtsBox.inputValue()) !== "") fail("the Courts box should stay empty while retyping");
+await courtsBox.pressSequentially("3");
+if ((await courtsBox.inputValue()) !== "3") fail("typing 3 into a cleared Courts box should give 3 courts");
+await courtsBox.press("Backspace");
+await courtsBox.pressSequentially("2");
+const playersBox = org.getByLabel("Max players", { exact: true });
+await playersBox.click();
+await playersBox.pressSequentially("14"); // tapping selects the number, so typing replaces it
+await courtsBox.click(); // leave the box
+if ((await playersBox.inputValue()) !== "14") fail(`typing over Max players should give 14, got ${await playersBox.inputValue()}`);
+await playersBox.click();
+await playersBox.pressSequentially("12");
+await courtsBox.click();
+if ((await playersBox.inputValue()) !== "12") fail(`retyping Max players should replace the number, got ${await playersBox.inputValue()}`);
+log("number boxes: − / + steps, and a box can be cleared and retyped (courts 2 → 3, players 12 → 14)");
 await shot(org, "01b-game-lengths");
 await lengths.getByRole("button", { name: /^24 pts/ }).click();
 // The courts actually booked: players see Court 3 / Court 4.
@@ -290,7 +312,11 @@ const court3 = r2.matches.find((m) => m.court === 1);
 const goingOff = court3.a[0];
 const nameIn = (id) => lateView.players.find((p) => p.id === id).name;
 await org.getByRole("button", { name: "Swap a player, Court 3" }).click();
+// The sheet shows who's partnered with whom: Team 1 / Team 2 bands.
+for (const t of ["Team 1", "Team 2"]) await org.locator(".fixed").getByText(t, { exact: true }).waitFor({ timeout: 5000 });
 await org.locator(".fixed").getByRole("button", { name: nameIn(goingOff), exact: true }).click();
+await org.locator(".fixed").getByText(/Coming on for .* \(Team 1, with /).waitFor({ timeout: 5000 });
+await shot(org, "08d-swap-sheet");
 await org.locator(".fixed").getByRole("button", { name: new RegExp(`^${nameIn(sitter)}\\s*sitting out`) }).click();
 await org.locator(".fixed").waitFor({ state: "detached", timeout: 10000 });
 const swapped = (await orgApi("GET", `/sessions/${sessionId}`)).rounds.at(-1);
@@ -584,7 +610,7 @@ await org.getByRole("heading", { name: "New session" }).waitFor({ timeout: 10000
 const newForm = org.locator("form", { hasText: "Create session" });
 const formVal = (label) =>
   newForm.getByLabel(label, { exact: true }).inputValue().catch((e) => `err:${e.message.split("\n")[0]}`);
-const [courtsVal, pointsVal, maxVal] = [await formVal("Courts"), await formVal("Points"), await formVal("Max players")];
+const [courtsVal, pointsVal, maxVal] = [await formVal("Courts"), await formVal("Points per game"), await formVal("Max players")];
 if (courtsVal !== "2" || pointsVal !== "18" || maxVal !== "12")
   fail(`planner prefill expected courts 2 / points 18 / max 12, got ${courtsVal} / ${pointsVal} / ${maxVal}`);
 log("night planner → 'Create a session' opens the form prefilled (2 courts · 18 points · 12 max)");
@@ -601,7 +627,7 @@ await visitor.getByRole("heading", { name: "New session" }).waitFor({ timeout: 1
 const visitorForm = visitor.locator("form", { hasText: "Create session" });
 const visitorVal = (label) =>
   visitorForm.getByLabel(label, { exact: true }).inputValue().catch((e) => `err:${e.message.split("\n")[0]}`);
-const [vCourts, vPoints, vMax] = [await visitorVal("Courts"), await visitorVal("Points"), await visitorVal("Max players")];
+const [vCourts, vPoints, vMax] = [await visitorVal("Courts"), await visitorVal("Points per game"), await visitorVal("Max players")];
 if (vCourts !== "2" || vPoints !== "16" || vMax !== "11")
   fail(`signed-out hand-off expected courts 2 / points 16 / max 11 after sign-in, got ${vCourts} / ${vPoints} / ${vMax}`);
 log("signed-out planner → sign in → lands on the prefilled form (2 courts · 16 points · 11 max)");
