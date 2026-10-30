@@ -7,7 +7,7 @@ import type { FormatKey, SessionStatus, SessionSummary } from "../../shared/type
 import { StylePicker } from "../components/StylePicker";
 import { NightSummary } from "../components/NightSummary";
 import { CourtNumbersField } from "../components/CourtNumbersField";
-import { fitCourtLabels, parseCourtLabels } from "../../shared/courts";
+import { parseCourtLabels } from "../../shared/courts";
 import { GroupByLevelToggle } from "../components/GroupByLevelToggle";
 import { TeamsToggle } from "../components/TeamsToggle";
 import { Badge, Button, Card, EmptyState, ErrorNote, Field, Input, Modal, PageSpinner, ProgressBar, StepperField, cls } from "../components/ui";
@@ -228,23 +228,13 @@ export function NewSessionModal({
         <Field label="Venue">
           <Input value={form.venue} onChange={(e) => setForm({ ...form, venue: e.target.value })} placeholder="Real Padel" />
         </Field>
+        <CourtNumbersField courts={form.courts} value={form.courtLabels} onChange={(courtLabels, courts) => setForm({ ...form, courtLabels, courts })} />
         {/* − / + rows: one tap per change, and the number itself can be typed over. */}
         <div className="divide-y divide-line rounded-2xl border border-line px-3.5 py-1">
-          <StepperField
-            label="Courts"
-            value={form.courts}
-            min={1}
-            max={12}
-            onChange={(courts) => {
-              const labels = parseCourtLabels(form.courtLabels);
-              setForm({ ...form, courts, courtLabels: labels.length ? fitCourtLabels(labels, courts).join(", ") : "" });
-            }}
-          />
           <StepperField label="Max players" value={form.maxPlayers} min={4} max={64} onChange={(maxPlayers) => setForm({ ...form, maxPlayers })} />
           <StepperField label="Points per game" value={form.pointsPerMatch} min={4} max={99} onChange={(pointsPerMatch) => setForm({ ...form, pointsPerMatch })} />
-          <StepperField label="Court time (min)" step={15} value={form.durationMin} min={15} max={600} onChange={(durationMin) => setForm({ ...form, durationMin })} />
+          <StepperField label="Court time (min)" presets={[60, 90, 120]} step={15} value={form.durationMin} min={15} max={600} onChange={(durationMin) => setForm({ ...form, durationMin })} />
         </div>
-        <CourtNumbersField courts={form.courts} value={form.courtLabels} onChange={(courtLabels, courts) => setForm({ ...form, courtLabels, courts })} />
         <NightSummary
           players={form.maxPlayers}
           courts={form.courts}

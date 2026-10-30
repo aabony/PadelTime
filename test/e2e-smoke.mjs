@@ -93,29 +93,47 @@ if ((await org.getByLabel("Points per game", { exact: true }).inputValue()) !== 
 await org.getByRole("button", { name: "Increase Points per game" }).click();
 await org.getByRole("button", { name: "Increase Points per game" }).click();
 if ((await org.getByLabel("Points per game", { exact: true }).inputValue()) !== "20") fail("+ twice from 18 should give 20 points");
-const courtsBox = org.getByLabel("Courts", { exact: true });
-await courtsBox.click();
-await courtsBox.press("Backspace");
-if ((await courtsBox.inputValue()) !== "") fail("the Courts box should stay empty while retyping");
-await courtsBox.pressSequentially("3");
-if ((await courtsBox.inputValue()) !== "3") fail("typing 3 into a cleared Courts box should give 3 courts");
-await courtsBox.press("Backspace");
-await courtsBox.pressSequentially("2");
+// Any number box can be cleared and retyped (it used to snap back when empty, or append digits).
+const pointsBox = org.getByLabel("Points per game", { exact: true });
 const playersBox = org.getByLabel("Max players", { exact: true });
+await pointsBox.click();
+await pointsBox.press("Backspace");
+if ((await pointsBox.inputValue()) !== "") fail("the Points box should stay empty while retyping");
+await pointsBox.pressSequentially("22");
+if ((await pointsBox.inputValue()) !== "22") fail("typing 22 into a cleared Points box should give 22");
 await playersBox.click();
 await playersBox.pressSequentially("14"); // tapping selects the number, so typing replaces it
-await courtsBox.click(); // leave the box
+await pointsBox.click(); // leave the box
 if ((await playersBox.inputValue()) !== "14") fail(`typing over Max players should give 14, got ${await playersBox.inputValue()}`);
 await playersBox.click();
 await playersBox.pressSequentially("12");
-await courtsBox.click();
+await pointsBox.click();
 if ((await playersBox.inputValue()) !== "12") fail(`retyping Max players should replace the number, got ${await playersBox.inputValue()}`);
-log("number boxes: − / + steps, and a box can be cleared and retyped (courts 2 → 3, players 12 → 14)");
+// Court time: one-tap presets.
+await org.getByRole("button", { name: "120", exact: true }).click();
+if ((await org.getByLabel("Court time (min)", { exact: true }).inputValue()) !== "120") fail("the 120 preset should set court time");
+await org.getByRole("button", { name: "90", exact: true }).click();
+log("number boxes: − / + steps, retyping replaces the number (points 22, players 14 → 12), court-time presets");
 await shot(org, "01b-game-lengths");
 await lengths.getByRole("button", { name: /^24 pts/ }).click();
-// The courts actually booked: players see Court 3 / Court 4.
-await org.getByLabel(/Court numbers/).fill("3, 4");
-if ((await org.getByLabel("Courts", { exact: true }).inputValue()) !== "2") fail("court numbers 3, 4 should mean 2 courts");
+// Courts: a 1–6 dropdown, then one number dropdown per court (the ones actually booked).
+const courtsSelect = org.getByRole("combobox", { name: "Courts", exact: true });
+const courtNumbers = async (pg) =>
+  Promise.all(
+    Array.from({ length: Number(await pg.getByRole("combobox", { name: "Courts", exact: true }).inputValue()) }, (_, i) =>
+      pg.getByRole("combobox", { name: `Court number ${i + 1}`, exact: true }).inputValue(),
+    ),
+  ).then((v) => v.join(","));
+if ((await courtNumbers(org)) !== "1,2") fail(`a new session should start on courts 1, 2, got ${await courtNumbers(org)}`);
+await courtsSelect.selectOption("3");
+if ((await courtNumbers(org)) !== "1,2,3") fail(`3 courts should be numbered 1, 2, 3, got ${await courtNumbers(org)}`);
+await courtsSelect.selectOption("2");
+await org.getByRole("combobox", { name: "Court number 1", exact: true }).selectOption("3");
+await org.getByRole("combobox", { name: "Court number 2", exact: true }).selectOption("4");
+if ((await courtNumbers(org)) !== "3,4") fail(`courts should be numbered 3, 4, got ${await courtNumbers(org)}`);
+await org.getByRole("combobox", { name: "Court number 2", exact: true }).selectOption("3"); // taken by court 1: they swap
+if ((await courtNumbers(org)) !== "4,3") fail(`picking a taken number should swap, got ${await courtNumbers(org)}`);
+await org.getByRole("combobox", { name: "Court number 1", exact: true }).selectOption("3");
 log("new-session form compares game lengths (12 players, 2 courts: 18 pts → 6 rounds, 4 games each ✓) and a tap picks one");
 await org.getByRole("button", { name: "Create session", exact: true }).click();
 await org.waitForURL("**/app/sessions/**");
@@ -373,7 +391,7 @@ await org.getByPlaceholder("Thursday Padel Jam").fill("Bring Back Night");
 await org.getByRole("button", { name: /Competitive/ }).click(); // Mexicano
 await org.getByRole("checkbox", { name: /^👩👨 Mixed pairs/ }).check();
 await org.getByRole("checkbox", { name: /Group players by playing level/ }).check();
-await org.locator("select").selectOption({ index: 1 });
+await org.getByLabel("Bring back the players from").selectOption({ index: 1 });
 await org.getByRole("button", { name: "Create session", exact: true }).click();
 await org.waitForURL("**/app/sessions/**");
 await org.getByText("George").first().waitFor({ timeout: 10000 });
@@ -610,8 +628,8 @@ await org.getByRole("heading", { name: "New session" }).waitFor({ timeout: 10000
 const newForm = org.locator("form", { hasText: "Create session" });
 const formVal = (label) =>
   newForm.getByLabel(label, { exact: true }).inputValue().catch((e) => `err:${e.message.split("\n")[0]}`);
-const [courtsVal, pointsVal, maxVal] = [await formVal("Courts"), await formVal("Points per game"), await formVal("Max players")];
-if (courtsVal !== "2" || pointsVal !== "18" || maxVal !== "12")
+const [courtsVal, pointsVal, maxVal] = [await courtNumbers(org), await formVal("Points per game"), await formVal("Max players")];
+if (courtsVal !== "1,2" || pointsVal !== "18" || maxVal !== "12")
   fail(`planner prefill expected courts 2 / points 18 / max 12, got ${courtsVal} / ${pointsVal} / ${maxVal}`);
 log("night planner → 'Create a session' opens the form prefilled (2 courts · 18 points · 12 max)");
 
@@ -627,8 +645,8 @@ await visitor.getByRole("heading", { name: "New session" }).waitFor({ timeout: 1
 const visitorForm = visitor.locator("form", { hasText: "Create session" });
 const visitorVal = (label) =>
   visitorForm.getByLabel(label, { exact: true }).inputValue().catch((e) => `err:${e.message.split("\n")[0]}`);
-const [vCourts, vPoints, vMax] = [await visitorVal("Courts"), await visitorVal("Points per game"), await visitorVal("Max players")];
-if (vCourts !== "2" || vPoints !== "16" || vMax !== "11")
+const [vCourts, vPoints, vMax] = [await courtNumbers(visitor), await visitorVal("Points per game"), await visitorVal("Max players")];
+if (vCourts !== "1,2" || vPoints !== "16" || vMax !== "11")
   fail(`signed-out hand-off expected courts 2 / points 16 / max 11 after sign-in, got ${vCourts} / ${vPoints} / ${vMax}`);
 log("signed-out planner → sign in → lands on the prefilled form (2 courts · 16 points · 11 max)");
 

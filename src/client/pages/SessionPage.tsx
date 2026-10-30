@@ -34,7 +34,7 @@ import { GroupByLevelToggle } from "../components/GroupByLevelToggle";
 import { TeamsToggle } from "../components/TeamsToggle";
 import { PartnerSelect } from "../components/PartnerSelect";
 import { CourtNumbersField } from "../components/CourtNumbersField";
-import { courtLabel, fitCourtLabels, parseCourtLabels } from "../../shared/courts";
+import { courtLabel, parseCourtLabels } from "../../shared/courts";
 import { NightSummary } from "../components/NightSummary";
 import { formatMeta } from "../../shared/formatMeta";
 
@@ -412,18 +412,9 @@ function SettingsModal({
         <Field label="Venue">
           <Input value={form.venue} onChange={(e) => setForm({ ...form, venue: e.target.value })} />
         </Field>
+        <CourtNumbersField courts={form.courts} value={form.courtLabels} onChange={(courtLabels, courts) => setForm({ ...form, courtLabels, courts })} />
         {/* − / + rows: one tap per change, and the number itself can be typed over. */}
         <div className="divide-y divide-line rounded-2xl border border-line px-3.5 py-1">
-          <StepperField
-            label="Courts"
-            value={form.courts}
-            min={1}
-            max={12}
-            onChange={(courts) => {
-              const labels = parseCourtLabels(form.courtLabels);
-              setForm({ ...form, courts, courtLabels: labels.length ? fitCourtLabels(labels, courts).join(", ") : "" });
-            }}
-          />
           <StepperField label="Max players" value={form.maxPlayers} min={4} max={64} onChange={(maxPlayers) => setForm({ ...form, maxPlayers })} />
           <StepperField
             label="Points per game"
@@ -434,9 +425,8 @@ function SettingsModal({
             max={99}
             onChange={(pointsPerMatch) => setForm({ ...form, pointsPerMatch })}
           />
-          <StepperField label="Court time (min)" step={15} value={form.durationMin} min={0} max={600} onChange={(durationMin) => setForm({ ...form, durationMin })} />
+          <StepperField label="Court time (min)" presets={[60, 90, 120]} step={15} value={form.durationMin} min={0} max={600} onChange={(durationMin) => setForm({ ...form, durationMin })} />
         </div>
-        <CourtNumbersField courts={form.courts} value={form.courtLabels} onChange={(courtLabels, courts) => setForm({ ...form, courtLabels, courts })} />
         <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-line px-3.5 py-3">
           <input
             type="checkbox"

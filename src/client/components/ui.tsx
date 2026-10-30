@@ -284,17 +284,37 @@ export function Stepper({
   );
 }
 
-/** A form row: label on the left, − value + on the right. */
+/** A form row: label on the left (with optional one-tap presets under it), − value + on the right. */
 export function StepperField({
   label,
   hint,
+  presets,
   ...stepper
-}: { label: string; hint?: string } & Omit<Parameters<typeof Stepper>[0], "label" | "editable">) {
+}: { label: string; hint?: string; presets?: number[] } & Omit<Parameters<typeof Stepper>[0], "label" | "editable">) {
   return (
     <div className="flex items-center justify-between gap-3 py-1.5">
       <span className="min-w-0">
         <span className="block text-xs font-bold uppercase tracking-wider text-muted">{label}</span>
         {hint && <span className="block text-xs text-faint">{hint}</span>}
+        {presets && (
+          <span className="mt-1 flex gap-1">
+            {presets.map((v) => (
+              <button
+                key={v}
+                type="button"
+                aria-pressed={stepper.value === v}
+                disabled={stepper.disabled}
+                onClick={() => stepper.onChange(v)}
+                className={cls(
+                  "rounded-full px-2.5 py-0.5 text-xs font-bold transition-colors",
+                  stepper.value === v ? "bg-royal text-white" : "bg-line/70 text-muted hover:bg-line",
+                )}
+              >
+                {v}
+              </button>
+            ))}
+          </span>
+        )}
       </span>
       <Stepper editable label={label} {...stepper} />
     </div>
