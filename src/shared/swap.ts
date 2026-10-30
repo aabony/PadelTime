@@ -42,3 +42,26 @@ export function swapInRound(
   else nextByes = [...byes, out];
   return { matches: changed, byes: nextByes };
 }
+
+/**
+ * Keep teams together: swap a whole team for another — sitting out, on
+ * another court, or just arrived — so nobody is split from their partner.
+ * `outs` are the two partners going off, `ins` the two coming on, in order.
+ */
+export function swapTeamsInRound(
+  matches: SwapMatch[],
+  byes: string[],
+  outs: [string, string],
+  ins: [string, string],
+): SwapResult | { error: string } {
+  let current = matches;
+  let currentByes = byes;
+  for (let k = 0; k < 2; k++) {
+    const step = swapInRound(current, currentByes, outs[k], ins[k]);
+    if ("error" in step) return step;
+    current = current.map((m) => step.matches.find((x) => x.id === m.id) ?? m);
+    currentByes = step.byes;
+  }
+  const changed = current.filter((m, i) => m.slots.some((p, j) => p !== matches[i].slots[j]));
+  return { matches: changed, byes: currentByes };
+}

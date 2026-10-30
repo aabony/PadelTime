@@ -391,7 +391,9 @@ function SettingsModal({
     groupByLevel: d.groupByLevel,
     fixedTeams: d.fixedTeams,
   });
-  const pointsLocked = d.rounds.length > 0;
+  // Every score on the board adds up to the points per game, so they can't change once one is in.
+  const pointsLocked = d.rounds.some((r) => r.matches.some((m) => m.scoreA != null));
+  const live = d.rounds.length > 0;
   return (
     <Modal open={open} onClose={onClose} title="Session settings">
       <div className="space-y-4">
@@ -402,7 +404,7 @@ function SettingsModal({
           <StylePicker
             value={form.format}
             onChange={(format) => setForm({ ...form, format })}
-            teams={pointsLocked ? d.fixedTeams : form.fixedTeams}
+            teams={form.fixedTeams}
             hint={d.rounds.length > 0 ? "A change applies from the next round dealt." : undefined}
           />
         )}
@@ -418,7 +420,7 @@ function SettingsModal({
           <StepperField label="Max players" value={form.maxPlayers} min={4} max={64} onChange={(maxPlayers) => setForm({ ...form, maxPlayers })} />
           <StepperField
             label="Points per game"
-            hint={pointsLocked ? "Locked once a round is played" : undefined}
+            hint={pointsLocked ? "Locked once a score is in — undo those rounds to change it" : undefined}
             disabled={pointsLocked}
             value={pointsLocked ? d.pointsPerMatch : form.pointsPerMatch}
             min={4}
@@ -443,16 +445,10 @@ function SettingsModal({
         </label>
         <GroupByLevelToggle checked={form.groupByLevel} onChange={(groupByLevel) => setForm({ ...form, groupByLevel })} />
         <TeamsToggle
-          checked={pointsLocked ? d.fixedTeams : form.fixedTeams}
-          disabled={pointsLocked}
+          checked={form.fixedTeams}
+          note={live ? "Applies from the next round." : undefined}
           onChange={(fixedTeams) => setForm({ ...form, fixedTeams })}
         />
-        {pointsLocked && (
-          <p className="text-xs text-muted">
-            Points per match and Keep teams together are locked once a round has been dealt. Max players and courts can
-            change any time.
-          </p>
-        )}
         <Button
           className="w-full"
           busy={busyKey === "settings"}
@@ -466,12 +462,12 @@ function SettingsModal({
                 courts: form.courts,
                 courtLabels: parseCourtLabels(form.courtLabels),
                 maxPlayers: form.maxPlayers,
-                // Locked once a round is dealt (a round may have started since the form opened).
+                // Locked once a score is in (one may have come in since the form opened).
                 pointsPerMatch: pointsLocked ? d.pointsPerMatch : form.pointsPerMatch,
                 format: form.format,
                 mixedPairs: form.mixedPairs,
                 groupByLevel: form.groupByLevel,
-                fixedTeams: pointsLocked ? d.fixedTeams : form.fixedTeams,
+                fixedTeams: form.fixedTeams,
               });
               onClose();
             })
@@ -1023,14 +1019,14 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
             <>
               <p className="text-sm text-muted">
                 Every round has been undone. Start a fresh round 1 with the {d.counts.checkedIn} player
-                {d.counts.checkedIn === 1 ? "" : "s"} here, or pause the game to change who's playing.
+                {d.counts.checkedIn === 1 ? "" : "s"} here, or go back to setup (the session isn't live there).
               </p>
               <div className="mt-4 flex flex-wrap gap-2">
                 <Button busy={busyKey === "next"} disabled={roundCapacity(d, checkedIn(d)).courts === 0} onClick={() => run("next", () => Api.nextRound(d.id))}>
                   ▶️ Start round 1
                 </Button>
                 <Button variant="secondary" busy={busyKey === "pause"} onClick={() => run("pause", () => Api.sessionAction(d.id, "pause"))}>
-                  ⏸ Pause game
+                  ↩ Back to setup
                 </Button>
                 <Button variant="ghost" onClick={scrollToPlayers}>
                   Manage players ↓
@@ -1111,6 +1107,7 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
               )
             }
           />
+          {isOrganizer && <IdleCourtsNote d={d} inPlay={current.matches.length} />}
           <div className="grid gap-3 sm:grid-cols-2">
             {current.matches.map((m) => (
               <CourtCard
@@ -1164,11 +1161,17 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
                 variant="ghost"
                 size="sm"
                 busy={busyKey === "regen"}
+                title="Deal this round again with new pairings — handy after adding or removing players"
                 onClick={() => {
-                  if (window.confirm("Throw away these pairings and draw new ones?")) run("regen", () => Api.nextRound(d.id, { regenerate: true }));
+                  if (
+                    window.confirm(
+                      `Deal round ${current.number} again with new pairings? No scores are in yet, so nothing is lost. Use it after adding or removing players, or when the draw looks wrong.`,
+                    )
+                  )
+                    run("regen", () => Api.nextRound(d.id, { regenerate: true }));
                 }}
               >
-                Redraw
+                🔀 Reshuffle
               </Button>
             )}
             <Button
@@ -1180,20 +1183,6 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
               }}
             >
               Undo round
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              busy={busyKey === "pause"}
-              disabled={!current.complete || !!finishingRound}
-              title={
-                current.complete && !finishingRound
-                  ? "Pause between rounds — every round and the standings are kept"
-                  : "Enter all of the scores first"
-              }
-              onClick={() => run("pause", () => Api.sessionAction(d.id, "pause"))}
-            >
-              ⏸ Pause
             </Button>
             <Button
               variant="ghost"
@@ -1486,6 +1475,23 @@ function NextUp({ d, round, nameOf }: { d: SessionDetail; round: RoundRow; nameO
   );
 }
 
+/** Booked courts sitting empty: say why (too few players or teams), and what opens the next one. */
+function IdleCourtsNote({ d, inPlay }: { d: SessionDetail; inPlay: number }) {
+  if (inPlay >= d.courts) return null;
+  const { playable } = roundCapacity(d, checkedIn(d));
+  const here = checkedIn(d).length;
+  const need = (inPlay + 1) * 4 - playable;
+  const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
+  return (
+    <p className="-mt-1 mb-3 rounded-xl bg-canvas px-3 py-2 text-xs text-muted">
+      {plural(inPlay, "court")} of {d.courts} in play: {plural(here, "player")}
+      {d.fixedTeams && ` (${plural(Math.floor(playable / 2), "team")})`} fill {inPlay === 1 ? "one" : inPlay}. Each court needs 4
+      {d.fixedTeams ? " — two teams" : ""}, so {need > 0 && `${plural(need, "more player")} ${d.fixedTeams ? `(${plural(Math.ceil(need / 2), "team")}) ` : ""}open`}
+      {need <= 0 && "the next round opens"} Court {courtLabel(d.courtLabels, inPlay + 1)}.
+    </p>
+  );
+}
+
 function CourtCard({
   d,
   m,
@@ -1498,7 +1504,7 @@ function CourtCard({
 }: {
   d: SessionDetail;
   m: MatchRow;
-  /** The round on court: given, the organizer can swap players in this game until it has a score. */
+  /** The round on court: given, the organizer can swap players (or whole teams) in this game until it has a score. */
   round?: RoundRow;
   /** Dealt ahead: the court this game waits on ("Court 4"), while its players finish there. */
   waitingFor?: string;
@@ -1510,40 +1516,66 @@ function CourtCard({
   const [editing, setEditing] = useState(false);
   const [swapping, setSwapping] = useState(false);
   const scored = m.scoreA != null && m.scoreB != null;
-  const canSwap = isOrganizer && !!round && !d.fixedTeams && !scored && m.status === "pending";
+  const canSwap = isOrganizer && !!round && !scored && m.status === "pending";
   const court = `Court ${courtLabel(d.courtLabels, m.court)}`;
   return (
-    <div className="rounded-2xl border border-line bg-canvas/60 p-4">
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <span className="flex items-center gap-2 text-2xl font-black uppercase tracking-tight text-royal">
-          <span aria-hidden>🏟️</span>
-          <span>{court}</span>
-        </span>
-        <MatchStatusBadge m={m} />
-      </div>
-      {waitingFor && <p className="-mt-1 mb-2 text-xs font-bold text-amber-dark">⏳ Starts when {waitingFor} finishes</p>}
-      <div className="space-y-1.5 text-sm">
-        <div className={cls("flex items-center justify-between gap-2 border-l-4 pl-2", TEAM_BAND[0])}>
-          <span className="min-w-0 truncate font-bold text-navy">{teamNames(m.a, nameOf)}</span>
-          <span className="tabular text-2xl font-black text-navy">{m.scoreA ?? "–"}</span>
+    <>
+      {/* For the organizer the whole court is a tap target for the score sheet. */}
+      <div
+        className={cls(
+          "rounded-2xl border border-line bg-canvas/60 p-4",
+          isOrganizer && "cursor-pointer transition-colors hover:border-royal hover:bg-royal-soft/40",
+        )}
+        onClick={isOrganizer ? () => setEditing(true) : undefined}
+      >
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <span className="flex items-center gap-2 text-2xl font-black uppercase tracking-tight text-royal">
+            <span aria-hidden>🏟️</span>
+            <span>{court}</span>
+          </span>
+          <MatchStatusBadge m={m} />
         </div>
-        <div className={cls("flex items-center justify-between gap-2 border-l-4 pl-2", TEAM_BAND[1])}>
-          <span className="min-w-0 truncate font-bold text-navy">{teamNames(m.b, nameOf)}</span>
-          <span className="tabular text-2xl font-black text-navy">{m.scoreB ?? "–"}</span>
+        {waitingFor && <p className="-mt-1 mb-2 text-xs font-bold text-amber-dark">⏳ Starts when {waitingFor} finishes</p>}
+        <div className="space-y-1.5 text-sm">
+          <div className={cls("flex items-center justify-between gap-2 border-l-4 pl-2", TEAM_BAND[0])}>
+            <span className="min-w-0 truncate font-bold text-navy">{teamNames(m.a, nameOf)}</span>
+            <span className="tabular text-2xl font-black text-navy">{m.scoreA ?? "–"}</span>
+          </div>
+          <div className={cls("flex items-center justify-between gap-2 border-l-4 pl-2", TEAM_BAND[1])}>
+            <span className="min-w-0 truncate font-bold text-navy">{teamNames(m.b, nameOf)}</span>
+            <span className="tabular text-2xl font-black text-navy">{m.scoreB ?? "–"}</span>
+          </div>
         </div>
-      </div>
-      {isOrganizer && (
-        <div className="mt-3 flex gap-2">
-          <Button className="flex-1" size="sm" variant={scored ? "subtle" : "primary"} aria-label={`${scored ? "Edit" : "Enter"} score, ${court}`} onClick={() => setEditing(true)}>
-            {scored ? "✏️ Edit score" : "📝 Enter score"}
-          </Button>
-          {canSwap && (
-            <Button size="sm" variant="subtle" aria-label={`Swap a player, ${court}`} onClick={() => setSwapping(true)}>
-              ⇄ Swap
+        {isOrganizer && (
+          <div className="mt-3 flex gap-2">
+            <Button
+              className="flex-1"
+              size="sm"
+              variant={scored ? "subtle" : "primary"}
+              aria-label={`${scored ? "Edit" : "Enter"} score, ${court}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                setEditing(true);
+              }}
+            >
+              {scored ? "✏️ Edit score" : "📝 Enter score"}
             </Button>
-          )}
-        </div>
-      )}
+            {canSwap && (
+              <Button
+                size="sm"
+                variant="secondary"
+                aria-label={`Swap ${d.fixedTeams ? "a team" : "a player"}, ${court}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSwapping(true);
+                }}
+              >
+                ⇄ Swap {d.fixedTeams ? "team" : "player"}
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
       <Modal open={editing} onClose={() => setEditing(false)} title={`${court} — score`}>
         <ScoreEntry
           total={d.pointsPerMatch}
@@ -1563,7 +1595,7 @@ function CourtCard({
       {canSwap && round && (
         <SwapModal open={swapping} onClose={() => setSwapping(false)} d={d} m={m} round={round} nameOf={nameOf} run={run} busyKey={busyKey} />
       )}
-    </div>
+    </>
   );
 }
 
@@ -1573,7 +1605,18 @@ const TEAM_BAND = ["border-royal", "border-amber-dark"] as const;
 const TEAM_TEXT = ["text-royal", "text-amber-dark"] as const;
 const TEAM_DOT = ["bg-royal", "bg-amber-dark"] as const;
 
-/** Swap a player in a game: tap who's going off, then who's coming on. */
+/** One choice in the swap sheet: a player, or (keeping teams together) a whole team. */
+interface SwapUnit {
+  ids: string[];
+  note: string;
+  /** Which side of their game they're on (colour band), when on a court. */
+  team: number | null;
+}
+
+/**
+ * Swap someone in a game: tap who's going off, then who's coming on. On a
+ * Keep-teams-together night whole teams swap, so nobody loses their partner.
+ */
 function SwapModal({
   open,
   onClose,
@@ -1594,77 +1637,106 @@ function SwapModal({
   busyKey: string | null;
 }) {
   const [out, setOut] = useState<string | null>(null);
+  const teams = d.fixedTeams;
   const label = (court: number) => `Court ${courtLabel(d.courtLabels, court)}`;
   const inRound = new Set([...round.byes, ...round.matches.flatMap((x) => [...x.a, ...x.b])]);
-  // Who can come on: sitting out first, then players on other courts without a score yet, then late arrivals.
-  const candidates = [
-    ...round.byes.map((id) => ({ id, note: "sitting out", team: null as number | null })),
-    ...round.matches
-      .filter((x) => x.id !== m.id && x.scoreA == null && x.status === "pending")
-      .flatMap((x) => [...x.a, ...x.b].map((id) => ({ id, note: label(x.court), team: x.a.includes(id) ? 0 : 1 }))),
-    ...d.players
-      .filter((p) => p.status === "checked_in" && !inRound.has(p.id))
-      .map((p) => ({ id: p.id, note: "just arrived", team: null as number | null })),
-  ];
+  const late = d.players.filter((p) => p.status === "checked_in" && !inRound.has(p.id)).map((p) => p.id);
+  const otherGames = round.matches.filter((x) => x.id !== m.id && x.scoreA == null && x.status === "pending");
+  // Players or teams off court, paired by their partner on the roster.
+  const offCourtTeams = (ids: string[], note: string): SwapUnit[] => {
+    const seen = new Set<string>();
+    const out: SwapUnit[] = [];
+    for (const id of ids) {
+      const partner = d.players.find((p) => p.id === id)?.partnerId;
+      if (seen.has(id) || !partner || !(round.byes.includes(partner) || late.includes(partner))) continue;
+      seen.add(id).add(partner);
+      out.push({ ids: [id, partner], note, team: null });
+    }
+    return out;
+  };
+  // Who can come on: sitting out first, then those on other courts without a score yet, then late arrivals.
+  const candidates: SwapUnit[] = teams
+    ? [
+        ...offCourtTeams(round.byes, "sitting out"),
+        ...otherGames.flatMap((x) => [
+          { ids: x.a, note: label(x.court), team: 0 },
+          { ids: x.b, note: label(x.court), team: 1 },
+        ]),
+        ...offCourtTeams(late, "just arrived"),
+      ]
+    : [
+        ...round.byes.map((id) => ({ ids: [id], note: "sitting out", team: null })),
+        ...otherGames.flatMap((x) => [...x.a, ...x.b].map((id) => ({ ids: [id], note: label(x.court), team: x.a.includes(id) ? 0 : 1 }))),
+        ...late.map((id) => ({ ids: [id], note: "just arrived", team: null })),
+      ];
+  const outSide = out == null ? null : m.a.includes(out) ? 0 : 1;
   const close = () => {
     setOut(null);
     onClose();
   };
+  const pickBtn = (ids: string[], key: string) => (
+    <button
+      key={key}
+      type="button"
+      aria-pressed={out === ids[0]}
+      onClick={() => setOut(ids[0])}
+      className={cls(
+        "truncate rounded-xl border px-3 py-2 text-left text-sm font-bold",
+        out === ids[0] ? "border-royal bg-royal text-white" : "border-line bg-white text-navy hover:border-line-strong",
+      )}
+    >
+      {ids.map(nameOf).join(" + ")}
+    </button>
+  );
   return (
-    <Modal open={open} onClose={close} title={`${label(m.court)} — swap a player`}>
+    <Modal open={open} onClose={close} title={`${label(m.court)} — swap ${teams ? "a team" : "a player"}`}>
       <p className="mb-2 text-xs font-bold uppercase tracking-wider text-muted">Going off</p>
       <div className="space-y-1">
-        {[m.a, m.b].map((team, t) => (
+        {[m.a, m.b].map((side, t) => (
           <Fragment key={t}>
             {t === 1 && <p className="text-center text-[11px] font-black uppercase tracking-widest text-faint">vs</p>}
             <div className={cls("rounded-xl border-l-4 bg-canvas/60 p-2", TEAM_BAND[t])}>
               <p className={cls("mb-1.5 text-[11px] font-bold uppercase tracking-wider", TEAM_TEXT[t])}>Team {t + 1}</p>
-              <div className="grid grid-cols-2 gap-2">
-                {team.map((id) => (
-                  <button
-                    key={id}
-                    type="button"
-                    aria-pressed={out === id}
-                    onClick={() => setOut(id)}
-                    className={cls(
-                      "truncate rounded-xl border px-3 py-2 text-left text-sm font-bold",
-                      out === id ? "border-royal bg-royal text-white" : "border-line bg-white text-navy hover:border-line-strong",
-                    )}
-                  >
-                    {nameOf(id)}
-                  </button>
-                ))}
+              <div className={cls("grid gap-2", teams ? "grid-cols-1" : "grid-cols-2")}>
+                {teams ? pickBtn(side, side.join()) : side.map((id) => pickBtn([id], id))}
               </div>
             </div>
           </Fragment>
         ))}
       </div>
-      {out && (
+      {out && outSide != null && (
         <>
           <p className="mb-2 mt-4 text-xs font-bold uppercase tracking-wider text-muted">
-            Coming on for {nameOf(out)}{" "}
-            <span className={TEAM_TEXT[m.a.includes(out) ? 0 : 1]}>
-              (Team {m.a.includes(out) ? 1 : 2}, with {nameOf((m.a.includes(out) ? m.a : m.b).find((x) => x !== out)!)})
-            </span>
+            Coming on for{" "}
+            {teams ? (
+              <span className={TEAM_TEXT[outSide]}>{teamNames(outSide === 0 ? m.a : m.b, nameOf)}</span>
+            ) : (
+              <>
+                {nameOf(out)}{" "}
+                <span className={TEAM_TEXT[outSide]}>
+                  (Team {outSide + 1}, with {nameOf((outSide === 0 ? m.a : m.b).find((x) => x !== out)!)})
+                </span>
+              </>
+            )}
           </p>
           {candidates.length === 0 ? (
-            <p className="text-sm text-muted">Nobody free to swap in.</p>
+            <p className="text-sm text-muted">{teams ? "No other team free to swap in." : "Nobody free to swap in."}</p>
           ) : (
             <div className="max-h-72 space-y-1 overflow-y-auto">
               {candidates.map((c) => (
                 <button
-                  key={c.id}
+                  key={c.ids.join()}
                   type="button"
                   disabled={busyKey === "swap"}
                   onClick={() =>
                     run("swap", async () => {
-                      await Api.swapPlayer(d.id, round.id, out, c.id);
+                      await Api.swapPlayer(d.id, round.id, out, c.ids[0]);
                       close();
                     })
                   }
                   className="flex w-full items-center justify-between gap-2 rounded-xl border border-line bg-white px-3 py-2 text-left text-sm hover:border-royal disabled:opacity-50"
                 >
-                  <span className="truncate font-bold text-navy">{nameOf(c.id)}</span>
+                  <span className="truncate font-bold text-navy">{c.ids.map(nameOf).join(" + ")}</span>
                   <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted">
                     {c.team != null && <span aria-hidden className={cls("size-2 rounded-full", TEAM_DOT[c.team])} />}
                     {c.note}

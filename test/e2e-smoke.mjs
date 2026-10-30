@@ -305,15 +305,11 @@ if ((await org.locator("tbody tr", { hasText: "Late" }).getByText("guest").count
 log("late arrival joined via link while live → claimed the pre-added guest entry, dealt in from round 2");
 await shot(late, "08b-late-joiner");
 
-// --- Pause between rounds, then resume into round 2 --------------------------
-await org.getByRole("button", { name: /Pause/ }).click();
-await org.getByText("Game paused").waitFor({ timeout: 10000 });
-await org.getByText("Standings so far").waitFor();
-if ((await org.locator("table tbody tr").count()) < 8) fail("paused view should keep the standings");
-await shot(org, "08c-paused");
-await org.getByRole("button", { name: /Resume · round 2/ }).click();
+// --- Round 2 (no Pause any more: everything it unlocked works mid-game) ------
+if ((await org.getByRole("button", { name: /Pause/ }).count()) !== 0) fail("there's no Pause button during play");
+await org.getByRole("button", { name: "Next round →" }).click();
 await org.getByText("Round 2").first().waitFor({ timeout: 15000 });
-log("pause with standings kept → resume deals round 2");
+log("next round deals round 2 with the late arrival in the rotation");
 const lateView = await (await late.request.get(`${BASE}/api/sessions/${sessionId}`)).json();
 const r2 = lateView.rounds.at(-1);
 if (![...r2.byes, ...r2.matches.flatMap((m) => [...m.a, ...m.b])].includes(lateView.myPlayerId)) fail("late arrival should be in round 2");
@@ -465,8 +461,6 @@ await shot(org, "14-teams-roster");
 log("keep teams together: organizer pairs Ana with Ben in the roster; the hint counts who the app will pair");
 
 await api("POST", `/sessions/${ft.id}/status`, { action: "start" });
-const flip = await org.request.fetch(`${BASE}/api/sessions/${ft.id}`, { method: "PATCH", data: { fixedTeams: false } });
-if (flip.status() !== 400) fail(`Keep teams together should lock once a round is dealt (got ${flip.status()})`);
 fd = await api("GET", `/sessions/${ft.id}`);
 const partnerAtStart = new Map(fd.players.map((p) => [p.id, p.partnerId]));
 if (fd.players.some((p) => !p.partnerId)) fail("everyone should be paired once round 1 is dealt");
@@ -542,7 +536,6 @@ const r2On = ad.rounds[1].matches.flatMap((m) => [...m.a, ...m.b]);
 if (r2On.some((p) => stillOn.includes(p))) fail("12 players: the Court 4 players should sit round 2, so both courts start now");
 // Court 3 starts now; round 2's other game is on Court 4, so it starts when round 1 finishes there.
 if ((await org.getByText("Starts when Court 4 finishes").count()) !== 1) fail("round 2's Court 4 game should wait for Court 4");
-if (!(await org.getByRole("button", { name: /Pause/ }).isDisabled())) fail("can't pause while Court 4 is still playing");
 await shot(org, "12a-deal-ahead");
 log("deal ahead: Court 3 done → round 2 dealt now; Court 4's players sit it, Court 4 keeps playing round 1");
 // Court 4 finishes: its score still goes in, and round 1 closes.
@@ -555,6 +548,46 @@ ad = await api("GET", `/sessions/${ah.id}`);
 if (!ad.rounds[0].complete) fail("round 1 should be complete once Court 4's score is in");
 if (ad.standings.filter((r) => r.played > 0).length !== 8) fail("all 8 round-1 players should have a result");
 log("Court 4's round-1 score entered after round 2 started; round 1 complete, standings updated");
+
+// --- Live play review: idle courts explained, tap the court, team swaps, settings mid-game ----
+const tn = await api("POST", "/sessions", { name: "Six Teams Night", format: "americano", courts: 3, pointsPerMatch: 16, fixedTeams: true });
+for (const g of ["T1", "T2", "T3", "T4", "T5", "T6"]) await api("POST", `/sessions/${tn.id}/players`, { guestName: g });
+await api("POST", `/sessions/${tn.id}/status`, { action: "start" });
+let td = await api("GET", `/sessions/${tn.id}`);
+if (td.rounds[0].matches.length !== 1 || td.rounds[0].byes.length !== 2) fail("6 players in teams: one court, one team sitting");
+await org.goto(`${BASE}/app/sessions/${tn.id}`);
+await org.getByText(/1 court of 3 in play: 6 players \(3 teams\) fill one/).waitFor({ timeout: 10000 });
+await org.getByText(/2 more players \(1 team\) open Court 2/).waitFor();
+await shot(org, "16b-idle-courts");
+// The whole court tile opens the score sheet, not just the button.
+await org.getByText("Court 1", { exact: true }).first().click();
+await org.getByRole("heading", { name: "Court 1 — score" }).waitFor({ timeout: 5000 });
+await org.getByRole("button", { name: "Close" }).click();
+// Keep teams together: the sitting team comes on as a team.
+const tm = td.rounds[0].matches[0];
+const tnName = (id) => td.players.find((p) => p.id === id).name;
+await org.getByRole("button", { name: "Swap a team, Court 1" }).click();
+await org.locator(".fixed").getByRole("button", { name: `${tnName(tm.a[0])} + ${tnName(tm.a[1])}`, exact: true }).click();
+await shot(org, "16c-team-swap");
+await org.locator(".fixed").getByRole("button", { name: /sitting out/ }).click();
+await org.locator(".fixed").waitFor({ state: "detached", timeout: 10000 });
+td = await api("GET", `/sessions/${tn.id}`);
+const satBefore = [...tm.a].sort().join("|");
+const nowOn = [...td.rounds[0].matches[0].a].sort().join("|");
+const satNow = [...td.rounds[0].byes].sort().join("|");
+if (satNow !== satBefore) fail(`the team going off (${satBefore}) should sit together, sitting: ${satNow}`);
+if (nowOn === satBefore) fail("a new team should be on court");
+const onPair = td.rounds[0].matches[0].a;
+if (td.players.find((p) => p.id === onPair[0]).partnerId !== onPair[1]) fail("the team coming on should be a real pair");
+log("6 players in teams: '1 court of 3 in play' explained; tapping the court opens the score sheet; a whole team swaps on");
+// Points can change until the first score; Keep teams together any time.
+await api("PATCH", `/sessions/${tn.id}`, { pointsPerMatch: 18 });
+await api("POST", `/matches/${td.rounds[0].matches[0].id}/score`, { scoreA: 10, scoreB: 8 });
+const lockedPts = await org.request.patch(`${BASE}/api/sessions/${tn.id}`, { data: { pointsPerMatch: 20 } });
+if (lockedPts.ok()) fail("points can't change once a score is in");
+await api("PATCH", `/sessions/${tn.id}`, { fixedTeams: false });
+if ((await api("GET", `/sessions/${tn.id}`)).fixedTeams) fail("Keep teams together should switch off mid-session");
+log("points change until the first score; Keep teams together switches off mid-game");
 
 await org.goto(`${BASE}/app`);
 await org.getByRole("button", { name: /New session/ }).click();
@@ -582,9 +615,9 @@ await shot(org, "13-empty-board");
 await org.getByRole("button", { name: /Start round 1/ }).click();
 await org.getByText("Round 1").first().waitFor({ timeout: 15000 });
 await org.getByRole("button", { name: "Undo round" }).click();
-await org.getByRole("button", { name: /Pause/ }).click();
+await org.getByRole("button", { name: /Back to setup/ }).click();
 await org.getByText("Game day?").waitFor({ timeout: 10000 });
-log("empty board recovers: start round 1 again / pause back to the roster");
+log("empty board recovers: start round 1 again / back to setup");
 
 // --- Night planner: 4 dials → on-court / off-court split → prefilled new session ----
 await org.goto(`${BASE}/plan?players=11&courts=2&duration=90&points=16`);

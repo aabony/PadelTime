@@ -8,7 +8,7 @@ import { generateNextRound } from "../lib/engine";
 import { getFormat } from "../../shared/formats/registry";
 import { parseGender } from "../../shared/genders";
 import { parseLevel } from "../../shared/levels";
-import { swapInRound } from "../../shared/swap";
+import { swapInRound, swapTeamsInRound } from "../../shared/swap";
 import { asInt, newId, now, trimmed } from "../lib/util";
 import type { ApiCtx, AuthedUser } from "./context";
 
@@ -95,23 +95,20 @@ sessionRoutes.patch("/sessions/:id", async (c) => {
   if (typeof body.groupByLevel === "boolean") patch.groupByLevel = body.groupByLevel;
 
   // Max players can change any time (extra people turn up mid-session). The
-  // points per match are locked once a round has been dealt, since every
-  // score on the board is relative to that total; so is Keep teams together,
-  // since team standings count every game as a team's game.
+  // points per game lock once a score is in, since every score on the board
+  // adds up to that total.
   const maxPlayers = asInt(body.maxPlayers);
   if (maxPlayers != null) patch.maxPlayers = Math.min(Math.max(maxPlayers, 4), 64);
   const points = asInt(body.pointsPerMatch);
   const teamsChange = typeof body.fixedTeams === "boolean" && body.fixedTeams !== session.fixedTeams;
-  if ((points != null && points !== session.pointsPerMatch) || teamsChange) {
-    if ((await loadRounds(db, session.id)).length > 0) {
-      return c.json(
-        { error: teamsChange ? "Keep teams together can't change once a round has been dealt" : "Points per match can't change once a round has been dealt" },
-        400,
-      );
-    }
-    if (points != null) patch.pointsPerMatch = Math.min(Math.max(points, 4), 99);
-    if (teamsChange) patch.fixedTeams = body.fixedTeams;
+  if (points != null && points !== session.pointsPerMatch) {
+    const scored = (await loadRounds(db, session.id)).some((r) => r.matches.some((m) => m.scoreA != null));
+    if (scored) return c.json({ error: "Points per game can't change once a score is in — undo those rounds first" }, 400);
+    patch.pointsPerMatch = Math.min(Math.max(points, 4), 99);
   }
+  // Teams can be kept together (or not) from the next round on: team standings
+  // count each pair's games together, individual standings every game.
+  if (teamsChange) patch.fixedTeams = body.fixedTeams;
   if (Object.keys(patch).length === 0) return c.json({ ok: true });
   patch.updatedAt = now();
   await db.update(gameSessions).set(patch).where(eq(gameSessions.id, session.id));
@@ -548,9 +545,6 @@ sessionRoutes.post("/sessions/:id/rounds/:roundId/swap", async (c) => {
   const { session } = loaded;
   if (!(await canManage(db, session, u))) return c.json({ error: "Organizers only" }, 403);
   if (session.status !== "active") return c.json({ error: "Session isn't live" }, 400);
-  if (session.fixedTeams) {
-    return c.json({ error: "Teams play together all night — a swap would split one" }, 400);
-  }
 
   const body = await c.req.json().catch(() => ({}));
   const out = typeof body.out === "string" ? body.out : "";
@@ -560,29 +554,36 @@ sessionRoutes.post("/sessions/:id/rounds/:roundId/swap", async (c) => {
   if (!latest || latest.id !== c.req.param("roundId")) {
     return c.json({ error: "Only the round on court can change" }, 400);
   }
-  const inRound =
-    latest.byes.includes(inn) || latest.matches.some((m) => [...m.a, ...m.b].includes(inn));
-  if (!inRound) {
-    const [player] = await db
-      .select()
-      .from(sessionPlayers)
-      .where(and(eq(sessionPlayers.id, inn), eq(sessionPlayers.sessionId, session.id)))
-      .limit(1);
-    if (!player || player.status !== "checked_in") {
-      return c.json({ error: "That player isn't playing tonight" }, 400);
+  const roster = await db.select().from(sessionPlayers).where(eq(sessionPlayers.sessionId, session.id));
+  const inRound = (id: string) => latest.byes.includes(id) || latest.matches.some((m) => [...m.a, ...m.b].includes(id));
+  const playing = (id: string) => inRound(id) || roster.find((p) => p.id === id)?.status === "checked_in";
+  // Keep teams together: the whole team swaps. A player's team is their side of a
+  // game this round, else their partner on the roster.
+  const teammate = (id: string): string | null => {
+    for (const m of latest.matches) {
+      for (const side of [m.a, m.b]) if (side.includes(id)) return side.find((x) => x !== id) ?? null;
     }
+    return roster.find((p) => p.id === id)?.partnerId ?? null;
+  };
+  const ins = session.fixedTeams ? [inn, teammate(inn)] : [inn];
+  if (ins.some((id) => !id || !playing(id))) {
+    return c.json({ error: session.fixedTeams ? "That team isn't both here tonight" : "That player isn't playing tonight" }, 400);
   }
 
-  const result = swapInRound(
-    latest.matches.map((m) => ({
-      id: m.id,
-      slots: [m.a[0], m.a[1], m.b[0], m.b[1]],
-      scored: m.scoreA != null || m.status !== "pending",
-    })),
-    latest.byes,
-    out,
-    inn,
-  );
+  const slots = latest.matches.map((m) => ({
+    id: m.id,
+    slots: [m.a[0], m.a[1], m.b[0], m.b[1]] as [string, string, string, string],
+    scored: m.scoreA != null || m.status !== "pending",
+  }));
+  let result;
+  if (session.fixedTeams) {
+    const outMate = teammate(out);
+    if (!outMate) return c.json({ error: "That player isn't on a court this round" }, 400);
+    if (outMate === inn) return c.json({ error: "They're already on the same team" }, 400);
+    result = swapTeamsInRound(slots, latest.byes, [out, outMate], [inn, ins[1]!]);
+  } else {
+    result = swapInRound(slots, latest.byes, out, inn);
+  }
   if ("error" in result) return c.json({ error: result.error }, 400);
   for (const m of result.matches) {
     const [a1, a2, b1, b2] = m.slots;
