@@ -82,12 +82,12 @@ Registration collects everything once, on the account, so a player answers these
 | --- | --- | --- |
 | First name | Yes | Shown on court and in standings as "First L." when two people share a first name |
 | Last name | Yes | |
-| Phone | Yes | For the organizer to reach people. Stored as entered plus a normalised international form. Not used for login in v1 (see open question 1) |
+| Phone | Yes | For the organizer to reach people. Stored with the + and digits only. Not used for login |
 | Email | Yes | The login identity. Verified by the 6-digit code |
+| Date of birth | Yes | Stored as a date; a real calendar date and a sensible age are checked |
 | Gender | Yes | woman / man, same two values the mixed-pairs draw already uses |
 | Playing level | Yes | The three buckets the engine already understands: beginner / intermediate / advanced |
-| Playtomic level | Optional | A number from 0.5 to 7 with one decimal, the scale Playtomic shows on a profile. Lets the admin sanity-check the self-rated bucket and seed groups more finely later |
-| Playtomic profile link | Optional | Cheap to store, lets the admin click through to verify. Recommend keeping it optional and low on the form; drop it if it hurts completion |
+| Playtomic level | Optional | A number from 0.5 to 7 with one decimal, the scale Playtomic shows on a profile. Lets the admin sanity-check the self-rated bucket and seed groups more finely later. (A Playtomic profile link was considered and dropped.) |
 
 The existing per-session level and gender stay on the roster row, but they are **copied from the profile** when a player joins, and the organizer can still override a level for one night. A player editing their profile does not rewrite nights already played.
 
@@ -165,18 +165,27 @@ Email-code login, Resend, Cloudflare Workers and D1, Better Auth, the join-code 
 - Waitlist-promoted and "game starts soon" messages, which the architecture plan already calls for.
 - Optional: sort or seed by Playtomic level inside the "group by level" option.
 
-### 3.2 Decisions to confirm
+### 3.2 Decisions (confirmed by Andrew, 1 Nov 2026)
 
-Each has a recommended default so Phase 1 can start without waiting.
+1. **Login identity is email.** Phone is collected for the organizer and for future SMS or WhatsApp messages, not for signing in.
+2. **No Playtomic link.** Just an optional Playtomic level number, one decimal from 0.5 to 7.0, shown to the admin only.
+3. **Phone, gender and level are required.**
+4. **Date of birth is required** (added to the profile; the admin sees age later if useful).
+5. **Tournaments are joined from the link.** The admin sends it on WhatsApp; players open it and tap Join. No public listing on the home page for now, so the "Open for signup" section of 2.5 is parked.
+6. **No existing accounts to migrate.** Every account so far is Andrew's. Any account without a finished profile is simply asked to finish it on its next visit, which also covers his.
+7. **Admins are listed by email** in the Worker configuration (`ADMIN_EMAILS` in `wrangler.jsonc`). The database also has an `is_admin` column for a future admin screen.
+8. **The crew layer stays hidden.** Revisit when there is a second organizer.
 
-1. **Login identity: email or phone?** Recommend **email** for v1. It is built, verified and free. Phone is collected as a contact field. Moving the code to SMS or WhatsApp later is a Phase 3 add-on, not a change of identity.
-2. **Playtomic link: keep or drop?** Recommend **keep, optional, at the bottom of the form**. Zero cost, useful for a sanity check. Drop it if registration completion suffers.
-3. **Playtomic level scale.** Recommend a **single decimal from 0.5 to 7.0**, matching what Playtomic displays. Shown to the admin only.
-4. **Which tournaments appear on the player home?** Recommend **admin opt-in per tournament**, default off, so private nights stay link-only.
-5. **How long to stay signed in.** Recommend **90 days**.
-6. **Required fields.** Recommend phone, gender and level all **required**. The whole point is organising people before they arrive, and optional fields stay empty.
-7. **Existing players.** Recommend **ask on next visit**, blocking, one screen. There are few accounts and the fields are quick.
-8. **Should admins be able to run tournaments for a named crew?** Recommend **no change**: the crew layer stays hidden. Revisit when there is a second organizer.
+### 3.4 What Phase 1 shipped
+
+- **Profile**: first name, last name, phone, date of birth, gender, level, optional Playtomic level, stored on the account. Shared validation in `src/shared/profile.ts` runs in the form and on the server.
+- **Registration**: `/register` (landing page) or **Register to join** on a tournament link. Email, code, then the profile form once. The profile is also editable from the name in the header.
+- **Sign-in**: `/login`, same code, no profile questions. Logins last 90 days. A signed-in player opening a link sees one Join button with their profile level preselected.
+- **Admin**: `/admin` via the footer link. Non-admin accounts are told the account can't run tournaments and sent to the player home. Only admins see **New session**; the server refuses session creation for anyone else, and admins can manage every tournament.
+- **Admin roster**: each registered player shows their Playtomic level and a tap-to-call phone badge. Players never receive other players' phone, level or Playtomic data.
+- **Player home**: the tournaments they have joined, with a hint to open the organizer's link when empty.
+
+Deploy notes: `ADMIN_EMAILS` is set to Andrew's email in `wrangler.jsonc`; change it there if a different address is used to sign in. The new columns are applied automatically on the first request after deploy (same lazy-migration path as earlier migrations), or with `npm run db:migrate:remote`.
 
 ### 3.3 Files that change in Phase 1
 

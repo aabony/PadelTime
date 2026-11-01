@@ -11,7 +11,7 @@ Everything runs in a **single Cloudflare Worker**:
 | Runtime | Cloudflare Workers (TypeScript) |
 | API | [Hono](https://hono.dev) under `/api/*` |
 | Database | Cloudflare **D1** (SQLite at the edge) via Drizzle ORM |
-| Auth | [Better Auth](https://better-auth.com) — passwordless email OTP (6-digit sign-in codes via [Resend](https://resend.com); sessions in D1) |
+| Auth | [Better Auth](https://better-auth.com) — passwordless email OTP (6-digit sign-in codes via [Resend](https://resend.com); 90-day sessions in D1). Players register a profile (name, phone, DOB, gender, level, optional Playtomic level); admins listed in `ADMIN_EMAILS` run tournaments — see `docs/registration-and-sign-in.md` |
 | Frontend | React 19 + Vite + Tailwind v4, served as [Workers Static Assets](https://developers.cloudflare.com/workers/static-assets/) with SPA fallback |
 | "Real-time" | 4-second visibility-aware polling (upgrade path: Durable Objects + WebSockets) |
 

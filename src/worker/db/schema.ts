@@ -1,4 +1,4 @@
-import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 // ---------------------------------------------------------------------------
 // Better Auth core tables
@@ -12,6 +12,20 @@ export const user = sqliteTable("user", {
   image: text("image"),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  // Player profile (src/shared/profile.ts) — null until registration is finished.
+  firstName: text("first_name"),
+  lastName: text("last_name"),
+  phone: text("phone"),
+  /** ISO date "YYYY-MM-DD". */
+  dob: text("dob"),
+  /** "woman" | "man". */
+  gender: text("gender"),
+  /** 2 beginner, 3 intermediate, 4 advanced. */
+  level: integer("level"),
+  /** Optional Playtomic level, 0.5–7.0. */
+  playtomicLevel: real("playtomic_level"),
+  /** Admins run tournaments; set from ADMIN_EMAILS on sign-in. */
+  isAdmin: integer("is_admin", { mode: "boolean" }).notNull().default(false),
 });
 
 export const session = sqliteTable(

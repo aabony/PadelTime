@@ -9,6 +9,7 @@ import { loadPlayers, loadRounds, loadSessionByCode } from "../lib/detail";
 import { parseGender } from "../../shared/genders";
 import type { Gender } from "../../shared/genders";
 import { normalizeLevel, parseLevel } from "../../shared/levels";
+import { isProfileComplete } from "../../shared/profile";
 import { newId, now } from "../lib/util";
 import type { ApiCtx } from "./context";
 
@@ -106,8 +107,10 @@ publicRoutes.get("/join/:code", async (c) => {
     // The round in play (a round dealt on deck doesn't count yet), else how many were played.
     roundsPlayed: await loadRounds(db, session.id).then((r) => r.find((x) => !x.complete)?.number ?? r.length),
     myStatus: (mine?.status as PlayerStatus) ?? null,
-    myGender: parseGender(mine?.gender) ?? (u ? await rememberedGender(db, u.id) : null),
-    myLevel: normalizeLevel(mine?.level) ?? (u ? await rememberedLevel(db, u.id) : null),
+    myProfileComplete: u ? isProfileComplete(u) : null,
+    // This night's answer, else the profile, else whatever they last said.
+    myGender: parseGender(mine?.gender) ?? u?.gender ?? (u ? await rememberedGender(db, u.id) : null),
+    myLevel: normalizeLevel(mine?.level) ?? u?.level ?? (u ? await rememberedLevel(db, u.id) : null),
     mixedPairs: session.mixedPairs,
     groupByLevel: session.groupByLevel,
     fixedTeams: session.fixedTeams,
@@ -162,8 +165,9 @@ publicRoutes.post("/join/:code", async (c) => {
     return c.json({ status: changes.status ?? existing.status });
   }
 
-  const gender = requestedGender ?? (await rememberedGender(db, u.id));
-  const level = requestedLevel ?? (await rememberedLevel(db, u.id));
+  // The profile is the default for every night; the join page can still override for this one.
+  const gender = requestedGender ?? u.gender ?? (await rememberedGender(db, u.id));
+  const level = requestedLevel ?? u.level ?? (await rememberedLevel(db, u.id));
   const guest = claimableGuest(players, u.name);
   if (guest) {
     // The organizer already added this person by name — take that entry over.

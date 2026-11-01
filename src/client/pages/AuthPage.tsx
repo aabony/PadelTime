@@ -1,36 +1,52 @@
 import { useEffect, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { authClient } from "../lib/auth";
+import { Api } from "../lib/api";
 import { Button, Card, ErrorNote, Field, Input } from "../components/ui";
 import { Logo } from "../App";
+import { safeNext } from "./ProfilePage";
 
-// Passwordless sign-in: email → 6-digit emailed code → (first time) your name.
-// /login and /register are the same flow; accounts are created on first code.
+// Passwordless sign-in: email → 6-digit emailed code. Accounts are created on
+// the first code; a new player then fills in their profile (/profile) before
+// landing where they were headed. /login, /register and /admin share this
+// screen — "admin" additionally checks the account may run tournaments.
 
-function needsName(name: string | undefined | null, email: string): boolean {
-  if (!name) return true;
-  const n = name.trim().toLowerCase();
-  return n.length === 0 || n.includes("@") || n === email.split("@")[0].toLowerCase();
-}
+export type AuthMode = "login" | "register" | "admin";
 
-export function AuthPage({ mode }: { mode: "login" | "register" }) {
-  const [step, setStep] = useState<"email" | "code" | "name">("email");
+const COPY: Record<AuthMode, { title: string; blurb: string; foot: string }> = {
+  register: {
+    title: "Register to play",
+    blurb: "No passwords — we'll email you a 6-digit code. Then a few details so the organizer can place you.",
+    foot: "Already registered? Use the same email — one code signs you in.",
+  },
+  login: {
+    title: "Sign in",
+    blurb: "No passwords here — we'll email you a 6-digit code. New emails get an account automatically.",
+    foot: "One code signs you in and creates your account if you're new.",
+  },
+  admin: {
+    title: "Admin sign in",
+    blurb: "For whoever runs the tournaments. Same email code as everyone else; only admin accounts get the organizer tools.",
+    foot: "Just here to play? Use Sign in instead.",
+  },
+};
+
+export function AuthPage({ mode }: { mode: AuthMode }) {
+  const [step, setStep] = useState<"email" | "code" | "notAdmin">("email");
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
-  const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [cooldown, setCooldown] = useState(0);
   const verifying = useRef(false);
   const [params] = useSearchParams();
-  const rawNext = params.get("next") || "/app";
-  // Only ever land on our own paths.
-  const next = rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/app";
+  const next = safeNext(params.get("next"), "/app");
+  const copy = COPY[mode];
 
   // A full page load after sign-in guarantees the app boots with a fresh
   // session read — an in-app navigate can race the cached "no session"
   // state and bounce straight back to login.
-  const enter = () => window.location.replace(next);
+  const enter = (to = next) => window.location.replace(to);
 
   useEffect(() => {
     if (cooldown <= 0) return;
@@ -61,32 +77,29 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
     setBusy(true);
     setError(null);
     const res = await authClient.signIn.emailOtp({ email: email.trim().toLowerCase(), otp });
-    setBusy(false);
-    verifying.current = false;
     if (res.error) {
+      setBusy(false);
+      verifying.current = false;
       setError(res.error.message ?? "That code didn't work — try again");
       setCode("");
       return;
     }
-    if (needsName(res.data?.user?.name, email)) {
-      setStep("name");
-    } else {
-      enter();
+    try {
+      const me = await Api.me();
+      if (mode === "admin" && !me.user.isAdmin) {
+        setBusy(false);
+        verifying.current = false;
+        setStep("notAdmin");
+        return;
+      }
+      if (!me.user.profileComplete) {
+        enter(`/profile?next=${encodeURIComponent(next)}`);
+        return;
+      }
+    } catch {
+      // If the profile check itself fails, the home screen asks again.
     }
-  };
-
-  const saveName = async () => {
-    const trimmed = name.trim();
-    if (!trimmed) return;
-    setBusy(true);
-    setError(null);
-    const res = await authClient.updateUser({ name: trimmed.slice(0, 40) });
-    setBusy(false);
-    if (res.error) {
-      setError(res.error.message ?? "Couldn't save your name — try again");
-    } else {
-      enter();
-    }
+    enter();
   };
 
   // Auto-verify the moment 6 digits are in.
@@ -104,13 +117,8 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
         <Card>
           {step === "email" && (
             <>
-              <h1 className="mb-1 text-xl font-black text-navy">
-                {mode === "register" ? "Create your account" : "Sign in"}
-              </h1>
-              <p className="mb-5 text-sm text-muted">
-                No passwords here — we'll email you a 6-digit code. New emails get an account
-                automatically.
-              </p>
+              <h1 className="mb-1 text-xl font-black text-navy">{copy.title}</h1>
+              <p className="mb-5 text-sm text-muted">{copy.blurb}</p>
               <form
                 className="space-y-4"
                 onSubmit={(e) => {
@@ -124,6 +132,7 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="you@example.com"
+                    autoComplete="email"
                     required
                     autoFocus
                   />
@@ -162,7 +171,7 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
                 />
                 <ErrorNote message={error} />
                 <Button className="w-full" size="lg" busy={busy} type="submit" disabled={code.length !== 6}>
-                  Sign in
+                  {mode === "register" ? "Continue" : "Sign in"}
                 </Button>
               </form>
               <div className="mt-4 flex items-center justify-between text-sm">
@@ -180,33 +189,30 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
             </>
           )}
 
-          {step === "name" && (
+          {step === "notAdmin" && (
             <>
-              <h1 className="mb-1 text-xl font-black text-navy">You're in 🎾</h1>
+              <h1 className="mb-1 text-xl font-black text-navy">This account can't run tournaments</h1>
               <p className="mb-5 text-sm text-muted">
-                One last thing — your name is what teammates see on court.
+                You're signed in as <span className="font-bold text-navy">{email.trim()}</span>, but that email isn't on
+                the admin list. You can still join tournaments as a player.
               </p>
-              <form
-                className="space-y-4"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  void saveName();
-                }}
-              >
-                <Field label="Your name">
-                  <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Andrew" required autoFocus />
-                </Field>
-                <ErrorNote message={error} />
-                <Button className="w-full" size="lg" busy={busy} type="submit">
-                  Let's play
-                </Button>
-              </form>
+              <Button className="w-full" size="lg" onClick={() => enter("/app")}>
+                Go to my tournaments
+              </Button>
             </>
           )}
         </Card>
         {step === "email" && (
           <p className="mt-4 text-center text-xs text-faint">
-            One code signs you in and creates your account if you're new.
+            {copy.foot}
+            {mode === "admin" && (
+              <>
+                {" "}
+                <Link to={`/login?next=${encodeURIComponent(next)}`} className="font-semibold text-royal">
+                  Sign in
+                </Link>
+              </>
+            )}
           </p>
         )}
       </div>

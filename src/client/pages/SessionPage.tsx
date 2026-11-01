@@ -713,6 +713,7 @@ function PlayersCard({ d, isOrganizer, run, busyKey }: ViewProps) {
                     busy={busyKey === `lvl-${p.id}`}
                     onChange={(level) => run(`lvl-${p.id}`, () => Api.playerAction(d.id, p.id, "set_level", { level }))}
                   />
+                  <ProfileBadges p={p} />
                   {d.fixedTeams && (
                     <PartnerSelect
                       player={p}
@@ -1367,6 +1368,7 @@ function LiveRosterCard({ d, isOrganizer, run, busyKey }: ViewProps) {
                               busy={busyKey === `lvl-${p.id}`}
                               onChange={(level) => run(`lvl-${p.id}`, () => Api.playerAction(d.id, p.id, "set_level", { level }))}
                             />
+                            <ProfileBadges p={p} />
                             {d.fixedTeams && (
                               <PartnerSelect
                                 player={p}
@@ -2077,5 +2079,29 @@ function CompleteView({ d, isOrganizer, run, busyKey }: ViewProps) {
         </Button>
       )}
     </div>
+  );
+}
+
+/** Organizer-only: what the player's profile says — Playtomic level and a tap-to-call phone. */
+function ProfileBadges({ p }: { p: PlayerRow }) {
+  if (p.playtomicLevel == null && !p.phone) return null;
+  return (
+    <>
+      {p.playtomicLevel != null && (
+        <span className="h-7 rounded-full border border-line bg-canvas px-2 text-xs font-bold leading-7 text-navy" title="Playtomic level">
+          PT {p.playtomicLevel.toFixed(1)}
+        </span>
+      )}
+      {p.phone && (
+        <a
+          href={`tel:${p.phone}`}
+          className="h-7 rounded-full border border-line bg-canvas px-2 text-xs font-bold leading-7 text-royal"
+          title={p.phone}
+          aria-label={`Call ${p.name}`}
+        >
+          📞
+        </a>
+      )}
+    </>
   );
 }

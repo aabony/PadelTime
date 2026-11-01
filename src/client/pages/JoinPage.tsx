@@ -276,9 +276,15 @@ export function JoinPage() {
                 Signup hasn't opened yet
               </Button>
             ) : !session ? (
-              <Link to={`/login?next=${encodeURIComponent(`/join/${code}`)}`} className="block">
+              <Link to={`/register?next=${encodeURIComponent(`/join/${code}`)}`} className="block">
                 <Button className="w-full" size="lg">
-                  Continue with email →
+                  Register to join →
+                </Button>
+              </Link>
+            ) : data.myProfileComplete === false ? (
+              <Link to={`/profile?next=${encodeURIComponent(`/join/${code}`)}`} className="block">
+                <Button className="w-full" size="lg">
+                  Finish signing up to join →
                 </Button>
               </Link>
             ) : playing && spotsLeft > 0 ? (

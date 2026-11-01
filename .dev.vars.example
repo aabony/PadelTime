@@ -4,6 +4,9 @@ BETTER_AUTH_SECRET=dev-only-secret-change-me
 # Local dev only — enables GET /api/dev/otp so tests can read sign-in codes.
 # NEVER set this in production.
 DEV_MODE=1
+# Who can run tournaments locally. The smoke test signs its organizers up at
+# @admin.test and its players at @test.com.
+ADMIN_EMAILS=*@admin.test
 # Optional locally: with no RESEND_API_KEY, sign-in codes are logged to the
 # wrangler dev console instead of emailed.
 # RESEND_API_KEY=re_...

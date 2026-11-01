@@ -8,6 +8,7 @@ import { SessionPage } from "./pages/SessionPage";
 import { JoinPage } from "./pages/JoinPage";
 import { PrintSheetPage } from "./pages/PrintSheetPage";
 import { PlanPage } from "./pages/PlanPage";
+import { ProfilePage } from "./pages/ProfilePage";
 import { firstName } from "./lib/format";
 
 export function Logo({ to = "/app" }: { to?: string }) {
@@ -38,7 +39,13 @@ function AppLayout() {
         <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-3">
           <Logo />
           <div className="flex items-center gap-3">
-            <span className="hidden text-sm font-semibold text-muted sm:block">{firstName(session.user.name)}</span>
+            <Link
+              to={`/profile?next=${encodeURIComponent(location.pathname + location.search)}`}
+              className="text-sm font-semibold text-muted hover:text-navy"
+              aria-label="Your profile"
+            >
+              {firstName(session.user.name) || "Profile"}
+            </Link>
             <button
               className="rounded-full px-3 py-1.5 text-sm font-semibold text-muted hover:bg-line hover:text-navy"
               onClick={async () => {
@@ -64,6 +71,8 @@ export function App() {
       <Route path="/" element={<Landing />} />
       <Route path="/login" element={<AuthPage mode="login" />} />
       <Route path="/register" element={<AuthPage mode="register" />} />
+      <Route path="/admin" element={<AuthPage mode="admin" />} />
+      <Route path="/profile" element={<ProfilePage />} />
       <Route path="/join/:code" element={<JoinPage />} />
       {/* The TV board is gone: old board / results links land on the join page, which shows the results. */}
       <Route path="/board/:code" element={<ToJoin />} />

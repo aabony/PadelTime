@@ -54,4 +54,23 @@ async function apply(db: Env["DB"]): Promise<void> {
     await db.prepare("ALTER TABLE game_sessions ADD COLUMN court_labels text").run();
     await record("0008_court_labels.sql");
   }
+  // Player profiles + admin flag (0009). Each column on its own so a half-applied run finishes next time.
+  const users = await columns("user");
+  const profileColumns: [string, string][] = [
+    ["first_name", "text"],
+    ["last_name", "text"],
+    ["phone", "text"],
+    ["dob", "text"],
+    ["gender", "text"],
+    ["level", "integer"],
+    ["playtomic_level", "real"],
+    ["is_admin", "integer NOT NULL DEFAULT 0"],
+  ];
+  let addedProfile = false;
+  for (const [name, type] of profileColumns) {
+    if (users.has(name)) continue;
+    await db.prepare(`ALTER TABLE user ADD COLUMN ${name} ${type}`).run();
+    addedProfile = true;
+  }
+  if (addedProfile) await record("0009_player_profiles.sql");
 }

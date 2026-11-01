@@ -34,7 +34,8 @@ async function launch() {
 const contextOpts = { ignoreHTTPSErrors: !!(process.env.HTTPS_PROXY || process.env.https_proxy) };
 
 // Passwordless sign-in: request a code, read it from the DEV_MODE-only
-// endpoint (stands in for the inbox), verify, set a name if asked.
+// endpoint (stands in for the inbox), verify, then fill in the profile the
+// first time (first/last name, phone, DOB, gender, level — Playtomic optional).
 async function otpSignIn(page, name, email) {
   await page.getByPlaceholder("you@example.com").fill(email);
   await page.getByRole("button", { name: "Email me a code" }).click();
@@ -44,13 +45,20 @@ async function otpSignIn(page, name, email) {
   const otp = String(body.value ?? "").match(/\d{6}/)?.[0];
   if (!otp) fail(`no OTP found for ${email}: ${JSON.stringify(body)}`);
   await page.getByPlaceholder("••••••").fill(otp); // auto-verifies at 6 digits
-  const nameInput = page.getByPlaceholder("Andrew");
+  const firstName = page.getByLabel("First name");
   try {
-    await nameInput.waitFor({ timeout: 8000 });
-    await nameInput.fill(name);
+    await firstName.waitFor({ timeout: 8000 });
+    await page.getByRole("heading", { name: "Finish signing up" }).waitFor();
+    await firstName.fill(name);
+    await page.getByLabel("Last name").fill("Test");
+    await page.getByLabel("Phone").fill("+34 600 123 456");
+    await page.getByLabel("Date of birth").fill("1990-05-04");
+    await page.getByRole("group", { name: "Gender" }).getByRole("button", { name: /Man/ }).click();
+    await page.getByRole("group", { name: "Your level" }).getByRole("button", { name: /Intermediate/ }).click();
+    await page.getByLabel("Playtomic level (optional)").fill("3.5");
     await page.getByRole("button", { name: "Let's play" }).click();
   } catch {
-    // existing account with a proper name — no name step
+    // existing account with a finished profile — straight through
   }
 }
 
@@ -73,7 +81,7 @@ const orgCtx = await newContext({ ...contextOpts, viewport: { width: 390, height
 const org = await orgCtx.newPage();
 org.on("dialog", (d) => d.accept());
 
-await register(org, "Andrew", `andrew${run}@test.com`);
+await register(org, "Andrew", `andrew${run}@admin.test`);
 log("organizer registered → /app");
 await shot(org, "01-home");
 
@@ -183,7 +191,8 @@ await org.getByRole("button", { name: "Settings" }).click();
 await org.getByRole("checkbox", { name: /Group players by playing level/ }).check();
 await org.getByRole("button", { name: "Save changes" }).click();
 await org.getByText("🎚️ Grouped by level").waitFor({ timeout: 10000 });
-await org.getByText(/Levels set: 1 of \d+/).waitFor({ timeout: 10000 });
+// Andrew's own level came in from his profile, George's was just set: 2 of 7.
+await org.getByText(/Levels set: 2 of \d+/).waitFor({ timeout: 10000 });
 await org.reload();
 await org.getByText("Invite players").waitFor({ timeout: 10000 });
 if ((await levelOf(org, "George").inputValue()) !== "4") fail("George's level should persist");
@@ -196,8 +205,8 @@ const paula = await paulaCtx.newPage();
 await paula.goto(`${BASE}/join/${code}`);
 await paula.getByText("You're invited").waitFor();
 await shot(paula, "03-join-page");
-await paula.getByRole("button", { name: "Continue with email →" }).click();
-await paula.waitForURL("**/login**");
+await paula.getByRole("button", { name: "Register to join →" }).click();
+await paula.waitForURL("**/register**");
 await otpSignIn(paula, "Paula", `paula${run}@test.com`);
 await paula.waitForURL("**/join/**", { timeout: 15000 });
 // Players rate themselves (privately) before joining.
@@ -217,7 +226,7 @@ if (paulaView.players.some((p) => p.id !== paulaView.myPlayerId && p.level != nu
 await paula.getByRole("group", { name: "Your level" }).getByRole("button", { name: /Intermediate/ }).click();
 await paula.waitForTimeout(800);
 const orgSeesPaula = await (await org.request.get(`${BASE}/api/sessions/${sessionId}`)).json();
-if (orgSeesPaula.players.find((p) => p.name === "Paula")?.level !== 3) fail("the organizer should see Paula's own rating (Intermediate)");
+if (orgSeesPaula.players.find((p) => p.name.startsWith("Paula"))?.level !== 3) fail("the organizer should see Paula's own rating (Intermediate)");
 log("Paula rated herself Beginner on joining, changed it to Intermediate; only she and the organizer see it");
 
 // --- Start: no check-in step — everyone signed up plays --------------------
@@ -302,8 +311,8 @@ const lateCtx = await newContext({ ...contextOpts, viewport: { width: 390, heigh
 const late = await lateCtx.newPage();
 await late.goto(`${BASE}/join/${code}`);
 await late.getByText("The game is already on").waitFor({ timeout: 10000 });
-await late.getByRole("button", { name: "Continue with email →" }).click();
-await late.waitForURL("**/login**");
+await late.getByRole("button", { name: "Register to join →" }).click();
+await late.waitForURL("**/register**");
 await otpSignIn(late, "Late", `late${run}@test.com`);
 await late.waitForURL("**/join/**", { timeout: 15000 });
 await late.getByRole("button", { name: /Join — deal me in/ }).click({ timeout: 15000 });
@@ -702,7 +711,7 @@ const visitor = await visitorCtx.newPage();
 await visitor.goto(`${BASE}/plan?players=11&courts=2&duration=90&points=16`);
 await visitor.getByRole("button", { name: /Create this session/ }).click();
 await visitor.waitForURL("**/login**", { timeout: 15000 });
-await otpSignIn(visitor, "Vic", `vic${run}@test.com`);
+await otpSignIn(visitor, "Vic", `vic${run}@admin.test`);
 await visitor.waitForURL("**/app?new=1**", { timeout: 15000 });
 await visitor.getByRole("heading", { name: "New session" }).waitFor({ timeout: 10000 });
 const visitorForm = visitor.locator("form", { hasText: "Create session" });

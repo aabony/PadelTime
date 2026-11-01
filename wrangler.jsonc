@@ -8,7 +8,10 @@
   "workers_dev": true,
   "vars": {
     // Sending domain verified in Resend — codes deliver to any address.
-    "MAIL_FROM": "PadelTime <login@padeltime.andrewabony.com>"
+    "MAIL_FROM": "PadelTime <login@padeltime.andrewabony.com>",
+    // Who can run tournaments. Everyone else who signs in is a player.
+    // Comma-separated emails; "*@example.com" allows a whole domain.
+    "ADMIN_EMAILS": "andrew@adbloom.com"
   },
   "assets": {
     "directory": "./dist/client",

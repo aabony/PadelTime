@@ -84,6 +84,17 @@ export function Field({ label, children, hint }: { label: string; children: Reac
   );
 }
 
+/** Field look for a set of buttons (a `<label>` may only wrap one control). */
+export function FieldGroup({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) {
+  return (
+    <div className="block">
+      <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-muted">{label}</span>
+      {children}
+      {hint && <span className="mt-1 block text-xs text-faint">{hint}</span>}
+    </div>
+  );
+}
+
 type BadgeTone = "lime" | "zinc" | "amber" | "sky" | "rose" | "emerald";
 
 const badgeTones: Record<BadgeTone, string> = {

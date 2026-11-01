@@ -4,10 +4,13 @@ import { authClient } from "../lib/auth";
 import { Button, NumberInput } from "../components/ui";
 import { Logo } from "../App";
 
+// Player-first front door: register once, join from the organizer's link.
+// Running tournaments is an admin job — "Admin sign in" lives in the footer.
+
 const steps = [
-  { icon: "📝", title: "Create a session", text: "Name, time, courts, points. Twenty seconds." },
-  { icon: "🔗", title: "Share one link", text: "Players sign up from WhatsApp. Waitlist and check-in handled." },
-  { icon: "🎾", title: "Play", text: "Fair pairings, sit-outs and a live leaderboard — every round, automatically." },
+  { icon: "📝", title: "Register once", text: "Name, phone, your level and gender. Two minutes, never again." },
+  { icon: "🔗", title: "Tap the link", text: "Your organizer sends a tournament link on WhatsApp. Open it, tap Join." },
+  { icon: "🎾", title: "Play", text: "Fair pairings, sit-outs, scores and a live leaderboard — on your phone." },
 ];
 
 function PaperSheetForm() {
@@ -57,19 +60,19 @@ export function Landing() {
       <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col justify-center px-5 pb-16">
         <div className="max-w-xl">
           <p className="mb-4 inline-block rounded-full bg-lime px-3 py-1 text-xs font-bold text-navy">
-            Americano &amp; Mexicano
+            Americano &amp; Mexicano nights
           </p>
           <h1 className="text-4xl font-black leading-tight tracking-tight text-navy sm:text-6xl">
-            Padel nights that
-            <span className="text-royal"> run themselves.</span>
+            Your padel nights,
+            <span className="text-royal"> sorted.</span>
           </h1>
           <p className="mt-5 max-w-md text-lg text-muted">
-            Signups, check-in, rotating pairings, byes, scoring and a live leaderboard — so the only thing you
-            organize is showing up.
+            Register once with your level, then join any tournament from the link your organizer sends. Pairings,
+            scores and standings land on your phone — you just show up.
           </p>
           <div className="mt-8 flex flex-wrap items-center gap-3">
             <Link to="/register">
-              <Button size="lg">Start a session — it's free</Button>
+              <Button size="lg">Register to play</Button>
             </Link>
             <Link to="/login">
               <Button size="lg" variant="outline">
@@ -77,6 +80,7 @@ export function Landing() {
               </Button>
             </Link>
           </div>
+          <p className="mt-3 text-xs text-faint">Got a tournament link already? Just open it — you can register from there.</p>
         </div>
 
         <div className="mt-16 grid gap-4 sm:grid-cols-3">
@@ -121,7 +125,12 @@ export function Landing() {
       </main>
 
       <footer className="border-t border-line px-5 py-6 text-center text-xs text-faint">
-        PadelTime — the organizer gets the complexity, the players get simplicity.
+        <p>PadelTime — the organizer gets the complexity, the players get simplicity.</p>
+        <p className="mt-2">
+          <Link to="/admin" className="font-semibold text-muted hover:text-royal">
+            Admin sign in
+          </Link>
+        </p>
       </footer>
     </div>
   );
