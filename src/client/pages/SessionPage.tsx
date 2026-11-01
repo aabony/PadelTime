@@ -572,7 +572,7 @@ function MergeHint({ d, p, run, busyKey }: { d: SessionDetail; p: PlayerRow; run
 function LevelHint({ players }: { players: PlayerRow[] }) {
   const set = players.filter((p) => p.level != null).length;
   return (
-    <p className="-mt-1 mb-3 rounded-xl bg-canvas px-3 py-2 text-xs text-muted">
+    <p className="rounded-xl bg-canvas px-3 py-2 text-xs text-muted">
       🎚️ Levels set: <b className={set < players.length ? "text-amber-dark" : "text-navy"}>{set}</b> of {players.length}
       {set < players.length && " (unset = intermediate)"} · players only see their own
     </p>
@@ -1084,32 +1084,29 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
 
       {playing && (
         <div data-testid="now-playing">
-        <Card className="border-2 border-royal shadow-[0_12px_28px_-16px_rgba(47,91,255,0.6)]">
-          <SectionHeader
-            title={
-              <span className="block">
-                {upNext && (
-                  <span className="mb-0.5 flex items-center gap-1.5 text-[11px] font-black uppercase tracking-[0.12em] text-royal">
-                    <span aria-hidden className="size-2 rounded-full bg-royal" />
-                    Now playing
-                  </span>
-                )}
+        <Card className="overflow-hidden border-2 border-go p-0! shadow-[0_12px_28px_-16px_rgba(26,163,74,0.6)]">
+          <div className="flex items-center justify-between gap-3 bg-go px-4 py-3.5 text-white">
+            <div>
+              <p className="flex items-center gap-1.5 text-xs font-black uppercase tracking-[0.16em]">
+                <span aria-hidden className="size-2 animate-pulse rounded-full bg-white" />
+                Now playing
+              </p>
+              <h2 className="text-[28px] font-black leading-none">
                 Round {playing.number}
                 {est && (
-                  <span className="ml-1.5 text-sm font-semibold text-muted">{playing.number <= est ? `of ~${est}` : "· extra time"}</span>
+                  <span className="ml-1.5 text-sm font-semibold text-white/80">{playing.number <= est ? `of ~${est}` : "· extra time"}</span>
                 )}
+              </h2>
+            </div>
+            {playing.complete ? (
+              <span className="rounded-full bg-white px-3 py-1 text-xs font-black uppercase text-go-dark">all scores in</span>
+            ) : (
+              <span className="rounded-full bg-white/20 px-3 py-1 text-xs font-black uppercase text-white">
+                {playing.matches.filter((m) => m.status === "confirmed").length}/{playing.matches.length} scored
               </span>
-            }
-            action={
-              playing.complete ? (
-                <Badge tone="lime">all scores in</Badge>
-              ) : (
-                <Badge tone="zinc">
-                  {playing.matches.filter((m) => m.status === "confirmed").length}/{playing.matches.length} scored
-                </Badge>
-              )
-            }
-          />
+            )}
+          </div>
+          <div className="space-y-3 p-4">
           {isOrganizer && <IdleCourtsNote d={d} inPlay={playing.matches.length} />}
           <div className="grid gap-3 sm:grid-cols-2">
             {playing.matches.map((m) => (
@@ -1125,14 +1122,15 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
               />
             ))}
           </div>
+          </div>
         </Card>
         </div>
       )}
 
       {upNext && (
         <div data-testid="up-next">
-        <Card className="overflow-hidden p-0!">
-          <div className="flex items-center justify-between gap-3 bg-lime px-4 py-3.5">
+        <Card className="overflow-hidden border-standby-dark/30 p-0!">
+          <div className="flex items-center justify-between gap-3 bg-standby px-4 py-3.5">
             <div>
               <p className="text-xs font-black uppercase tracking-[0.16em] text-navy">Up next</p>
               <h2 className="text-[28px] font-black leading-none text-navy">Round {upNext.number}</h2>
@@ -1877,10 +1875,10 @@ function MyMatchCard({
     myScore == null || theirScore == null ? null : myScore > theirScore ? "win" : myScore < theirScore ? "loss" : "tie";
 
   return (
-    <Card className={cls("shadow-md", standBy ? "border-2 border-lime-dark" : "border-royal/40")}>
+    <Card className={cls("shadow-md", standBy ? "border-2 border-standby-dark/40" : "border-royal/40")}>
       <div className="mb-3 flex items-center justify-between">
         {standBy ? (
-          <span className="rounded-full bg-lime px-2.5 py-0.5 text-xs font-black uppercase tracking-wider text-navy">
+          <span className="rounded-full bg-standby px-2.5 py-0.5 text-xs font-black uppercase tracking-wider text-navy">
             Up next · round {round.number}
           </span>
         ) : (

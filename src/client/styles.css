@@ -22,6 +22,12 @@
   --color-lime-dark: #b7e21b;
   --color-lime-soft: #f2ffc4;
 
+  /* Round status: green = go play now, soft yellow = stand by for the next round. */
+  --color-go: #1aa34a;
+  --color-go-dark: #137a37;
+  --color-standby: #fff0a6;
+  --color-standby-dark: #7a5a00;
+
   --color-mint-soft: #e3f7ee;
   --color-mint-dark: #1c8a5b;
   --color-amber-soft: #fff1d6;
