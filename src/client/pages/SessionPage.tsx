@@ -812,7 +812,7 @@ function PlayersCard({ d, isOrganizer, run, busyKey }: ViewProps) {
           }}
         >
           <Input value={guestName} onChange={(e) => setGuestName(e.target.value)} placeholder="Add player by name (no account needed)" />
-          {pools && <NewbieToggle checked={guestNewbie} onChange={setGuestNewbie} />}
+          {pools && <NewbieToggle checked={guestNewbie} onChange={setGuestNewbie} label="New player is a newbie" />}
           <Button variant="secondary" busy={busyKey === "guest"} type="submit">
             Add
           </Button>
@@ -1603,7 +1603,7 @@ function LiveRosterCard({ d, isOrganizer, run, busyKey }: ViewProps) {
           }}
         >
           <Input value={guestName} onChange={(e) => setGuestName(e.target.value)} placeholder="Add a late arrival by name" />
-          {pools && <NewbieToggle checked={guestNewbie} onChange={setGuestNewbie} />}
+          {pools && <NewbieToggle checked={guestNewbie} onChange={setGuestNewbie} label="New player is a newbie" />}
           <Button variant="secondary" busy={busyKey === "guest"} type="submit">
             Add
           </Button>

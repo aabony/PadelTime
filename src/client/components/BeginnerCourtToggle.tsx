@@ -52,13 +52,24 @@ export function CompetitiveToggle({ checked, onChange, note }: { checked: boolea
 }
 
 /** The organizer's newbie tag on a roster row: tap to move a player to or from the beginner court. */
-export function NewbieToggle({ checked, onChange, busy = false }: { checked: boolean; onChange: (on: boolean) => void; busy?: boolean }) {
+export function NewbieToggle({
+  checked,
+  onChange,
+  busy = false,
+  label = "Newbie",
+}: {
+  checked: boolean;
+  onChange: (on: boolean) => void;
+  busy?: boolean;
+  /** Accessible name; the add-a-player forms use their own so the roster's switches stay distinct. */
+  label?: string;
+}) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={checked}
-      aria-label="Newbie"
+      aria-label={label}
       title={checked ? "Newbie — plays the beginner court. Tap to move up to the ladder." : "Tap to tag as a newbie (plays the beginner court)"}
       disabled={busy}
       onClick={() => onChange(!checked)}

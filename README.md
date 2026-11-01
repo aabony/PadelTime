@@ -35,6 +35,7 @@ GROUP ──< GAME_SESSION ──< ROUND ──< MATCH ──< PLAYER_RESULTS
 
 - **Player** (`/app/sessions/:id`): join → check in → "You're on Court 2 with George" → enter/confirm score → standings.
 - **Organizer** (same page, more controls): roster & check-in, start round, force/redo/undo rounds, edit any score, warnings (repeat partners, bye imbalance, missing scores).
+- **Beginner court** (session toggle): court 1 is reserved for the players the organizer tags as newbies. They rotate among themselves Americano-style with their own table; everyone else plays the session's format on the remaining courts and never shares a court with them. "Move up" / "move down" is the organizer's tap (the app only nudges: 3 straight wins on the beginner court, 0 wins after 3 ladder games). Short of four newbies, the bottom of the ladder plays down. **Competitive sit-outs** (second toggle): once everyone in a pool has 3 games, the lowest averages sit instead of the fair rotation.
 - **Public join page** (`/join/:code`): the link you drop in WhatsApp.
 - **Board / TV mode** (`/board/:code`): read-only auto-refreshing display for a courtside iPad/TV.
 
