@@ -3,7 +3,7 @@ import { Hono } from "hono";
 import { matches, scoreAudit, sessionPlayers } from "../db/schema";
 import type { DB, SessionRow } from "../lib/detail";
 import { isGroupOrganizer, loadSession } from "../lib/detail";
-import { clearMatchResults, writeMatchResults } from "../lib/engine";
+import { clearMatchResults, keepUpNext, writeMatchResults } from "../lib/engine";
 import { asInt, newId, now } from "../lib/util";
 import type { ApiCtx, AuthedUser } from "./context";
 
@@ -104,6 +104,7 @@ matchRoutes.post("/matches/:id/score", async (c) => {
       .where(eq(matches.id, ctx.match.id));
     await writeMatchResults(db, { ...ctx.match, scoreA, scoreB });
     await audit(db, ctx, u.id, wasScored ? "edit" : "submit", scoreA, scoreB);
+    await keepUpNext(db, ctx.session);
     return c.json({ ok: true, status: "confirmed" });
   }
 
@@ -133,6 +134,7 @@ matchRoutes.post("/matches/:id/score", async (c) => {
     .where(eq(matches.id, ctx.match.id));
   if (autoConfirm) {
     await writeMatchResults(db, { ...ctx.match, scoreA, scoreB });
+    await keepUpNext(db, ctx.session);
   }
   await audit(db, ctx, u.id, "submit", scoreA, scoreB);
   return c.json({ ok: true, status: autoConfirm ? "confirmed" : "submitted" });
@@ -165,6 +167,7 @@ matchRoutes.post("/matches/:id/confirm", async (c) => {
     .set({ status: "confirmed", confirmedBy: ctx.myPlayerId, confirmedAt: ts })
     .where(eq(matches.id, ctx.match.id));
   await writeMatchResults(db, ctx.match);
+  await keepUpNext(db, ctx.session);
   await audit(db, ctx, u.id, "confirm", ctx.match.scoreA, ctx.match.scoreB);
   return c.json({ ok: true });
 });

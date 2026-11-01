@@ -4,7 +4,7 @@ import { Hono } from "hono";
 import { gameSessions, matches, rounds, sessionPlayers } from "../db/schema";
 import type { DB, SessionRow } from "../lib/detail";
 import { buildDetail, isGroupMember, isGroupOrganizer, loadRounds, loadSession } from "../lib/detail";
-import { generateNextRound } from "../lib/engine";
+import { dropUnplayedUpNext, generateNextRound, keepUpNext } from "../lib/engine";
 import { getFormat } from "../../shared/formats/registry";
 import { parseGender } from "../../shared/genders";
 import { parseLevel } from "../../shared/levels";
@@ -185,10 +185,13 @@ sessionRoutes.post("/sessions/:id/status", async (c) => {
       const result = await generateNextRound(db, session);
       if (result.error) return c.json({ error: result.error }, 400);
       await setStatus("active");
+      // On deck: the next round is dealt straight away too.
+      await keepUpNext(db, { ...session, status: "active" });
       return c.json({ ok: true });
     }
     case "complete": {
       if (session.status !== "active") return c.json({ error: "Session isn't live" }, 400);
+      await dropUnplayedUpNext(db, session.id);
       await setStatus("complete");
       return c.json({ ok: true });
     }
@@ -531,6 +534,7 @@ sessionRoutes.post("/sessions/:id/rounds", async (c) => {
 
   const result = await generateNextRound(db, session, { force });
   if (result.error) return c.json({ error: result.error }, 400);
+  await keepUpNext(db, session);
   return c.json({ ok: true, roundNumber: result.roundNumber });
 });
 

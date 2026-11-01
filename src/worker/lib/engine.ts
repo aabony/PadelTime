@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { getFormat } from "../../shared/formats/registry";
 import { autoPair } from "../../shared/formats/teams";
 import type { EngineContext, PlannedMatch } from "../../shared/formats/types";
-import type { MatchRow } from "../../shared/types";
+import type { MatchRow, RoundRow } from "../../shared/types";
 import { buildHistory, creditAbsences } from "../../shared/history";
 import { computeStandings, rankForCourts } from "../../shared/standings";
 import { normalizeLevel } from "../../shared/levels";
@@ -117,6 +117,54 @@ export async function generateNextRound(
  * came free (they start now); a court waiting for players still finishing a
  * game takes the court those players are on (it starts when they're done).
  */
+/**
+ * On deck: while a round is being played, the round after it is already dealt,
+ * so the players sitting out can stand by at their court and everyone on court
+ * knows where they're headed next. Called at the start and after every score:
+ * once the round before the one on deck is fully scored, the next one is dealt.
+ * In Competitive that places the round on deck from the standings one round
+ * back — the price of knowing every court before the round in play ends.
+ */
+export async function keepUpNext(db: DB, session: SessionRow): Promise<void> {
+  if (session.status !== "active") return;
+  const played = await loadRounds(db, session.id);
+  const latest = played[played.length - 1];
+  const before = played[played.length - 2];
+  if (!latest) return;
+  if (before && !before.complete) {
+    // Already one round on deck: a court that just finished frees up, so a game
+    // whose four are all standing by moves onto it (nothing's played yet).
+    await recourtUpNext(db, before, latest, session.courts);
+    return;
+  }
+  try {
+    await generateNextRound(db, session, { force: true });
+  } catch {
+    // Two scores landing together both try to deal the same round number: one wins.
+  }
+}
+
+async function recourtUpNext(db: DB, playing: RoundRow, upNext: RoundRow, courts: number): Promise<void> {
+  if (upNext.matches.some((m) => m.scoreA != null)) return;
+  const planned = courtsWhenDealtAhead(
+    upNext.matches.map((m) => ({ a: m.a, b: m.b, court: m.court })),
+    playing.matches,
+    courts,
+  );
+  for (const m of upNext.matches) {
+    const court = planned.find((x) => x.a[0] === m.a[0])?.court;
+    if (court != null && court !== m.court) await db.update(matches).set({ court }).where(eq(matches.id, m.id));
+  }
+}
+
+/** Finishing the night: rounds dealt at the end that nobody played (no scores) are dropped. */
+export async function dropUnplayedUpNext(db: DB, sessionId: string): Promise<void> {
+  const played = await loadRounds(db, sessionId);
+  while (played.length > 1 && played[played.length - 1].matches.every((m) => m.scoreA == null)) {
+    await db.delete(rounds).where(eq(rounds.id, played.pop()!.id));
+  }
+}
+
 export function courtsWhenDealtAhead(planned: PlannedMatch[], current: MatchRow[], courts: number): PlannedMatch[] {
   const finishingOn = new Map<string, number>();
   for (const m of current) if (m.status !== "confirmed") for (const p of [...m.a, ...m.b]) finishingOn.set(p, m.court);

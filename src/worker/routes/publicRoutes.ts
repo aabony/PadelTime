@@ -103,7 +103,8 @@ publicRoutes.get("/join/:code", async (c) => {
     pointsPerMatch: session.pointsPerMatch,
     confirmedCount: players.filter((p) => p.status === "confirmed" || p.status === "checked_in").length,
     waitlistCount: players.filter((p) => p.status === "waitlist").length,
-    roundsPlayed: (await loadRounds(db, session.id)).length,
+    // The round in play (a round dealt on deck doesn't count yet), else how many were played.
+    roundsPlayed: await loadRounds(db, session.id).then((r) => r.find((x) => !x.complete)?.number ?? r.length),
     myStatus: (mine?.status as PlayerStatus) ?? null,
     myGender: parseGender(mine?.gender) ?? (u ? await rememberedGender(db, u.id) : null),
     myLevel: normalizeLevel(mine?.level) ?? (u ? await rememberedLevel(db, u.id) : null),

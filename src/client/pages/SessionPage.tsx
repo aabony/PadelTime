@@ -994,25 +994,38 @@ function useNameOf(d: SessionDetail) {
 function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
   const nameOf = useNameOf(d);
   const me = d.players.find((p) => p.id === d.myPlayerId);
-  const current = d.rounds[d.rounds.length - 1];
-  // Dealt ahead: the round before can still have a court finishing its game.
+  const latest = d.rounds[d.rounds.length - 1];
   const prior = d.rounds[d.rounds.length - 2];
-  const finishingRound = prior && !prior.complete ? prior : undefined;
-  const finishing = finishingRound?.matches.filter((m) => m.status !== "confirmed") ?? [];
-  const previous = d.rounds.slice(0, -1).filter((r) => r !== finishingRound);
-  const waitingFor = waitingForCourt(d, finishing);
-  const meFinishing = finishing.find((m) => [...m.a, ...m.b].includes(d.myPlayerId ?? ""));
-  // Courts done while others play: the next round can start on them now.
-  const freeCourts = current?.matches.filter((m) => m.status === "confirmed") ?? [];
-  const playingCourts = current?.matches.filter((m) => m.status !== "confirmed") ?? [];
-  const canDealAhead = !!current && !finishingRound && freeCourts.length > 0 && playingCourts.length > 0;
-  const label = (m: MatchRow) => `Court ${courtLabel(d.courtLabels, m.court)}`;
+  // On deck: while a round is being played the next one is already dealt.
+  const playing = prior && !prior.complete ? prior : latest;
+  const upNext = prior && !prior.complete ? latest : undefined;
+  const previous = d.rounds.filter((r) => r !== playing && r !== upNext);
+  const inPlay = playing?.matches.filter((m) => m.status !== "confirmed") ?? [];
+  const label = (court: number) => `Court ${courtLabel(d.courtLabels, court)}`;
+  const finishingAt = new Map(inPlay.flatMap((m) => [...m.a, ...m.b].map((p) => [p, label(m.court)] as const)));
+  const occupied = new Set(inPlay.map((m) => m.court));
+  const onDeckFor = (m: MatchRow): OnDeckState => {
+    const here = [...m.a, ...m.b].filter((p) => !finishingAt.has(p)).length;
+    if (here === 4 && !occupied.has(m.court)) return { finishingOn: () => undefined, status: "ready", label: "Ready · all 4 here" };
+    return {
+      finishingOn: (id) => finishingAt.get(id),
+      status: "filling",
+      label: here === 4 ? `Waits for ${label(m.court)}` : `${here} of 4 here`,
+    };
+  };
+  const nextCourts = upNext?.matches.filter((m) => m.scoreA == null) ?? [];
+  const ready = nextCourts.filter((m) => onDeckFor(m).status === "ready").length;
+  const waitingFor = waitingForCourt(d, inPlay);
+  const myPlaying = playing?.matches.find((m) => [...m.a, ...m.b].includes(d.myPlayerId ?? ""));
+  const myNext = upNext?.matches.find((m) => [...m.a, ...m.b].includes(d.myPlayerId ?? ""));
+  const onCourtNow = !!myPlaying && myPlaying.status !== "confirmed";
   const est = estimateRounds(d.durationMin, d.pointsPerMatch);
   const scrollToPlayers = () => document.getElementById("players")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const last = latest; // what Reshuffle and Undo act on: the round on deck, else the one in play
 
   return (
     <div className="space-y-4">
-      {!current && (
+      {!latest && (
         <Card className="border-royal/30">
           <SectionHeader title="No rounds on the board" />
           {isOrganizer ? (
@@ -1046,14 +1059,20 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
         </div>
       )}
 
-      {!isOrganizer && me && me.status === "checked_in" && current && finishingRound && meFinishing && (
+      {/* A player's own view: the game they're in now, then where they're headed next. */}
+      {!isOrganizer && me && me.status === "checked_in" && playing && (
         <>
-          <MyMatchCard d={d} round={finishingRound} nameOf={nameOf} run={run} busyKey={busyKey} />
-          <NextUp d={d} round={current} nameOf={nameOf} />
+          {onCourtNow ? (
+            <>
+              <MyMatchCard d={d} round={playing} nameOf={nameOf} run={run} busyKey={busyKey} />
+              {upNext && (myNext ? <NextUp d={d} round={upNext} nameOf={nameOf} /> : <SitsNext round={upNext} />)}
+            </>
+          ) : myNext ? (
+            <MyMatchCard d={d} round={upNext!} nameOf={nameOf} run={run} busyKey={busyKey} waitingFor={waitingFor} standBy />
+          ) : (
+            myPlaying && <MyMatchCard d={d} round={playing} nameOf={nameOf} run={run} busyKey={busyKey} />
+          )}
         </>
-      )}
-      {!isOrganizer && me && me.status === "checked_in" && current && !meFinishing && (
-        <MyMatchCard d={d} round={current} nameOf={nameOf} run={run} busyKey={busyKey} waitingFor={waitingFor} />
       )}
       {!isOrganizer && me && me.status === "waitlist" && (
         <Card className="border-amber-soft bg-amber-soft/40">
@@ -1063,100 +1082,122 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
         </Card>
       )}
 
-      {finishingRound && finishing.length > 0 && (
-        <Card className="border-amber-soft">
+      {playing && (
+        <div data-testid="now-playing">
+        <Card className="border-2 border-royal shadow-[0_12px_28px_-16px_rgba(47,91,255,0.6)]">
           <SectionHeader
             title={
-              <>
-                Round {finishingRound.number} <span className="ml-1 text-sm font-semibold text-muted">· finishing</span>
-              </>
-            }
-            action={<Badge tone="amber">still playing</Badge>}
-          />
-          <div className="grid gap-3 sm:grid-cols-2">
-            {finishing.map((m) => (
-              <CourtCard key={m.id} d={d} m={m} nameOf={nameOf} isOrganizer={isOrganizer} run={run} busyKey={busyKey} />
-            ))}
-          </div>
-        </Card>
-      )}
-
-      {current && (
-        <Card>
-          <SectionHeader
-            title={
-              <>
-                Round {current.number}
-                {d.format === "mexicano" && current.number > 1 && (
-                  <span className="ml-1.5 text-sm font-semibold text-muted">· courts by standings</span>
-                )}
-                {est && (
-                  <span className="ml-1.5 text-sm font-semibold text-muted">
-                    {current.number <= est ? `of ~${est}` : "· extra time"}
+              <span className="block">
+                {upNext && (
+                  <span className="mb-0.5 flex items-center gap-1.5 text-[11px] font-black uppercase tracking-[0.12em] text-royal">
+                    <span aria-hidden className="size-2 rounded-full bg-royal" />
+                    Now playing
                   </span>
                 )}
-              </>
+                Round {playing.number}
+                {est && (
+                  <span className="ml-1.5 text-sm font-semibold text-muted">{playing.number <= est ? `of ~${est}` : "· extra time"}</span>
+                )}
+              </span>
             }
             action={
-              current.complete ? (
+              playing.complete ? (
                 <Badge tone="lime">all scores in</Badge>
               ) : (
                 <Badge tone="zinc">
-                  {current.matches.filter((m) => m.status === "confirmed").length}/{current.matches.length} scored
+                  {playing.matches.filter((m) => m.status === "confirmed").length}/{playing.matches.length} scored
                 </Badge>
               )
             }
           />
-          {isOrganizer && <IdleCourtsNote d={d} inPlay={current.matches.length} />}
+          {isOrganizer && <IdleCourtsNote d={d} inPlay={playing.matches.length} />}
           <div className="grid gap-3 sm:grid-cols-2">
-            {current.matches.map((m) => (
+            {playing.matches.map((m) => (
               <CourtCard
                 key={m.id}
                 d={d}
                 m={m}
-                round={current}
+                round={upNext ? undefined : playing}
                 nameOf={nameOf}
                 isOrganizer={isOrganizer}
                 run={run}
                 busyKey={busyKey}
-                waitingFor={waitingFor(m)}
               />
             ))}
           </div>
         </Card>
+        </div>
       )}
 
-      {isOrganizer && current && (
+      {upNext && (
+        <div data-testid="up-next">
+        <Card className="overflow-hidden p-0!">
+          <div className="flex items-center justify-between gap-3 bg-lime px-4 py-3.5">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.16em] text-navy">Up next</p>
+              <h2 className="text-[28px] font-black leading-none text-navy">Round {upNext.number}</h2>
+            </div>
+            {nextCourts.length > 0 && (
+              <div className="flex flex-wrap justify-end gap-1.5">
+                {ready > 0 && <span className="rounded-full bg-mint-dark px-3 py-1 text-xs font-black text-white">{ready} READY</span>}
+                {nextCourts.length - ready > 0 && (
+                  <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-amber-dark">{nextCourts.length - ready} FILLING</span>
+                )}
+              </div>
+            )}
+          </div>
+          <div className="space-y-3 p-4">
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] font-bold text-muted">
+              <span className="inline-flex items-center gap-1.5">
+                <span aria-hidden className="size-2 rounded-full bg-mint-dark" />
+                Standing by
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <span aria-hidden className="size-2 rounded-full bg-amber-dark" />
+                Finishing a game
+              </span>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {upNext.matches.map((m) => (
+                <CourtCard
+                  key={m.id}
+                  d={d}
+                  m={m}
+                  round={upNext}
+                  onDeck={onDeckFor(m)}
+                  nameOf={nameOf}
+                  isOrganizer={isOrganizer}
+                  run={run}
+                  busyKey={busyKey}
+                />
+              ))}
+            </div>
+            {upNext.byes.length > 0 && (
+              <p className="border-t border-line pt-3 text-sm text-muted">
+                <span className="text-xs font-black uppercase tracking-wider text-muted">Sitting round {upNext.number} · {upNext.byes.length}</span>
+                <br />
+                <span className="text-ink">{upNext.byes.map(nameOf).join(", ")}</span>
+              </p>
+            )}
+          </div>
+        </Card>
+        </div>
+      )}
+
+      {isOrganizer && last && (
         <Card>
-          {/* One main action, only once it can act (scores in, or a court free to start
-              the next round); the rest are rarely needed, so they sit small underneath. */}
-          {canDealAhead ? (
+          {/* No round on deck (every score is in, or it couldn't be dealt): deal the next one. */}
+          {!upNext && (
             <Button
-              className="w-full"
+              className="mb-2 w-full"
               busy={busyKey === "next"}
-              onClick={() => {
-                const still = playingCourts.map(label).join(" and ");
-                if (
-                  !window.confirm(
-                    `${still} ${playingCourts.length === 1 ? "is" : "are"} still playing. Deal round ${current.number + 1} now? ${freeCourts.map(label).join(" & ")} start${freeCourts.length === 1 ? "s" : ""} straight away; the rest start as ${still} finish${playingCourts.length === 1 ? "es" : ""}. ${still}'s players sit round ${current.number + 1} when the rotation allows.`,
-                  )
-                )
-                  return;
-                run("next", () => Api.nextRound(d.id, { force: true }));
-              }}
+              onClick={() => run("next", () => Api.nextRound(d.id, { force: !last.complete }))}
             >
-              ▶️ Start round {current.number + 1} on {freeCourts.map(label).join(" & ")}
+              {last.complete ? "Next round →" : `Deal round ${last.number + 1} now`}
             </Button>
-          ) : (
-            current.complete &&
-            !finishingRound && (
-              <Button className="w-full" busy={busyKey === "next"} onClick={() => run("next", () => Api.nextRound(d.id))}>
-                Next round →
-              </Button>
-            )
           )}
-          <div className={cls("flex flex-wrap justify-center gap-1", (canDealAhead || (current.complete && !finishingRound)) && "mt-2")}>
-            {!current.matches.some((m) => m.status === "confirmed") && (
+          <div className="flex flex-wrap justify-center gap-1">
+            {!last.matches.some((m) => m.status === "confirmed") && (
               <Button
                 variant="ghost"
                 size="sm"
@@ -1165,13 +1206,13 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
                 onClick={() => {
                   if (
                     window.confirm(
-                      `Deal round ${current.number} again with new pairings? No scores are in yet, so nothing is lost. Use it after adding or removing players, or when the draw looks wrong.`,
+                      `Deal round ${last.number} again with new pairings? No scores are in yet, so nothing is lost. Use it after adding or removing players, or when the draw looks wrong.`,
                     )
                   )
                     run("regen", () => Api.nextRound(d.id, { regenerate: true }));
                 }}
               >
-                🔀 Reshuffle
+                🔀 Reshuffle round {last.number}
               </Button>
             )}
             <Button
@@ -1179,10 +1220,10 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
               size="sm"
               busy={busyKey === "undo"}
               onClick={() => {
-                if (window.confirm(`Undo round ${current.number}? Its scores will be lost.`)) run("undo", () => Api.undoRound(d.id, current.id));
+                if (window.confirm(`Undo round ${last.number}? Its scores will be lost.`)) run("undo", () => Api.undoRound(d.id, last.id));
               }}
             >
-              Undo round
+              Undo round {last.number}
             </Button>
             <Button
               variant="ghost"
@@ -1440,7 +1481,9 @@ function LiveRosterCard({ d, isOrganizer, run, busyKey }: ViewProps) {
           </Button>
         </form>
       )}
-      {isOrganizer && <p className="mt-2 text-xs text-muted">Player changes apply from the next round dealt.</p>}
+      {isOrganizer && (
+        <p className="mt-2 text-xs text-muted">Player changes apply to rounds not dealt yet — 🔀 Reshuffle the round up next to include them now.</p>
+      )}
     </Card>
   );
 }
@@ -1466,11 +1509,22 @@ function NextUp({ d, round, nameOf }: { d: SessionDetail; round: RoundRow; nameO
   if (!next) return null;
   return (
     <Card className="border-line bg-canvas/60">
-      <p className="text-xs font-bold uppercase tracking-wider text-muted">Next · round {round.number}</p>
+      <p className="text-xs font-bold uppercase tracking-wider text-muted">Up next · round {round.number}</p>
       <p className="mt-1 text-sm text-ink">
         <b className="text-navy">Court {courtLabel(d.courtLabels, next.court)}</b> —{" "}
         {teamNames(next.a.includes(me) ? next.a : next.b, nameOf)} vs {teamNames(next.a.includes(me) ? next.b : next.a, nameOf)}
       </p>
+      <p className="mt-0.5 text-xs text-muted">Head over when this game ends.</p>
+    </Card>
+  );
+}
+
+/** On court now, sitting the round on deck: hand the court over promptly. */
+function SitsNext({ round }: { round: RoundRow }) {
+  return (
+    <Card className="border-amber-soft bg-amber-soft/50">
+      <p className="font-black text-amber-dark">After this game, you sit round {round.number}</p>
+      <p className="mt-0.5 text-sm text-amber-dark/90">Hand the court over when you finish — the next four are standing by.</p>
     </Card>
   );
 }
@@ -1497,6 +1551,7 @@ function CourtCard({
   m,
   round,
   waitingFor,
+  onDeck,
   nameOf,
   isOrganizer,
   run,
@@ -1508,6 +1563,8 @@ function CourtCard({
   round?: RoundRow;
   /** Dealt ahead: the court this game waits on ("Court 4"), while its players finish there. */
   waitingFor?: string;
+  /** Up next: where each player still finishing a game is, and whether the court can start. */
+  onDeck?: OnDeckState;
   nameOf: (id: string) => string;
   isOrganizer: boolean;
   run: Run;
@@ -1533,18 +1590,40 @@ function CourtCard({
             <span aria-hidden>🏟️</span>
             <span>{court}</span>
           </span>
-          <MatchStatusBadge m={m} />
+          {onDeck && !scored ? (
+            <span className={cls("rounded-full px-2.5 py-0.5 text-[11px] font-black uppercase tracking-wide", ON_DECK_PILL[onDeck.status])}>
+              {onDeck.label}
+            </span>
+          ) : (
+            <MatchStatusBadge m={m} />
+          )}
         </div>
-        {waitingFor && <p className="-mt-1 mb-2 text-xs font-bold text-amber-dark">⏳ Starts when {waitingFor} finishes</p>}
+        {waitingFor && !onDeck && <p className="-mt-1 mb-2 text-xs font-bold text-amber-dark">⏳ Starts when {waitingFor} finishes</p>}
         <div className="space-y-1.5 text-sm">
-          <div className={cls("flex items-center justify-between gap-2 border-l-4 pl-2", TEAM_BAND[0])}>
-            <span className="min-w-0 truncate font-bold text-navy">{teamNames(m.a, nameOf)}</span>
-            <span className="tabular text-2xl font-black text-navy">{m.scoreA ?? "–"}</span>
-          </div>
-          <div className={cls("flex items-center justify-between gap-2 border-l-4 pl-2", TEAM_BAND[1])}>
-            <span className="min-w-0 truncate font-bold text-navy">{teamNames(m.b, nameOf)}</span>
-            <span className="tabular text-2xl font-black text-navy">{m.scoreB ?? "–"}</span>
-          </div>
+          {[m.a, m.b].map((side, t) => (
+            <div key={t} className={cls("flex items-center justify-between gap-2 border-l-4 pl-2", TEAM_BAND[t])}>
+              {onDeck && !scored ? (
+                // Up next: who's here (standing by) and who's still finishing a game elsewhere.
+                <span className="flex min-w-0 flex-wrap gap-x-3 gap-y-0.5 font-bold text-navy">
+                  {side.map((id) => {
+                    const where = onDeck.finishingOn(id);
+                    return (
+                      <span key={id} className="inline-flex items-center gap-1.5">
+                        <span aria-hidden className={cls("size-2 rounded-full", where ? "bg-amber-dark" : "bg-mint-dark")} />
+                        {nameOf(id)}
+                        {where && <span className="text-xs font-semibold text-amber-dark">on {where} now</span>}
+                      </span>
+                    );
+                  })}
+                </span>
+              ) : (
+                <>
+                  <span className="min-w-0 truncate font-bold text-navy">{teamNames(side, nameOf)}</span>
+                  <span className="tabular text-2xl font-black text-navy">{(t === 0 ? m.scoreA : m.scoreB) ?? "–"}</span>
+                </>
+              )}
+            </div>
+          ))}
         </div>
         {isOrganizer && (
           <div className="mt-3 flex gap-2">
@@ -1598,6 +1677,14 @@ function CourtCard({
     </>
   );
 }
+
+/** Up next, per court: who's still finishing a game (and where), and whether it can start. */
+interface OnDeckState {
+  finishingOn: (id: string) => string | undefined;
+  status: "ready" | "filling";
+  label: string;
+}
+const ON_DECK_PILL = { ready: "bg-mint-soft text-mint-dark", filling: "bg-amber-soft text-amber-dark" } as const;
 
 // Each game's two teams get a colour band — on the court card and in the swap
 // sheet — so whoever runs the night can tell who's partnered with whom at a glance.
@@ -1759,6 +1846,7 @@ function MyMatchCard({
   run,
   busyKey,
   waitingFor,
+  standBy = false,
 }: {
   d: SessionDetail;
   round: RoundRow;
@@ -1766,6 +1854,8 @@ function MyMatchCard({
   run: Run;
   busyKey: string | null;
   waitingFor?: (m: MatchRow) => string | undefined;
+  /** Up next while you're off court: stand by at this court. */
+  standBy?: boolean;
 }) {
   const me = d.myPlayerId!;
   const myMatch = round.matches.find((m) => [...m.a, ...m.b].includes(me));
@@ -1787,16 +1877,26 @@ function MyMatchCard({
     myScore == null || theirScore == null ? null : myScore > theirScore ? "win" : myScore < theirScore ? "loss" : "tie";
 
   return (
-    <Card className="border-royal/40 shadow-md">
+    <Card className={cls("shadow-md", standBy ? "border-2 border-lime-dark" : "border-royal/40")}>
       <div className="mb-3 flex items-center justify-between">
-        <span className="text-xs font-bold uppercase tracking-wider text-muted">Round {round.number} · your match</span>
-        <MatchStatusBadge m={myMatch} />
+        {standBy ? (
+          <span className="rounded-full bg-lime px-2.5 py-0.5 text-xs font-black uppercase tracking-wider text-navy">
+            Up next · round {round.number}
+          </span>
+        ) : (
+          <span className="text-xs font-bold uppercase tracking-wider text-muted">Round {round.number} · your match</span>
+        )}
+        {!(standBy && myMatch.status === "pending") && <MatchStatusBadge m={myMatch} />}
       </div>
+      {standBy && myMatch.scoreA == null && <p className="text-center text-sm font-bold text-navy">Stand by at</p>}
       <p className="text-center text-4xl font-black tracking-tight text-royal">
         <span aria-hidden>🏟️</span> COURT {courtLabel(d.courtLabels, myMatch.court)}
       </p>
-      {waitingFor?.(myMatch) && (
+      {waitingFor?.(myMatch) ? (
         <p className="mt-1 text-center text-sm font-bold text-amber-dark">⏳ Starts when {waitingFor(myMatch)} finishes</p>
+      ) : (
+        standBy &&
+        myMatch.scoreA == null && <p className="mt-1 text-center text-sm font-bold text-mint-dark">Court's free — all four are ready</p>
       )}
       <div className="mt-4 flex items-center justify-center gap-4">
         <div className="flex flex-col items-center gap-1">

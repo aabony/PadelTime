@@ -195,11 +195,10 @@ export function NumberInput({
       pattern="[0-9]*"
       className={className}
       value={draft ?? String(value)}
-      onFocus={(e) => {
-        const el = e.currentTarget;
-        setTimeout(() => el.select(), 0); // after iOS places the caret
-      }}
-      // A tap places the caret after focus, undoing the selection: select again so typing replaces the number.
+      // Select the number so typing replaces it. Keyboard focus keeps the focus-time selection; a
+      // tap places the caret afterwards and undoes it, so the click selects again. (Never deferred:
+      // a late select would swallow the first digit typed.)
+      onFocus={(e) => e.currentTarget.select()}
       onClick={(e) => e.currentTarget.select()}
       onChange={(e) => {
         const text = e.target.value.replace(/\D/g, "").slice(0, 4);
