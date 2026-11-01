@@ -6,6 +6,7 @@ import type { EngineContext, RoundPlan } from "../../src/shared/formats/types";
 import { mulberry32 } from "../../src/shared/formats/types";
 import { buildHistory, creditAbsences } from "../../src/shared/history";
 import { computeStandings, rankForCourts } from "../../src/shared/standings";
+import { poolRounds } from "../../src/shared/formats/pools";
 import type { RoundRow } from "../../src/shared/types";
 
 export type Planner = (ctx: EngineContext) => RoundPlan;
@@ -26,6 +27,12 @@ export interface NightOptions {
   teams?: [string, string][];
   /** Dealing ahead: every round is dealt while the last court of the round before is still playing. */
   dealAhead?: boolean;
+  /** Beginner court on: these players are the newbie pool (the planner is then expected to use planWithPools). */
+  newbies?: string[];
+  /** Competitive sit-outs on. */
+  competitive?: boolean;
+  /** Rank the ladder from these courts' matches only (the beginner court's results stay out of it). */
+  ladderOnly?: boolean;
 }
 
 export interface NightRound {
@@ -42,7 +49,8 @@ export function playNight(planner: Planner, o: NightOptions): NightRound[] {
   const played: RoundRow[] = [];
   const out: NightRound[] = [];
   for (let n = 1; n <= o.rounds; n++) {
-    const ranked = rankForCourts(computeStandings(o.players.map((id) => ({ id, name: id })), played)).filter(
+    const source = o.ladderOnly ? poolRounds(played, "ladder") : played;
+    const ranked = rankForCourts(computeStandings(o.players.map((id) => ({ id, name: id })), source)).filter(
       (r) => r.played > 0,
     );
     const present = o.players.filter((p) => (o.arrivals?.[p] ?? 1) <= n);
@@ -57,6 +65,7 @@ export function playNight(planner: Planner, o: NightOptions): NightRound[] {
       genders: o.genders,
       mixedPairs: o.mixedPairs,
       teams: o.teams,
+      competitive: o.competitive,
       busy: o.dealAhead && played.length > 0 ? (({ a, b }) => [...a, ...b])(played[played.length - 1].matches.at(-1)!) : undefined,
       rng,
     };

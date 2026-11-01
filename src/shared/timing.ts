@@ -189,6 +189,21 @@ export function sweetSpot(courts: number): { min: number; max: number } {
   return { min: onCourt + 2, max: Math.floor((onCourt * 7) / 4) };
 }
 
+/** Newbies per beginner court before they sit more than a round in three (the one-court sweet spot). */
+export const NEWBIE_CAP_PER_COURT = sweetSpot(1).max;
+
+export interface PoolPlan {
+  /** The newbies on court 1. */
+  beginner: RosterSplit;
+  /** Everyone else on the remaining courts. */
+  ladder: RosterSplit;
+}
+
+/** Games and sit-outs per player in each pool when the beginner court is on (court 1 for newbies, the rest for the ladder). */
+export function poolPlan(newbies: number, ladder: number, courts: number, rounds: number): PoolPlan {
+  return { beginner: rosterSplit(newbies, 1, rounds), ladder: rosterSplit(ladder, Math.max(0, courts - 1), rounds) };
+}
+
 /** Rounds that fit in the booked court time (at least 1 when a duration is set). */
 export function estimateRounds(durationMin: number | null | undefined, pointsPerMatch: number): number | null {
   if (!durationMin || durationMin <= 0) return null;

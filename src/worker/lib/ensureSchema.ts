@@ -54,4 +54,11 @@ async function apply(db: Env["DB"]): Promise<void> {
     await db.prepare("ALTER TABLE game_sessions ADD COLUMN court_labels text").run();
     await record("0008_court_labels.sql");
   }
+  const hasBeginnerCourt = sessions.has("beginner_court");
+  const hasCompetitive = sessions.has("competitive_sitouts");
+  const hasNewbie = (await columns("session_players")).has("newbie");
+  if (!hasBeginnerCourt) await db.prepare("ALTER TABLE game_sessions ADD COLUMN beginner_court integer NOT NULL DEFAULT 0").run();
+  if (!hasCompetitive) await db.prepare("ALTER TABLE game_sessions ADD COLUMN competitive_sitouts integer NOT NULL DEFAULT 0").run();
+  if (!hasNewbie) await db.prepare("ALTER TABLE session_players ADD COLUMN newbie integer NOT NULL DEFAULT 0").run();
+  if (!hasBeginnerCourt || !hasCompetitive || !hasNewbie) await record("0009_beginner_court.sql");
 }

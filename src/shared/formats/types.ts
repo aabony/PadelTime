@@ -47,6 +47,11 @@ export interface EngineContext {
    * are packed onto as few courts as possible, so the rest can start now.
    */
   busy?: string[];
+  /**
+   * Competitive sit-outs: once everyone here has played COMPETITIVE_FLOOR games,
+   * the bottom of the standings sits out instead of the fair rotation.
+   */
+  competitive?: boolean;
   /** Random source, injectable for deterministic tests. */
   rng: () => number;
 }
