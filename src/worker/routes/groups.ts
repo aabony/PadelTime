@@ -4,7 +4,8 @@ import { parseCourtLabels } from "../../shared/courts";
 import { getFormat } from "../../shared/formats/registry";
 import { computeTeamStandings, minGamesToRank, pointsPerGame } from "../../shared/standings";
 import type { GroupRole, MeResponse, SessionStatus, SessionSummary } from "../../shared/types";
-import { gameSessions, groupMembers, groups, playerResults, sessionPlayers, user } from "../db/schema";
+import { BEGINNER_COURT } from "../../shared/formats/pools";
+import { gameSessions, groupMembers, groups, matches, playerResults, sessionPlayers, user } from "../db/schema";
 import type { DB } from "../lib/detail";
 import { isGroupOrganizer, loadPlayersFor, loadRoundsFor } from "../lib/detail";
 import { asInt, inviteCode, newId, now, trimmed } from "../lib/util";
@@ -27,7 +28,7 @@ async function confirmedCounts(db: DB, sessionIds: string[]): Promise<Map<string
   return new Map(rows.map((r) => [r.sessionId, Number(r.n)]));
 }
 
-async function winnersFor(db: DB, sessions: { id: string; fixedTeams: boolean }[]): Promise<Map<string, string>> {
+async function winnersFor(db: DB, sessions: { id: string; fixedTeams: boolean; beginnerCourt: boolean }[]): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   // Keep teams together: the winner is the top team of the same table as the podium.
   const teamNights = sessions.filter((s) => s.fixedTeams).map((s) => s.id);
@@ -40,22 +41,32 @@ async function winnersFor(db: DB, sessions: { id: string; fixedTeams: boolean }[
   }
   const solo = sessions.filter((s) => !s.fixedTeams).map((s) => s.id);
   if (solo.length === 0) return out;
-  const sums = await db
-    .select({
-      sessionId: playerResults.sessionId,
-      playerId: playerResults.playerId,
-      pts: sql<number>`sum(${playerResults.pointsFor})`,
-      games: sql<number>`count(*)`,
-    })
-    .from(playerResults)
-    .where(inArray(playerResults.sessionId, solo))
-    .groupBy(playerResults.sessionId, playerResults.playerId);
+  // Beginner-court nights: the winner is the ladder's — court 1's games stay out of it.
+  const withBeginnerCourt = new Set(sessions.filter((s) => s.beginnerCourt).map((s) => s.id));
+  const sums = (
+    await db
+      .select({
+        sessionId: playerResults.sessionId,
+        playerId: playerResults.playerId,
+        court: matches.court,
+        pts: sql<number>`sum(${playerResults.pointsFor})`,
+        games: sql<number>`count(*)`,
+      })
+      .from(playerResults)
+      .innerJoin(matches, eq(playerResults.matchId, matches.id))
+      .where(inArray(playerResults.sessionId, solo))
+      .groupBy(playerResults.sessionId, playerResults.playerId, matches.court)
+  ).filter((r) => !(withBeginnerCourt.has(r.sessionId) && r.court === BEGINNER_COURT));
   // Same rule as the standings: most points among players with at least half
   // as many games as the busiest player.
   const bySession = new Map<string, { playerId: string; points: number; played: number }[]>();
   for (const r of sums) {
     const rows = bySession.get(r.sessionId) ?? [];
-    rows.push({ playerId: r.playerId, points: Number(r.pts), played: Number(r.games) });
+    const row = rows.find((x) => x.playerId === r.playerId);
+    if (row) {
+      row.points += Number(r.pts);
+      row.played += Number(r.games);
+    } else rows.push({ playerId: r.playerId, points: Number(r.pts), played: Number(r.games) });
     bySession.set(r.sessionId, rows);
   }
   const top = new Map<string, { playerId: string }>();
@@ -163,6 +174,8 @@ async function createSession(
         mixedPairs: body.mixedPairs === true,
         groupByLevel: body.groupByLevel === true,
         fixedTeams: body.fixedTeams === true,
+        beginnerCourt: body.beginnerCourt === true && body.fixedTeams !== true,
+        competitiveSitouts: body.competitiveSitouts === true,
         status: "draft",
         inviteCode: inviteCode(),
         createdBy: u.id,
@@ -281,6 +294,7 @@ groupRoutes.post("/sessions", async (c) => {
         gender: p.gender,
         level: p.level,
         partnerId: p.partnerId ? (newIdOf.get(p.partnerId) ?? null) : null,
+        newbie: p.newbie,
       }));
       // D1 caps a statement at 100 bound parameters (10 per row here), so a big
       // roster goes in chunks — batched, so it lands all or nothing.

@@ -5,6 +5,8 @@ import type { DrizzleD1Database } from "drizzle-orm/d1";
 import * as schema from "../db/schema";
 import { gameSessions, groupMembers, groups, matches, rounds, sessionPlayers, user } from "../db/schema";
 import { buildHistory, creditAbsences } from "../../shared/history";
+import { poolRounds, poolsActive } from "../../shared/formats/pools";
+import { computeNudges } from "../../shared/nudges";
 import { computeStandings, computeTeamStandings } from "../../shared/standings";
 import type {
   MatchRow,
@@ -14,6 +16,7 @@ import type {
   RoundRow,
   SessionDetail,
   SessionStatus,
+  StandingRow,
   FormatKey,
 } from "../../shared/types";
 
@@ -96,6 +99,7 @@ export async function loadPlayersFor(db: DB, sessionIds: string[]): Promise<Map<
         gender: (sp.gender as PlayerRow["gender"]) ?? null,
         level: normalizeLevel(sp.level),
         partnerId: sp.partnerId ?? null,
+        newbie: !!sp.newbie,
       });
     }
   }
@@ -149,7 +153,26 @@ export async function loadRoundsFor(db: DB, sessionIds: string[]): Promise<Map<s
   return out;
 }
 
-export function computeWarnings(players: PlayerRow[], allRounds: RoundRow[], fixedTeams = false, labels: string[] = []): string[] {
+/** Whether the night keeps two tables: the beginner court's and the ladder's. */
+export function splitTables(session: Pick<SessionRow, "beginnerCourt" | "fixedTeams" | "courts">, players: Pick<PlayerRow, "newbie">[]): boolean {
+  return session.beginnerCourt && !session.fixedTeams && session.courts >= 2 && players.some((p) => p.newbie);
+}
+
+/** The two tables: the ladder from its courts, the beginner court's from court 1 — each for the players currently in that pool. */
+export function poolStandings(players: PlayerRow[], roundRows: RoundRow[]): { ladder: StandingRow[]; beginner: StandingRow[] } {
+  return {
+    ladder: computeStandings(players.filter((p) => !p.newbie), poolRounds(roundRows, "ladder")),
+    beginner: computeStandings(players.filter((p) => p.newbie), poolRounds(roundRows, "beginner")),
+  };
+}
+
+export function computeWarnings(
+  players: PlayerRow[],
+  allRounds: RoundRow[],
+  fixedTeams = false,
+  labels: string[] = [],
+  pools = false,
+): string[] {
   // Things to act on first; partner repeats (often unavoidable) fill whatever room is left.
   const warnings: string[] = [];
   const repeats: string[] = [];
@@ -204,15 +227,19 @@ export function computeWarnings(players: PlayerRow[], allRounds: RoundRow[], fix
   }
 
   const rotating = activeIds.filter((id) => !benched.has(id));
-  if (rotating.length > 0 && allRounds.length > 0) {
+  // Beginner court: each pool rotates on its own, so fairness is judged within the pool.
+  const newbie = new Set(players.filter((p) => p.newbie).map((p) => p.id));
+  const groups = pools ? [rotating.filter((id) => newbie.has(id)), rotating.filter((id) => !newbie.has(id))] : [rotating];
+  for (const group of groups) {
+    if (group.length === 0 || allRounds.length === 0) continue;
     // Same accounting as the engine: rounds a late arrival missed count as their share of sit-outs.
     // Real gaps are whole rounds, so only a gap of 2+ is unfair (a late arrival's share is fractional).
     const fair = creditAbsences(buildHistory(allRounds), allRounds, activeIds);
-    const byes = rotating.map((id) => fair.byeCounts[id] ?? 0);
+    const byes = group.map((id) => fair.byeCounts[id] ?? 0);
     const maxB = Math.max(...byes);
     const minB = Math.min(...byes);
     if (maxB - minB >= 2) {
-      const worst = rotating.find((id) => (fair.byeCounts[id] ?? 0) === maxB);
+      const worst = group.find((id) => (fair.byeCounts[id] ?? 0) === maxB);
       if (worst) warnings.push(`${nameOf(worst)} has sat out ${Math.round(maxB)} rounds; others only ${Math.round(minB)}.`);
     }
   }
@@ -253,7 +280,9 @@ export async function buildDetail(
     }
   }
 
-  const standings = computeStandings(players, roundRows);
+  const split = splitTables(session, players);
+  const tables = split ? poolStandings(players, roundRows) : null;
+  const standings = tables ? tables.ladder : computeStandings(players, roundRows);
   const counts = {
     confirmed: players.filter((p) => p.status === "confirmed").length,
     waitlist: players.filter((p) => p.status === "waitlist").length,
@@ -278,15 +307,26 @@ export async function buildDetail(
     mixedPairs: session.mixedPairs,
     groupByLevel: session.groupByLevel,
     fixedTeams: session.fixedTeams,
+    beginnerCourt: session.beginnerCourt,
+    competitiveSitouts: session.competitiveSitouts,
+    poolsActive: poolsActive({
+      beginnerCourt: session.beginnerCourt,
+      fixedTeams: session.fixedTeams,
+      courts: session.courts,
+      eligible: counts.checkedIn,
+      newbies: players.filter((p) => p.newbie && p.status === "checked_in").length,
+    }),
     inviteCode: session.inviteCode,
     myRole,
     myPlayerId,
-    // Levels are private: the organizer sees everyone's, a player only their own.
-    players: myRole === "organizer" ? players : players.map((p) => (p.id === myPlayerId ? p : { ...p, level: null })),
+    // Levels and the newbie tag are private: the organizer sees everyone's, a player only their own level.
+    players: myRole === "organizer" ? players : players.map((p) => ({ ...p, level: p.id === myPlayerId ? p.level : null, newbie: false })),
     rounds: roundRows,
     standings,
     teamStandings: session.fixedTeams ? computeTeamStandings(players, roundRows) : undefined,
-    warnings: myRole === "organizer" ? computeWarnings(players, roundRows, session.fixedTeams, parseCourtLabels(session.courtLabels ?? "")) : [],
+    beginnerStandings: tables?.beginner,
+    nudges: myRole === "organizer" && split ? computeNudges(players, roundRows) : undefined,
+    warnings: myRole === "organizer" ? computeWarnings(players, roundRows, session.fixedTeams, parseCourtLabels(session.courtLabels ?? ""), split) : [],
     counts,
     createdAt: session.createdAt,
   };

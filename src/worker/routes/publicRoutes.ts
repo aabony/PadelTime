@@ -5,7 +5,7 @@ import type { ResultsData, JoinInfo, PlayerStatus, SessionStatus } from "../../s
 import { computeStandings, computeTeamStandings } from "../../shared/standings";
 import { groupMembers, sessionPlayers, verification } from "../db/schema";
 import type { DB } from "../lib/detail";
-import { loadPlayers, loadRounds, loadSessionByCode } from "../lib/detail";
+import { loadPlayers, loadRounds, loadSessionByCode, poolStandings, splitTables } from "../lib/detail";
 import { parseGender } from "../../shared/genders";
 import type { Gender } from "../../shared/genders";
 import { normalizeLevel, parseLevel } from "../../shared/levels";
@@ -221,6 +221,11 @@ publicRoutes.get("/results/:code", async (c) => {
   const { session, groupName } = loaded;
   const players = await loadPlayers(db, session.id);
   const rounds = await loadRounds(db, session.id);
+  const tables = splitTables(session, players) ? poolStandings(players, rounds) : null;
+  const onBoard = (s: { playerId: string; played: number }) => {
+    const p = players.find((x) => x.id === s.playerId);
+    return s.played > 0 || p?.status === "checked_in";
+  };
   const board: ResultsData = {
     name: session.name,
     groupName,
@@ -231,11 +236,9 @@ publicRoutes.get("/results/:code", async (c) => {
     players: players.map((p) => ({ id: p.id, name: p.name })),
     rounds,
     // People who never made it onto a court don't belong on the TV.
-    standings: computeStandings(players, rounds).filter((s) => {
-      const p = players.find((x) => x.id === s.playerId);
-      return s.played > 0 || p?.status === "checked_in";
-    }),
+    standings: (tables ? tables.ladder : computeStandings(players, rounds)).filter(onBoard),
     teamStandings: session.fixedTeams ? computeTeamStandings(players, rounds) : undefined,
+    beginnerStandings: tables?.beginner.filter(onBoard),
   };
   return c.json(board);
 });

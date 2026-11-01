@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { planWithPools, poolsActive } from "../../shared/formats/pools";
 import { americano } from "../../shared/formats/americano";
 import { autoPair } from "../../shared/formats/teams";
 import { formatMeta } from "../../shared/formatMeta";
@@ -57,6 +58,12 @@ interface SheetData {
 }
 
 /** Plan rounds prior.length+1 … totalRounds, honouring everything already played. */
+interface PlannedRound {
+  number: number;
+  byes: string[];
+  matches: { a: [string, string]; b: [string, string]; court: number }[];
+}
+
 function planRounds(
   ids: string[],
   courts: number,
@@ -64,9 +71,12 @@ function planRounds(
   seed: number,
   prior: HistoryRound[],
   extra: Partial<EngineContext> = {},
-): HistoryRound[] {
+  /** Beginner court on: the newbies, who get court 1 to themselves. */
+  newbies: string[] = [],
+): PlannedRound[] {
   const history = [...prior];
-  const planned: HistoryRound[] = [];
+  const planned: PlannedRound[] = [];
+  const pools = poolsActive({ beginnerCourt: newbies.length > 0, fixedTeams: !!extra.teams, courts, eligible: ids.length, newbies: newbies.length });
   const rng = mulberry32(seed || 1);
   for (let r = prior.length + 1; r <= totalRounds; r++) {
     const ctx: EngineContext = {
@@ -78,11 +88,11 @@ function planRounds(
       ...extra,
       rng,
     };
-    const plan = americano.planRound(ctx);
-    const round: HistoryRound = {
+    const plan = pools ? planWithPools(ctx, americano, newbies) : americano.planRound(ctx);
+    const round: PlannedRound = {
       number: r,
       byes: plan.byes,
-      matches: plan.matches.map((m) => ({ a: m.a, b: m.b })),
+      matches: plan.matches.map((m) => ({ a: m.a, b: m.b, court: m.court })),
     };
     history.push(round);
     planned.push(round);
@@ -196,11 +206,11 @@ function sessionSheet(d: SessionDetail, roundsWanted: number, seed: number): She
       ? []
       : d.format === "mexicano"
         ? blankRounds(existing.length + 1, totalRounds, Math.min(d.courts, Math.floor((extra.teams ? extra.teams.length * 2 : activeIds.length) / 4)))
-        : planRounds(activeIds, d.courts, totalRounds, seed, prior, extra).map((r) => ({
+        : planRounds(activeIds, d.courts, totalRounds, seed, prior, extra, d.beginnerCourt ? roster.filter((p) => p.newbie).map((p) => p.id) : []).map((r) => ({
           number: r.number,
           byes: byNumber(r.byes),
-          matches: r.matches.map((m, i) => ({
-            court: i + 1,
+          matches: r.matches.map((m) => ({
+            court: m.court,
             a: [num(m.a[0]), num(m.a[1])] as [number, number],
             b: [num(m.b[0]), num(m.b[1])] as [number, number],
             scoreA: null,

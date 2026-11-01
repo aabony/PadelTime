@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { compareGameLengths, rosterWarnings, sweetSpot } from "../../shared/timing";
+import { NEWBIE_CAP_PER_COURT, compareGameLengths, estimateRounds, poolPlan, rosterWarnings, sweetSpot } from "../../shared/timing";
 import type { GameLengthOption } from "../../shared/timing";
 import { cls } from "./ui";
 
@@ -21,6 +21,9 @@ export function NightSummary({
   teams = false,
   idle = 0,
   folded = false,
+  beginnerCourt = false,
+  newbies,
+  courtName,
 }: {
   players: number;
   courts: number;
@@ -36,6 +39,12 @@ export function NightSummary({
   idle?: number;
   /** Start with just the chosen length's line; the comparison opens on a tap. */
   folded?: boolean;
+  /** The beginner court is on: court 1 goes to the newbies, the rest to the ladder. */
+  beginnerCourt?: boolean;
+  /** How many of the players are tagged newbies (unknown before the roster exists). */
+  newbies?: number;
+  /** The first court's name, for the beginner-court lines. */
+  courtName?: string;
 }) {
   const [open, setOpen] = useState(!folded);
   const total = players + idle;
@@ -128,6 +137,9 @@ export function NightSummary({
         <p className="mt-1 px-1 text-xs text-muted">Set the court time to compare game lengths.</p>
       )}
 
+      {beginnerCourt && courts >= 2 && (
+        <BeginnerCourtLines players={players} newbies={newbies} courts={courts} rounds={estimateRounds(durationMin, points)} courtName={courtName} />
+      )}
       {idle > 0 && (
         <p className="mt-2 px-1 text-xs font-semibold text-amber-dark">
           ⚠️ {idle} without a partner here can't play until paired — the table is for the {players} who can.
@@ -147,6 +159,68 @@ export function NightSummary({
       {(total < spot.min || total > spot.max) && (
         <p className="mt-1 px-1 text-xs text-muted">
           Sweet spot for {courts} court{courts === 1 ? "" : "s"}: {spot.min}–{spot.max} players.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The beginner court's share of the night: how many games a newbie and a ladder
+ * player each get, and how many newbies to admit so the newbies still play two
+ * rounds in three (the number to hold on the sign-up page).
+ */
+function BeginnerCourtLines({
+  players,
+  newbies,
+  courts,
+  rounds,
+  courtName,
+}: {
+  players: number;
+  newbies?: number;
+  courts: number;
+  rounds: number | null;
+  courtName?: string;
+}) {
+  const cap = NEWBIE_CAP_PER_COURT;
+  const court = courtName ?? "1";
+  if (newbies == null) {
+    return (
+      <p className="mt-2 px-1 text-xs text-muted">
+        🌱 Court {court} is the beginner court. Admit at most <b className="text-navy">{cap}</b> newbies so they still play two rounds in three — tag
+        them in the roster.
+      </p>
+    );
+  }
+  const ladder = Math.max(0, players - newbies);
+  const plan = rounds ? poolPlan(newbies, ladder, courts, rounds) : null;
+  const games = (lo: number, hi: number) => (lo === hi ? `${lo}` : `${lo}–${hi}`);
+  return (
+    <div className="mt-2 space-y-1 px-1 text-xs text-muted">
+      <p>
+        🌱 Court {court}: <b className="text-navy">{newbies}</b> newbie{newbies === 1 ? "" : "s"}
+        {newbies < 4 && newbies > 0 && " (topped up from the bottom of the ladder)"}
+        {plan && newbies >= 4 && (
+          <>
+            {" "}
+            → <b className="text-navy">{games(plan.beginner.playMin, plan.beginner.playMax)}</b> games each, {Math.max(0, newbies - 4)} sit per round
+          </>
+        )}
+        {newbies === 0 && " — no newbies tagged, so it's a normal court tonight"}
+      </p>
+      <p>
+        Ladder: <b className="text-navy">{ladder}</b> on {courts - 1} court{courts - 1 === 1 ? "" : "s"}
+        {plan && ladder >= 4 && (
+          <>
+            {" "}
+            → <b className="text-navy">{games(plan.ladder.playMin, plan.ladder.playMax)}</b> games each, {Math.max(0, ladder - (courts - 1) * 4)} sit per round
+          </>
+        )}
+      </p>
+      {newbies > cap && (
+        <p className="font-semibold text-amber-dark">
+          ⚠️ More than {cap} newbies on one court: they'll watch more than they play. Hold sign-ups at {cap}, or move the strongest up.
         </p>
       )}
     </div>

@@ -4,7 +4,7 @@ import { Hono } from "hono";
 import { gameSessions, matches, rounds, sessionPlayers } from "../db/schema";
 import type { DB, SessionRow } from "../lib/detail";
 import { buildDetail, isGroupMember, isGroupOrganizer, loadRounds, loadSession } from "../lib/detail";
-import { dropUnplayedUpNext, generateNextRound, keepUpNext } from "../lib/engine";
+import { beginnerCourtActive, dropUnplayedUpNext, generateNextRound, keepUpNext } from "../lib/engine";
 import { getFormat } from "../../shared/formats/registry";
 import { parseGender } from "../../shared/genders";
 import { parseLevel } from "../../shared/levels";
@@ -93,6 +93,9 @@ sessionRoutes.patch("/sessions/:id", async (c) => {
   }
   if (typeof body.mixedPairs === "boolean") patch.mixedPairs = body.mixedPairs;
   if (typeof body.groupByLevel === "boolean") patch.groupByLevel = body.groupByLevel;
+  // The beginner court and competitive sit-outs apply from the next round dealt.
+  if (typeof body.beginnerCourt === "boolean") patch.beginnerCourt = body.beginnerCourt;
+  if (typeof body.competitiveSitouts === "boolean") patch.competitiveSitouts = body.competitiveSitouts;
 
   // Max players can change any time (extra people turn up mid-session). The
   // points per game lock once a score is in, since every score on the board
@@ -248,6 +251,7 @@ sessionRoutes.post("/sessions/:id/players", async (c) => {
     status: playing ? "checked_in" : "confirmed",
     joinedAt: now(),
     checkedInAt: playing ? now() : null,
+    newbie: body.newbie === true,
   });
   return c.json({ ok: true });
 });
@@ -364,6 +368,10 @@ sessionRoutes.patch("/sessions/:id/players/:pid", async (c) => {
     case "set_level":
       // The organizer can set or override anyone's level (players set their own via /level).
       await db.update(sessionPlayers).set({ level: parseLevel(body.level) }).where(eq(sessionPlayers.id, player.id));
+      break;
+    case "set_newbie":
+      // Move down (tag) / move up (untag): takes effect from the next round dealt.
+      await db.update(sessionPlayers).set({ newbie: body.newbie === true }).where(eq(sessionPlayers.id, player.id));
       break;
     case "merge": {
       // "Brandon Pourmorady" (account) is the same person as guest "Brandon P":
@@ -572,6 +580,13 @@ sessionRoutes.post("/sessions/:id/rounds/:roundId/swap", async (c) => {
   const ins = session.fixedTeams ? [inn, teammate(inn)] : [inn];
   if (ins.some((id) => !id || !playing(id))) {
     return c.json({ error: session.fixedTeams ? "That team isn't both here tonight" : "That player isn't playing tonight" }, 400);
+  }
+  // Beginner court: the pools don't mix — move the player across (the Newbie tag) instead.
+  if (await beginnerCourtActive(db, session)) {
+    const isNewbie = (id: string) => !!roster.find((p) => p.id === id)?.newbie;
+    if (isNewbie(out) !== isNewbie(inn)) {
+      return c.json({ error: "Newbies and ladder players don't swap courts — change the player's Newbie tag to move them across" }, 400);
+    }
   }
 
   const slots = latest.matches.map((m) => ({

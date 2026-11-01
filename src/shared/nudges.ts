@@ -1,15 +1,11 @@
 import { poolOfCourt } from "./formats/pools";
-import type { RoundRow } from "./types";
+import type { Nudge, RoundRow } from "./types";
 
 // Move up / move down are the organizer's taps. These are the hints next to
 // them: a newbie on a winning streak on the beginner court, a ladder player who
 // hasn't won anything. Nothing here moves anyone.
 
-export interface Nudge {
-  playerId: string;
-  kind: "up" | "down";
-  reason: string;
-}
+export type { Nudge };
 
 /** Straight wins on the beginner court that suggest a move up. */
 export const UP_STREAK = 3;

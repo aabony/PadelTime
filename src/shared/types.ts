@@ -76,6 +76,8 @@ export interface PlayerRow {
   level: number | null;
   /** Fixed partner's session_player id when the session keeps teams together. */
   partnerId: string | null;
+  /** Organizer-tagged newbie: plays the beginner court. Only ever sent to the organizer. */
+  newbie: boolean;
 }
 
 export interface MatchRow {
@@ -139,14 +141,25 @@ export interface SessionDetail {
   groupByLevel: boolean;
   /** Keep teams together: partners play the whole night as a pair. */
   fixedTeams: boolean;
+  /** Beginner court: court 1 is reserved for organizer-tagged newbies. */
+  beginnerCourt: boolean;
+  /** Competitive sit-outs: after the floor, the bottom of each pool sits. */
+  competitiveSitouts: boolean;
+  /** The beginner court is running tonight (toggle on, newbies checked in, enough players). */
+  poolsActive: boolean;
   inviteCode: string;
   myRole: "organizer" | "player" | "none";
   myPlayerId: string | null;
   players: PlayerRow[];
   rounds: RoundRow[];
+  /** The ladder's table (everyone, or everyone but the newbies when the beginner court is on). */
   standings: StandingRow[];
   /** One row per team when the session keeps teams together. */
   teamStandings?: StandingRow[];
+  /** The beginner court's own table (newbies, from their court-1 games) when the beginner court is on. */
+  beginnerStandings?: StandingRow[];
+  /** Move up / move down hints for the organizer. */
+  nudges?: Nudge[];
   warnings: string[]; // populated for organizers only
   counts: { confirmed: number; waitlist: number; checkedIn: number };
   createdAt: number;
@@ -194,6 +207,14 @@ export interface ResultsData {
   standings: StandingRow[];
   /** One row per team when the session keeps teams together. */
   teamStandings?: StandingRow[];
+  /** The beginner court's table when the session had one. */
+  beginnerStandings?: StandingRow[];
+}
+
+export interface Nudge {
+  playerId: string;
+  kind: "up" | "down";
+  reason: string;
 }
 
 export interface ApiError {

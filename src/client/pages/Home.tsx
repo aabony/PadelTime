@@ -9,6 +9,7 @@ import { NightSummary } from "../components/NightSummary";
 import { CourtNumbersField } from "../components/CourtNumbersField";
 import { parseCourtLabels } from "../../shared/courts";
 import { GroupByLevelToggle } from "../components/GroupByLevelToggle";
+import { BeginnerCourtToggle, CompetitiveToggle } from "../components/BeginnerCourtToggle";
 import { TeamsToggle } from "../components/TeamsToggle";
 import { Badge, Button, Card, EmptyState, ErrorNote, Field, Input, Modal, PageSpinner, ProgressBar, StepperField, cls } from "../components/ui";
 
@@ -181,6 +182,8 @@ export function NewSessionModal({
     mixedPairs: false,
     groupByLevel: false,
     fixedTeams: false,
+    beginnerCourt: false,
+    competitiveSitouts: false,
   });
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -200,6 +203,8 @@ export function NewSessionModal({
         mixedPairs: form.mixedPairs,
         groupByLevel: form.groupByLevel,
         fixedTeams: form.fixedTeams,
+        beginnerCourt: form.beginnerCourt && !form.fixedTeams,
+        competitiveSitouts: form.competitiveSitouts,
         copyPlayersFrom: form.copyPlayersFrom || null,
       });
       onClose();
@@ -242,6 +247,8 @@ export function NewSessionModal({
           points={form.pointsPerMatch}
           label="players (max)"
           teams={form.fixedTeams}
+          beginnerCourt={form.beginnerCourt && !form.fixedTeams}
+          courtName={parseCourtLabels(form.courtLabels)[0]}
           onPick={(pointsPerMatch) => setForm({ ...form, pointsPerMatch })}
         />
         <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-line px-3.5 py-3">
@@ -252,6 +259,14 @@ export function NewSessionModal({
           </span>
         </label>
         <GroupByLevelToggle checked={form.groupByLevel} onChange={(groupByLevel) => setForm({ ...form, groupByLevel })} />
+        {form.courts >= 2 && !form.fixedTeams && (
+          <BeginnerCourtToggle
+            checked={form.beginnerCourt}
+            courtName={parseCourtLabels(form.courtLabels)[0]}
+            onChange={(beginnerCourt) => setForm({ ...form, beginnerCourt })}
+          />
+        )}
+        <CompetitiveToggle checked={form.competitiveSitouts} onChange={(competitiveSitouts) => setForm({ ...form, competitiveSitouts })} />
         <TeamsToggle checked={form.fixedTeams} onChange={(fixedTeams) => setForm({ ...form, fixedTeams })} />
         {previous.length > 0 && (
           <Field label="Bring back the players from" hint="Everyone from that session is added to this one — no re-inviting.">

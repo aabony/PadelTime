@@ -27,6 +27,12 @@ function FinalResults({ code }: { code: string }) {
         </p>
       )}
       <StandingsTable standings={table} compact />
+      {data.beginnerStandings && data.beginnerStandings.some((r) => r.played > 0) && (
+        <>
+          <h4 className="mt-4 mb-1 text-sm font-black text-navy">🌱 Beginner court</h4>
+          <StandingsTable standings={data.beginnerStandings.filter((r) => r.played > 0)} compact />
+        </>
+      )}
     </Card>
   );
 }

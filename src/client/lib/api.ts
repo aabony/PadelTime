@@ -57,6 +57,8 @@ export const Api = {
       mixedPairs?: boolean;
       groupByLevel?: boolean;
       fixedTeams?: boolean;
+      beginnerCourt?: boolean;
+      competitiveSitouts?: boolean;
     },
   ) => req<{ id: string }>(groupId ? `/groups/${groupId}/sessions` : "/sessions", post(body)),
   session: (id: string) => req<SessionDetail>(`/sessions/${id}`),
@@ -64,7 +66,7 @@ export const Api = {
   deleteSession: (id: string) => req(`/sessions/${id}`, { method: "DELETE" }),
   sessionAction: (id: string, action: string) => req(`/sessions/${id}/status`, post({ action })),
 
-  addGuest: (id: string, guestName: string) => req(`/sessions/${id}/players`, post({ guestName })),
+  addGuest: (id: string, guestName: string, newbie = false) => req(`/sessions/${id}/players`, post({ guestName, newbie })),
   playerAction: (id: string, playerId: string, action: string, extra: Record<string, unknown> = {}) =>
     req(`/sessions/${id}/players/${playerId}`, patch({ action, ...extra })),
   selfCheckin: (id: string) => req(`/sessions/${id}/checkin`, post({})),

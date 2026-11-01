@@ -32,6 +32,8 @@ import { GenderBadge, GenderSelect, GenderToggle } from "../components/GenderSel
 import { LevelSelect, LevelToggle } from "../components/LevelSelect";
 import { GroupByLevelToggle } from "../components/GroupByLevelToggle";
 import { TeamsToggle } from "../components/TeamsToggle";
+import { BeginnerCourtToggle, CompetitiveToggle, NewbieToggle } from "../components/BeginnerCourtToggle";
+import { BEGINNER_COURT } from "../../shared/formats/pools";
 import { PartnerSelect } from "../components/PartnerSelect";
 import { CourtNumbersField } from "../components/CourtNumbersField";
 import { courtLabel, parseCourtLabels } from "../../shared/courts";
@@ -136,7 +138,7 @@ function useShare(d: SessionDetail) {
   const results = d.status === "complete";
   const share = async () => {
     const payload = results
-      ? { title: `${d.name} — results`, text: resultsText({ name: d.name, standings: d.teamStandings ?? d.standings }, `${window.location.origin}/join/${d.inviteCode}`) }
+      ? { title: `${d.name} — results`, text: resultsText({ name: d.name, standings: d.teamStandings ?? d.standings, beginnerStandings: d.beginnerStandings }, `${window.location.origin}/join/${d.inviteCode}`) }
       : { title: d.name, text: `Join "${d.name}" on PadelTime`, url: `${window.location.origin}/join/${d.inviteCode}` };
     if (typeof navigator.share === "function") {
       try {
@@ -224,6 +226,8 @@ function Hero({ d, isOrganizer, onSettings }: { d: SessionDetail; isOrganizer: b
           {d.mixedPairs && <Badge tone="zinc">👩👨 Mixed pairs</Badge>}
           {d.groupByLevel && <Badge tone="zinc">🎚️ Grouped by level</Badge>}
           {d.fixedTeams && <Badge tone="zinc">🤝 Fixed teams</Badge>}
+          {d.beginnerCourt && !d.fixedTeams && <Badge tone="zinc">🌱 Beginner court {courtLabel(d.courtLabels, BEGINNER_COURT)}</Badge>}
+          {d.competitiveSitouts && <Badge tone="zinc">🏁 Competitive sit-outs</Badge>}
         </div>
         <h1 className="mt-2 text-2xl font-black leading-tight tracking-tight text-navy">{d.name}</h1>
         {d.startsAt != null && <p className="mt-1 text-sm text-muted">{fmtTimeRange(d.startsAt, d.durationMin)}</p>}
@@ -390,6 +394,8 @@ function SettingsModal({
     mixedPairs: d.mixedPairs,
     groupByLevel: d.groupByLevel,
     fixedTeams: d.fixedTeams,
+    beginnerCourt: d.beginnerCourt,
+    competitiveSitouts: d.competitiveSitouts,
   });
   // Every score on the board adds up to the points per game, so they can't change once one is in.
   const pointsLocked = d.rounds.some((r) => r.matches.some((m) => m.scoreA != null));
@@ -444,6 +450,19 @@ function SettingsModal({
           </span>
         </label>
         <GroupByLevelToggle checked={form.groupByLevel} onChange={(groupByLevel) => setForm({ ...form, groupByLevel })} />
+        {form.courts >= 2 && !form.fixedTeams && (
+          <BeginnerCourtToggle
+            checked={form.beginnerCourt}
+            courtName={parseCourtLabels(form.courtLabels)[0]}
+            note={live ? "Applies from the next round." : undefined}
+            onChange={(beginnerCourt) => setForm({ ...form, beginnerCourt })}
+          />
+        )}
+        <CompetitiveToggle
+          checked={form.competitiveSitouts}
+          note={live ? "Applies from the next round." : undefined}
+          onChange={(competitiveSitouts) => setForm({ ...form, competitiveSitouts })}
+        />
         <TeamsToggle
           checked={form.fixedTeams}
           note={live ? "Applies from the next round." : undefined}
@@ -468,6 +487,8 @@ function SettingsModal({
                 mixedPairs: form.mixedPairs,
                 groupByLevel: form.groupByLevel,
                 fixedTeams: form.fixedTeams,
+                beginnerCourt: form.beginnerCourt && !form.fixedTeams,
+                competitiveSitouts: form.competitiveSitouts,
               });
               onClose();
             })
@@ -660,6 +681,8 @@ function playerStatusBadge(p: PlayerRow) {
 
 function PlayersCard({ d, isOrganizer, run, busyKey }: ViewProps) {
   const [guestName, setGuestName] = useState("");
+  const [guestNewbie, setGuestNewbie] = useState(false);
+  const pools = d.beginnerCourt && !d.fixedTeams && d.courts >= 2;
   const visible = d.players.filter((p) => p.status !== "dropped");
   const dropped = d.players.filter((p) => p.status === "dropped");
   const inCount = d.counts.confirmed + d.counts.checkedIn;
@@ -713,6 +736,13 @@ function PlayersCard({ d, isOrganizer, run, busyKey }: ViewProps) {
                     busy={busyKey === `lvl-${p.id}`}
                     onChange={(level) => run(`lvl-${p.id}`, () => Api.playerAction(d.id, p.id, "set_level", { level }))}
                   />
+                  {pools && (
+                    <NewbieToggle
+                      checked={p.newbie}
+                      busy={busyKey === `nb-${p.id}`}
+                      onChange={(newbie) => run(`nb-${p.id}`, () => Api.playerAction(d.id, p.id, "set_newbie", { newbie }))}
+                    />
+                  )}
                   {d.fixedTeams && (
                     <PartnerSelect
                       player={p}
@@ -776,18 +806,32 @@ function PlayersCard({ d, isOrganizer, run, busyKey }: ViewProps) {
             e.preventDefault();
             if (!guestName.trim()) return;
             run("guest", async () => {
-              await Api.addGuest(d.id, guestName.trim());
+              await Api.addGuest(d.id, guestName.trim(), pools && guestNewbie);
               setGuestName("");
             });
           }}
         >
           <Input value={guestName} onChange={(e) => setGuestName(e.target.value)} placeholder="Add player by name (no account needed)" />
+          {pools && <NewbieToggle checked={guestNewbie} onChange={setGuestNewbie} />}
           <Button variant="secondary" busy={busyKey === "guest"} type="submit">
             Add
           </Button>
         </form>
       )}
+      {isOrganizer && pools && visible.length > 0 && <NewbieHint d={d} players={visible} />}
     </Card>
+  );
+}
+
+/** Beginner court: how many are tagged, and the reminder that the tag is the organizer's call. */
+function NewbieHint({ d, players }: { d: SessionDetail; players: PlayerRow[] }) {
+  const n = players.filter((p) => p.newbie).length;
+  return (
+    <p className="mt-3 rounded-xl bg-canvas px-3 py-2 text-xs text-muted">
+      🌱 Newbies tagged: <b className={n === 0 ? "text-amber-dark" : "text-navy"}>{n}</b> of {players.length} · they play Court{" "}
+      {courtLabel(d.courtLabels, BEGINNER_COURT)} among themselves{n === 0 && " — tag them above, or the court runs as a normal court"}
+      {n > 0 && n < 4 && " — fewer than 4, so the bottom of the ladder fills the court"}. Players don't see the tag.
+    </p>
   );
 }
 
@@ -846,6 +890,9 @@ function StartPreview({ d, run, busyKey }: { d: SessionDetail; run?: Run; busyKe
         courts={d.courts}
         durationMin={d.durationMin}
         points={d.pointsPerMatch}
+        beginnerCourt={d.beginnerCourt && !d.fixedTeams}
+        newbies={d.myRole === "organizer" ? signedUp(d).filter((p) => p.newbie).length : undefined}
+        courtName={d.courtLabels[0]}
         onPick={canApply ? (pointsPerMatch) => run("rec", () => Api.updateSession(d.id, { pointsPerMatch })) : undefined}
         applying={busyKey === "rec"}
         folded
@@ -1122,6 +1169,7 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
                 isOrganizer={isOrganizer}
                 run={run}
                 busyKey={busyKey}
+                beginner={isBeginnerCourt(d, m)}
               />
             ))}
           </div>
@@ -1169,16 +1217,11 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
                   isOrganizer={isOrganizer}
                   run={run}
                   busyKey={busyKey}
+                  beginner={isBeginnerCourt(d, m)}
                 />
               ))}
             </div>
-            {upNext.byes.length > 0 && (
-              <p className="border-t border-line pt-3 text-sm text-muted">
-                <span className="text-xs font-black uppercase tracking-wider text-muted">Sitting round {upNext.number} · {upNext.byes.length}</span>
-                <br />
-                <span className="text-ink">{upNext.byes.map(nameOf).join(", ")}</span>
-              </p>
-            )}
+            {upNext.byes.length > 0 && <SittingList d={d} round={upNext} nameOf={nameOf} isOrganizer={isOrganizer} />}
           </div>
         </Card>
         </div>
@@ -1239,6 +1282,8 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
         </Card>
       )}
 
+      {isOrganizer && d.nudges && d.nudges.length > 0 && <NudgesCard d={d} nameOf={nameOf} run={run} busyKey={busyKey} />}
+
       {d.teamStandings && d.teamStandings.length > 0 && (
         <Card>
           <SectionHeader title="Team standings" />
@@ -1255,9 +1300,73 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
   );
 }
 
+/** Court 1 is the beginner court while the beginner court is running (the pill is the organizer's). */
+function isBeginnerCourt(d: SessionDetail, m: MatchRow): boolean {
+  return d.poolsActive && m.court === BEGINNER_COURT;
+}
+
+/** Who sits a round out — by pool when the beginner court is on, so each pool's rotation reads on its own. */
+function SittingList({ d, round, nameOf, isOrganizer }: { d: SessionDetail; round: RoundRow; nameOf: (id: string) => string; isOrganizer: boolean }) {
+  const newbie = new Set(d.players.filter((p) => p.newbie).map((p) => p.id));
+  const groups =
+    isOrganizer && d.poolsActive
+      ? [
+          { label: "Sitting · beginner court", ids: round.byes.filter((id) => newbie.has(id)) },
+          { label: "Sitting · ladder", ids: round.byes.filter((id) => !newbie.has(id)) },
+        ].filter((g) => g.ids.length > 0)
+      : [{ label: `Sitting round ${round.number}`, ids: round.byes }];
+  return (
+    <div className="space-y-2 border-t border-line pt-3 text-sm text-muted">
+      {groups.map((g) => (
+        <p key={g.label}>
+          <span className="text-xs font-black uppercase tracking-wider text-muted">
+            {g.label} · {g.ids.length}
+          </span>
+          <br />
+          <span className="text-ink">{g.ids.map(nameOf).join(", ")}</span>
+        </p>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Move up / move down hints: a newbie on a winning streak on the beginner court,
+ * a ladder player without a win. The tap is the organizer's; the app only points.
+ */
+function NudgesCard({ d, nameOf, run, busyKey }: { d: SessionDetail; nameOf: (id: string) => string; run: Run; busyKey: string | null }) {
+  return (
+    <Card className="border-mint-dark/30 bg-mint-soft/40" data-testid="nudges">
+      <SectionHeader title="Worth a look" />
+      <ul className="divide-y divide-line/60">
+        {d.nudges!.map((n) => (
+          <li key={n.playerId} className="flex items-center justify-between gap-3 py-2">
+            <span className="min-w-0">
+              <span className="block truncate font-bold text-navy">
+                {n.kind === "up" ? "▲" : "▼"} {nameOf(n.playerId)}
+              </span>
+              <span className="block text-xs text-muted">{n.reason}</span>
+            </span>
+            <Button
+              size="sm"
+              variant="secondary"
+              busy={busyKey === `nb-${n.playerId}`}
+              onClick={() => run(`nb-${n.playerId}`, () => Api.playerAction(d.id, n.playerId, "set_newbie", { newbie: n.kind === "down" }))}
+            >
+              {n.kind === "up" ? "Move up to the ladder" : "Move down to the beginner court"}
+            </Button>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-2 text-xs text-muted">Moves take effect from the next round dealt.</p>
+    </Card>
+  );
+}
+
 // One list for the live session: the leaderboard IS the roster.
 function LiveRosterCard({ d, isOrganizer, run, busyKey }: ViewProps) {
   const [guestName, setGuestName] = useState("");
+  const [guestNewbie, setGuestNewbie] = useState(false);
   const byId = new Map(d.players.map((p) => [p.id, p]));
   // Optimistic removal: the row fades the moment ✕ is tapped and stays that way
   // until the server confirms it (or comes back if the request fails).
@@ -1285,10 +1394,17 @@ function LiveRosterCard({ d, isOrganizer, run, busyKey }: ViewProps) {
       }
     });
   };
-  const playing = d.standings.filter((s) => {
+  const here = (s: { playerId: string }) => {
     const p = byId.get(s.playerId);
-    return p && (p.status === "checked_in" || p.status === "confirmed");
-  });
+    return !!p && (p.status === "checked_in" || p.status === "confirmed");
+  };
+  const playing = d.standings.filter(here);
+  const pools = d.beginnerCourt && !d.fixedTeams && d.courts >= 2;
+  // Beginner court on: the newbies' own table sits under the ladder's.
+  const sections = [
+    { key: "ladder", title: d.beginnerStandings ? "Ladder" : null, rows: playing },
+    ...(d.beginnerStandings ? [{ key: "beginner", title: `🌱 Beginner court · Court ${courtLabel(d.courtLabels, BEGINNER_COURT)}`, rows: d.beginnerStandings.filter(here) }] : []),
+  ];
   const benched = d.players.filter((p) => p.status === "waitlist" || p.status === "dropped");
   const inCount = d.counts.confirmed + d.counts.checkedIn;
   const { courts: courtsUsed, sitting } = roundCapacity(d, checkedIn(d));
@@ -1311,7 +1427,9 @@ function LiveRosterCard({ d, isOrganizer, run, busyKey }: ViewProps) {
       {isOrganizer && d.groupByLevel && <LevelHint players={d.players.filter((p) => p.status !== "dropped" && p.status !== "waitlist")} />}
       {isOrganizer && d.fixedTeams && <PairingHint d={d} />}
 
-      <div className="overflow-x-auto">
+      {sections.map((section) => (
+      <div key={section.key} className="overflow-x-auto">
+        {section.title && <p className="mt-3 mb-1 text-xs font-black uppercase tracking-wider text-muted">{section.title}</p>}
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-xs uppercase tracking-wider text-muted">
@@ -1326,7 +1444,7 @@ function LiveRosterCard({ d, isOrganizer, run, busyKey }: ViewProps) {
             </tr>
           </thead>
           <tbody>
-            {playing.map((row, i) => {
+            {section.rows.map((row, i) => {
               const p = byId.get(row.playerId)!;
               const me = p.id === d.myPlayerId;
               return (
@@ -1367,6 +1485,13 @@ function LiveRosterCard({ d, isOrganizer, run, busyKey }: ViewProps) {
                               busy={busyKey === `lvl-${p.id}`}
                               onChange={(level) => run(`lvl-${p.id}`, () => Api.playerAction(d.id, p.id, "set_level", { level }))}
                             />
+                            {pools && (
+                              <NewbieToggle
+                                checked={p.newbie}
+                                busy={busyKey === `nb-${p.id}`}
+                                onChange={(newbie) => run(`nb-${p.id}`, () => Api.playerAction(d.id, p.id, "set_newbie", { newbie }))}
+                              />
+                            )}
                             {d.fixedTeams && (
                               <PartnerSelect
                                 player={p}
@@ -1436,7 +1561,9 @@ function LiveRosterCard({ d, isOrganizer, run, busyKey }: ViewProps) {
             })}
           </tbody>
         </table>
+        {section.rows.length === 0 && <p className="py-2 text-xs text-muted">Nobody here yet.</p>}
       </div>
+      ))}
 
       {benched.length > 0 && (
         <div className="mt-3 border-t border-line pt-3">
@@ -1470,12 +1597,13 @@ function LiveRosterCard({ d, isOrganizer, run, busyKey }: ViewProps) {
             e.preventDefault();
             if (!guestName.trim()) return;
             run("guest", async () => {
-              await Api.addGuest(d.id, guestName.trim());
+              await Api.addGuest(d.id, guestName.trim(), pools && guestNewbie);
               setGuestName("");
             });
           }}
         >
           <Input value={guestName} onChange={(e) => setGuestName(e.target.value)} placeholder="Add a late arrival by name" />
+          {pools && <NewbieToggle checked={guestNewbie} onChange={setGuestNewbie} />}
           <Button variant="secondary" busy={busyKey === "guest"} type="submit">
             Add
           </Button>
@@ -1552,6 +1680,7 @@ function CourtCard({
   round,
   waitingFor,
   onDeck,
+  beginner = false,
   nameOf,
   isOrganizer,
   run,
@@ -1565,6 +1694,8 @@ function CourtCard({
   waitingFor?: string;
   /** Up next: where each player still finishing a game is, and whether the court can start. */
   onDeck?: OnDeckState;
+  /** The beginner court (the organizer's pill; players just see the court). */
+  beginner?: boolean;
   nameOf: (id: string) => string;
   isOrganizer: boolean;
   run: Run;
@@ -1586,9 +1717,14 @@ function CourtCard({
         onClick={isOrganizer ? () => setEditing(true) : undefined}
       >
         <div className="mb-3 flex items-center justify-between gap-2">
-          <span className="flex items-center gap-2 text-2xl font-black uppercase tracking-tight text-royal">
+          <span className="flex flex-wrap items-center gap-2 text-2xl font-black uppercase tracking-tight text-royal">
             <span aria-hidden>🏟️</span>
             <span>{court}</span>
+            {beginner && isOrganizer && (
+              <span className="rounded-full bg-mint-soft px-2 py-0.5 text-[11px] font-black tracking-wide text-mint-dark" data-testid="beginner-court">
+                🌱 Beginner court
+              </span>
+            )}
           </span>
           {onDeck && !scored ? (
             <span className={cls("rounded-full px-2.5 py-0.5 text-[11px] font-black uppercase tracking-wide", ON_DECK_PILL[onDeck.status])}>
@@ -1727,8 +1863,11 @@ function SwapModal({
   const teams = d.fixedTeams;
   const label = (court: number) => `Court ${courtLabel(d.courtLabels, court)}`;
   const inRound = new Set([...round.byes, ...round.matches.flatMap((x) => [...x.a, ...x.b])]);
-  const late = d.players.filter((p) => p.status === "checked_in" && !inRound.has(p.id)).map((p) => p.id);
-  const otherGames = round.matches.filter((x) => x.id !== m.id && x.scoreA == null && x.status === "pending");
+  // Beginner court: the pools don't mix, so only the same pool can come on (the Newbie tag moves people across).
+  const newbie = (id: string) => !!d.players.find((p) => p.id === id)?.newbie;
+  const samePool = (id: string) => !d.poolsActive || newbie(id) === newbie(m.a[0]);
+  const late = d.players.filter((p) => p.status === "checked_in" && !inRound.has(p.id) && samePool(p.id)).map((p) => p.id);
+  const otherGames = round.matches.filter((x) => x.id !== m.id && x.scoreA == null && x.status === "pending" && samePool(x.a[0]));
   // Players or teams off court, paired by their partner on the roster.
   const offCourtTeams = (ids: string[], note: string): SwapUnit[] => {
     const seen = new Set<string>();
@@ -1752,7 +1891,7 @@ function SwapModal({
         ...offCourtTeams(late, "just arrived"),
       ]
     : [
-        ...round.byes.map((id) => ({ ids: [id], note: "sitting out", team: null })),
+        ...round.byes.filter(samePool).map((id) => ({ ids: [id], note: "sitting out", team: null })),
         ...otherGames.flatMap((x) => [...x.a, ...x.b].map((id) => ({ ids: [id], note: label(x.court), team: x.a.includes(id) ? 0 : 1 }))),
         ...late.map((id) => ({ ids: [id], note: "just arrived", team: null })),
       ];
@@ -2067,9 +2206,15 @@ function CompleteView({ d, isOrganizer, run, busyKey }: ViewProps) {
         </Card>
       )}
       <Card>
-        <SectionHeader title="Standings" />
+        <SectionHeader title={d.beginnerStandings ? "Ladder" : "Standings"} />
         <StandingsTable standings={table.filter((s) => s.played > 0)} highlightId={d.myPlayerId} />
       </Card>
+      {d.beginnerStandings && d.beginnerStandings.some((s) => s.played > 0) && (
+        <Card>
+          <SectionHeader title={`🌱 Beginner court · Court ${courtLabel(d.courtLabels, BEGINNER_COURT)}`} />
+          <StandingsTable standings={d.beginnerStandings.filter((s) => s.played > 0)} highlightId={d.myPlayerId} />
+        </Card>
+      )}
       <RoundHistory rounds={d.rounds} nameOf={nameOf} />
       {isOrganizer && (
         <Button variant="outline" busy={busyKey === "reopen"} onClick={() => run("reopen", () => Api.sessionAction(d.id, "reopen"))}>

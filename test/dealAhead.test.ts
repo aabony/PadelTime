@@ -58,4 +58,24 @@ describe("dealing ahead (a court still finishing)", () => {
     expect(out.find((p) => p.a.includes("a"))!.court).toBe(1); // all free: the court that just finished
     expect(out.find((p) => p.a.includes("e"))!.court).toBe(2); // waits for e on court 2
   });
+
+  it("beginner court: court 1 is reserved — its game stays there and the ladder renumbers across the rest", () => {
+    const m = (court: number, a: [string, string], b: [string, string], status: MatchRow["status"]) =>
+      ({ id: `${court}`, roundId: "r", court, a, b, scoreA: null, scoreB: null, status, submittedBy: null }) as MatchRow;
+    // Court 1 (beginners) still playing; court 2 done; court 3 still playing.
+    const current = [m(1, ["n1", "n2"], ["n3", "n4"], "pending"), m(2, ["a", "b"], ["c", "d"], "confirmed"), m(3, ["e", "f"], ["g", "h"], "pending")];
+    const planned = [
+      { court: 1, a: ["n1", "n5"] as [string, string], b: ["n6", "n2"] as [string, string] },
+      { court: 2, a: ["e", "x"] as [string, string], b: ["y", "z"] as [string, string] },
+      { court: 3, a: ["a", "b"] as [string, string], b: ["c", "d"] as [string, string] },
+    ];
+    const out = courtsWhenDealtAhead(planned, current, 3, 1);
+    expect(out.find((p) => p.a.includes("n1"))!.court).toBe(1); // reserved: waits for court 1 itself
+    expect(out.find((p) => p.a.includes("a"))!.court).toBe(2); // all free: the ladder court that just finished
+    expect(out.find((p) => p.a.includes("e"))!.court).toBe(3); // waits for e on court 3
+    // Without the reservation, the free beginners' game would have been moved onto court 2.
+    const plain = courtsWhenDealtAhead(planned, current, 3);
+    expect(plain.find((p) => p.a.includes("a"))!.court).toBe(2);
+    expect(plain.find((p) => p.a.includes("n1"))!.court).toBe(1);
+  });
 });
