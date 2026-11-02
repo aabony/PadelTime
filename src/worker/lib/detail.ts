@@ -82,11 +82,11 @@ export async function loadPlayersFor(db: DB, sessionIds: string[]): Promise<Map<
   const out = new Map<string, PlayerRow[]>(sessionIds.map((id) => [id, []]));
   for (const ids of chunksOf(sessionIds)) {
     const rows = await db
-      .select({ sp: sessionPlayers, userName: user.name })
+      .select({ sp: sessionPlayers, userName: user.name, playtomicLevel: user.playtomicLevel, phone: user.phone })
       .from(sessionPlayers)
       .leftJoin(user, eq(sessionPlayers.userId, user.id))
       .where(inArray(sessionPlayers.sessionId, ids));
-    for (const { sp, userName } of rows) {
+    for (const { sp, userName, playtomicLevel, phone } of rows) {
       out.get(sp.sessionId)?.push({
         id: sp.id,
         name: userName ?? sp.guestName ?? "Player",
@@ -100,6 +100,8 @@ export async function loadPlayersFor(db: DB, sessionIds: string[]): Promise<Map<
         level: normalizeLevel(sp.level),
         partnerId: sp.partnerId ?? null,
         newbie: !!sp.newbie,
+        playtomicLevel: playtomicLevel ?? null,
+        phone: phone ?? null,
       });
     }
   }
@@ -259,6 +261,7 @@ export async function buildDetail(
   groupName: string,
   viewerUserId: string | null,
   groupIsPersonal = false,
+  viewerIsAdmin = false,
 ): Promise<SessionDetail> {
   const players = await loadPlayers(db, session.id);
   const roundRows = await loadRounds(db, session.id);
@@ -275,7 +278,7 @@ export async function buildDetail(
       myRole = "player";
       myPlayerId = mine.id;
     }
-    if (session.createdBy === viewerUserId || (await isGroupOrganizer(db, session.groupId, viewerUserId))) {
+    if (viewerIsAdmin || session.createdBy === viewerUserId || (await isGroupOrganizer(db, session.groupId, viewerUserId))) {
       myRole = "organizer";
     }
   }
@@ -319,8 +322,11 @@ export async function buildDetail(
     inviteCode: session.inviteCode,
     myRole,
     myPlayerId,
-    // Levels and the newbie tag are private: the organizer sees everyone's, a player only their own level.
-    players: myRole === "organizer" ? players : players.map((p) => ({ ...p, level: p.id === myPlayerId ? p.level : null, newbie: false })),
+    // Levels, the newbie tag, Playtomic ratings and phones are private: the organizer sees everyone's, a player only their own level.
+    players:
+      myRole === "organizer"
+        ? players
+        : players.map((p) => ({ ...p, level: p.id === myPlayerId ? p.level : null, newbie: false, playtomicLevel: null, phone: null })),
     rounds: roundRows,
     standings,
     teamStandings: session.fixedTeams ? computeTeamStandings(players, roundRows) : undefined,

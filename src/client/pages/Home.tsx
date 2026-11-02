@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { Api, useLoad } from "../lib/api";
 import { dateParts, firstName, fmtTimeRange, fromLocalInputValue } from "../lib/format";
 import { SESSION_STATUS_LABEL } from "../../shared/types";
@@ -90,7 +90,11 @@ export function Home() {
 
   if (loading) return <PageSpinner />;
   if (error || !data) return <ErrorNote message={error ?? "Couldn't load"} />;
+  // Registration isn't finished until the profile is: send them to it first.
+  if (!data.user.profileComplete) return <Navigate to="/profile?next=%2Fapp" replace />;
 
+  // Only admins run tournaments; players see the ones they've joined.
+  const admin = data.user.isAdmin;
   const upcoming = data.sessions.filter((s) => s.status !== "complete");
   const past = data.sessions.filter((s) => s.status === "complete");
 
@@ -100,17 +104,26 @@ export function Home() {
         <div>
           <h1 className="whitespace-nowrap text-2xl font-black tracking-tight text-navy">Hey {firstName(data.user.name)} 👋</h1>
         </div>
-        <Button className="shrink-0 whitespace-nowrap" aria-label="New session" onClick={() => setShowCreate(true)}>
-          + New session
-        </Button>
+        {admin && (
+          <Button className="shrink-0 whitespace-nowrap" aria-label="New session" onClick={() => setShowCreate(true)}>
+            + New session
+          </Button>
+        )}
       </div>
 
       <section>
         <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-muted">Up next</h2>
         {upcoming.length === 0 ? (
-          <EmptyState title="No sessions yet" hint="Set one up in 20 seconds — add names, share a link, or just start.">
-            <Button onClick={() => setShowCreate(true)}>Create your first session</Button>
-          </EmptyState>
+          admin ? (
+            <EmptyState title="No sessions yet" hint="Set one up in 20 seconds — add names, share a link, or just start.">
+              <Button onClick={() => setShowCreate(true)}>Create your first session</Button>
+            </EmptyState>
+          ) : (
+            <EmptyState
+              title="No tournaments yet"
+              hint="Your organizer sends a link for each tournament — open it and tap Join. It shows up here, and your level comes with you."
+            />
+          )
         ) : (
           <div className="space-y-3">
             {upcoming.map((s) => (
@@ -132,7 +145,7 @@ export function Home() {
       )}
 
       <NewSessionModal
-        open={showCreate}
+        open={showCreate && admin}
         onClose={() => {
           setShowCreate(false);
           if (params.get("new")) setParams({}, { replace: true });

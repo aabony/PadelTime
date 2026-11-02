@@ -6,6 +6,7 @@ import type {
   MeResponse,
   PlayerStatus,
   SessionDetail,
+  UserInfo,
 } from "../../shared/types";
 
 export class ApiError extends Error {
@@ -34,6 +35,8 @@ const patch = (body: unknown): RequestInit => ({ method: "PATCH", body: JSON.str
 
 export const Api = {
   me: () => req<MeResponse>("/me"),
+  saveProfile: (body: Record<string, unknown>) =>
+    req<{ user: UserInfo }>("/me/profile", { method: "PUT", body: JSON.stringify(body) }),
   createGroup: (name: string) => req<{ id: string }>("/groups", post({ name })),
   group: (id: string) => req<GroupDetail>(`/groups/${id}`),
   setMemberRole: (groupId: string, userId: string, role: string) =>

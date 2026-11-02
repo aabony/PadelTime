@@ -3,7 +3,8 @@ import { Hono } from "hono";
 import { parseCourtLabels } from "../../shared/courts";
 import { getFormat } from "../../shared/formats/registry";
 import { computeTeamStandings, minGamesToRank, pointsPerGame } from "../../shared/standings";
-import type { GroupRole, MeResponse, SessionStatus, SessionSummary } from "../../shared/types";
+import type { GroupRole, MeResponse, SessionStatus, SessionSummary, UserInfo } from "../../shared/types";
+import { displayName, isProfileComplete, validateProfile } from "../../shared/profile";
 import { BEGINNER_COURT } from "../../shared/formats/pools";
 import { gameSessions, groupMembers, groups, matches, playerResults, sessionPlayers, user } from "../db/schema";
 import type { DB } from "../lib/detail";
@@ -190,6 +191,51 @@ async function createSession(
   return { id };
 }
 
+function toUserInfo(u: AuthedUser): UserInfo {
+  return {
+    id: u.id,
+    name: u.name,
+    email: u.email,
+    isAdmin: u.isAdmin,
+    profileComplete: isProfileComplete(u),
+    firstName: u.firstName,
+    lastName: u.lastName,
+    phone: u.phone,
+    dob: u.dob,
+    gender: u.gender,
+    level: u.level,
+    playtomicLevel: u.playtomicLevel,
+  };
+}
+
+// The player profile: everything we ask once at registration. Validation is
+// shared with the form (src/shared/profile.ts). `name` is kept as "First Last"
+// so standings, rosters and guest-claiming keep working unchanged.
+groupRoutes.put("/me/profile", async (c) => {
+  const u = c.get("user");
+  if (!u) return c.json({ error: "Sign in required" }, 401);
+  const db = c.get("db");
+  const body = await c.req.json().catch(() => ({}));
+  const result = validateProfile(body);
+  if (!result.ok) return c.json({ error: result.error }, 400);
+  const p = result.profile;
+  await db
+    .update(user)
+    .set({
+      name: displayName(p),
+      firstName: p.firstName,
+      lastName: p.lastName,
+      phone: p.phone,
+      dob: p.dob,
+      gender: p.gender,
+      level: p.level,
+      playtomicLevel: p.playtomicLevel,
+      updatedAt: new Date(),
+    })
+    .where(eq(user.id, u.id));
+  return c.json({ user: toUserInfo({ ...u, ...p, name: displayName(p) }) });
+});
+
 groupRoutes.get("/me", async (c) => {
   const u = c.get("user");
   if (!u) return c.json({ error: "Sign in required" }, 401);
@@ -243,7 +289,7 @@ groupRoutes.get("/me", async (c) => {
   }
 
   const res: MeResponse = {
-    user: { id: u.id, name: u.name, email: u.email },
+    user: toUserInfo(u),
     groups: memberships.map((m) => ({
       id: m.groupId,
       name: m.name,
@@ -256,10 +302,13 @@ groupRoutes.get("/me", async (c) => {
   return c.json(res);
 });
 
+const ADMINS_ONLY = "Only admins can create tournaments";
+
 // Session-first: create without choosing a crew (lands in the personal one).
 groupRoutes.post("/sessions", async (c) => {
   const u = c.get("user");
   if (!u) return c.json({ error: "Sign in required" }, 401);
+  if (!u.isAdmin) return c.json({ error: ADMINS_ONLY }, 403);
   const db = c.get("db");
   const body = await c.req.json().catch(() => ({}));
   const groupId = await personalGroupFor(db, u);
@@ -309,6 +358,7 @@ groupRoutes.post("/sessions", async (c) => {
 groupRoutes.post("/groups", async (c) => {
   const u = c.get("user");
   if (!u) return c.json({ error: "Sign in required" }, 401);
+  if (!u.isAdmin) return c.json({ error: ADMINS_ONLY }, 403);
   const db = c.get("db");
   const body = await c.req.json().catch(() => ({}));
   const name = trimmed(body.name, 60);
@@ -379,6 +429,7 @@ groupRoutes.post("/groups/:id/sessions", async (c) => {
   if (!u) return c.json({ error: "Sign in required" }, 401);
   const db = c.get("db");
   const groupId = c.req.param("id");
+  if (!u.isAdmin) return c.json({ error: ADMINS_ONLY }, 403);
   if (!(await isGroupOrganizer(db, groupId, u.id))) {
     return c.json({ error: "Only crew organizers can create sessions" }, 403);
   }

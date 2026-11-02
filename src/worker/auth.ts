@@ -7,8 +7,11 @@ import type { Env } from "./env";
 import { sendOtpEmail } from "./lib/email";
 
 // Passwordless auth: a 6-digit one-time code emailed on every sign-in.
-// First-time emails auto-create an account; the client asks for a display
-// name right after. OTPs live in the existing `verification` table.
+// First-time emails auto-create an account; the client then collects the
+// player profile (name, phone, DOB, gender, level — src/shared/profile.ts) via
+// PUT /api/me/profile. OTPs live in the existing `verification` table.
+// Who is an admin (may run tournaments) comes from ADMIN_EMAILS, see
+// routes/index.ts.
 //
 // Instantiated per request: env bindings are request-scoped on Workers, and
 // baseURL follows the request origin so workers.dev and the custom domain
@@ -38,6 +41,9 @@ export function makeAuth(env: Env, origin: string) {
       }),
     ],
     session: {
+      // Phone-first, played weekly: regulars should rarely see the code screen.
+      expiresIn: 60 * 60 * 24 * 90, // 90 days
+      updateAge: 60 * 60 * 24, // extend once a day while active
       cookieCache: { enabled: true, maxAge: 300 },
     },
   });

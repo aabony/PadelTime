@@ -1,4 +1,5 @@
 // Shared API contract between the Worker and the web client.
+import type { StoredProfile } from "./profile";
 
 export type SessionStatus = "draft" | "open" | "checkin" | "active" | "complete" | "cancelled";
 export type PlayerStatus = "confirmed" | "waitlist" | "checked_in" | "dropped";
@@ -6,10 +7,14 @@ export type MatchStatus = "pending" | "submitted" | "disputed" | "confirmed";
 export type FormatKey = "americano" | "mexicano";
 export type GroupRole = "organizer" | "member";
 
-export interface UserInfo {
+export interface UserInfo extends StoredProfile {
   id: string;
   name: string;
   email: string;
+  /** May create and run tournaments. */
+  isAdmin: boolean;
+  /** Every required profile field is filled in (src/shared/profile.ts). */
+  profileComplete: boolean;
 }
 
 export interface GroupSummary {
@@ -78,6 +83,9 @@ export interface PlayerRow {
   partnerId: string | null;
   /** Organizer-tagged newbie: plays the beginner court. Only ever sent to the organizer. */
   newbie: boolean;
+  /** From the player's profile, organizer only (null for guests and for everyone else's view). */
+  playtomicLevel: number | null;
+  phone: string | null;
 }
 
 export interface MatchRow {
@@ -181,6 +189,8 @@ export interface JoinInfo {
   waitlistCount: number;
   roundsPlayed: number;
   myStatus: PlayerStatus | null;
+  /** Signed in but hasn't finished the profile yet (null when signed out). */
+  myProfileComplete: boolean | null;
   /** Gender on this session, or the one remembered from the last session played. */
   myGender: "woman" | "man" | null;
   /** Your level on this session (private to you and the organizer), or the one remembered from your last session. */

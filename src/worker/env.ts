@@ -8,4 +8,9 @@ export interface Env {
   MAIL_FROM?: string;
   /** "1" only in local dev (.dev.vars): enables GET /api/dev/otp for tests. */
   DEV_MODE?: string;
+  /**
+   * Who may run tournaments: comma-separated emails, or "*@domain" for a whole
+   * domain. Matched case-insensitively on sign-in; anyone else is a player.
+   */
+  ADMIN_EMAILS?: string;
 }

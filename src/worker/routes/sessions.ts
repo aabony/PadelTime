@@ -16,7 +16,8 @@ export const sessionRoutes = new Hono<ApiCtx>();
 
 async function canManage(db: DB, session: SessionRow, u: AuthedUser | null): Promise<boolean> {
   if (!u) return false;
-  return session.createdBy === u.id || (await isGroupOrganizer(db, session.groupId, u.id));
+  // Admins run every tournament; crew organizers (hidden today) keep theirs.
+  return u.isAdmin || session.createdBy === u.id || (await isGroupOrganizer(db, session.groupId, u.id));
 }
 
 /** Fill freed confirmed spots from the waitlist, oldest joiners first. */
@@ -52,7 +53,7 @@ sessionRoutes.get("/sessions/:id", async (c) => {
     !!asPlayer || (await isGroupMember(db, session.groupId, u.id)) || (await canManage(db, session, u));
   if (!allowed) return c.json({ error: "You don't have access to this session" }, 403);
 
-  return c.json(await buildDetail(db, session, groupName, u.id, groupIsPersonal));
+  return c.json(await buildDetail(db, session, groupName, u.id, groupIsPersonal, u.isAdmin));
 });
 
 sessionRoutes.patch("/sessions/:id", async (c) => {
