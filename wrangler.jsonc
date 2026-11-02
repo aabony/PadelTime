@@ -11,7 +11,7 @@
     "MAIL_FROM": "PadelTime <login@padeltime.andrewabony.com>",
     // Who can run tournaments. Everyone else who signs in is a player.
     // Comma-separated emails; "*@example.com" allows a whole domain.
-    "ADMIN_EMAILS": "andrew@adbloom.com"
+    "ADMIN_EMAILS": "andrew@adbloom.com, andrewabony@gmail.com"
   },
   "assets": {
     "directory": "./dist/client",
