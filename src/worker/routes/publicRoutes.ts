@@ -111,6 +111,8 @@ publicRoutes.get("/join/:code", async (c) => {
     mixedPairs: session.mixedPairs,
     groupByLevel: session.groupByLevel,
     fixedTeams: session.fixedTeams,
+    beginnerCourt: session.beginnerCourt,
+    competitiveSitouts: session.competitiveSitouts,
     myPartner: mine?.partnerId
       ? ((await loadPlayers(db, session.id)).find((p) => p.id === mine.partnerId)?.name ?? null)
       : null,

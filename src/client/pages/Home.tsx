@@ -10,6 +10,8 @@ import { CourtNumbersField } from "../components/CourtNumbersField";
 import { parseCourtLabels } from "../../shared/courts";
 import { GroupByLevelToggle } from "../components/GroupByLevelToggle";
 import { BeginnerCourtToggle, CompetitiveToggle } from "../components/BeginnerCourtToggle";
+import { FineTune, NightTypePicker } from "../components/NightTypePicker";
+import { flagsOf, nightTypeOf } from "../../shared/nightTypes";
 import { TeamsToggle } from "../components/TeamsToggle";
 import { Badge, Button, Card, EmptyState, ErrorNote, Field, Input, Modal, PageSpinner, ProgressBar, StepperField, cls } from "../components/ui";
 
@@ -221,12 +223,7 @@ export function NewSessionModal({
         <Field label="Name">
           <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Thursday Padel Jam" autoFocus />
         </Field>
-        <StylePicker
-          value={form.format}
-          onChange={(format) => setForm({ ...form, format })}
-          teams={form.fixedTeams}
-          hint="You can switch styles later — even mid-session."
-        />
+        <NightTypePicker flags={form} courts={form.courts} onChange={(key) => setForm({ ...form, ...flagsOf(key) })} hint="You can change this later — even mid-session." />
         <Field label="When">
           <Input type="datetime-local" value={form.when} onChange={(e) => setForm({ ...form, when: e.target.value })} />
         </Field>
@@ -251,23 +248,26 @@ export function NewSessionModal({
           courtName={parseCourtLabels(form.courtLabels)[0]}
           onPick={(pointsPerMatch) => setForm({ ...form, pointsPerMatch })}
         />
-        <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-line px-3.5 py-3">
-          <input type="checkbox" className="mt-0.5 size-5 accent-royal" checked={form.mixedPairs} onChange={(e) => setForm({ ...form, mixedPairs: e.target.checked })} />
-          <span>
-            <span className="block text-sm font-bold text-navy">👩👨 Mixed pairs</span>
-            <span className="block text-xs text-muted">One woman + one man per team when possible.</span>
-          </span>
-        </label>
-        <GroupByLevelToggle checked={form.groupByLevel} onChange={(groupByLevel) => setForm({ ...form, groupByLevel })} />
-        {form.courts >= 2 && !form.fixedTeams && (
-          <BeginnerCourtToggle
-            checked={form.beginnerCourt}
-            courtName={parseCourtLabels(form.courtLabels)[0]}
-            onChange={(beginnerCourt) => setForm({ ...form, beginnerCourt })}
-          />
-        )}
-        <CompetitiveToggle checked={form.competitiveSitouts} onChange={(competitiveSitouts) => setForm({ ...form, competitiveSitouts })} />
-        <TeamsToggle checked={form.fixedTeams} onChange={(fixedTeams) => setForm({ ...form, fixedTeams })} />
+        <FineTune custom={nightTypeOf(form) == null}>
+          <StylePicker value={form.format} onChange={(format) => setForm({ ...form, format })} teams={form.fixedTeams} />
+          <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-line px-3.5 py-3">
+            <input type="checkbox" className="mt-0.5 size-5 accent-royal" checked={form.mixedPairs} onChange={(e) => setForm({ ...form, mixedPairs: e.target.checked })} />
+            <span>
+              <span className="block text-sm font-bold text-navy">👩👨 Mixed pairs</span>
+              <span className="block text-xs text-muted">One woman + one man per team when possible.</span>
+            </span>
+          </label>
+          <GroupByLevelToggle checked={form.groupByLevel} onChange={(groupByLevel) => setForm({ ...form, groupByLevel })} />
+          {form.courts >= 2 && !form.fixedTeams && (
+            <BeginnerCourtToggle
+              checked={form.beginnerCourt}
+              courtName={parseCourtLabels(form.courtLabels)[0]}
+              onChange={(beginnerCourt) => setForm({ ...form, beginnerCourt })}
+            />
+          )}
+          <CompetitiveToggle checked={form.competitiveSitouts} onChange={(competitiveSitouts) => setForm({ ...form, competitiveSitouts })} />
+          <TeamsToggle checked={form.fixedTeams} onChange={(fixedTeams) => setForm({ ...form, fixedTeams })} />
+        </FineTune>
         {previous.length > 0 && (
           <Field label="Bring back the players from" hint="Everyone from that session is added to this one — no re-inviting.">
             <select

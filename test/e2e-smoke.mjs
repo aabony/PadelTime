@@ -163,6 +163,7 @@ const genderOf = (pg, name) => pg.locator("li", { hasText: name }).getByRole("co
 // Gender can always be set (it's needed the moment mixed pairs goes on).
 if ((await genderOf(org, "George").count()) !== 1) fail("the organizer should always have a gender picker");
 await org.getByRole("button", { name: "Settings" }).click();
+await org.getByText("Fine-tune").click();
 await org.getByRole("checkbox", { name: /^👩👨 Mixed pairs/ }).check();
 await org.getByRole("button", { name: "Save changes" }).click();
 await org.getByText("👩👨 Mixed pairs").waitFor({ timeout: 10000 });
@@ -180,6 +181,7 @@ if ((await levelOf(org, "George").count()) !== 1) fail("the organizer can set le
 await levelOf(org, "George").selectOption("4");
 await org.waitForTimeout(800);
 await org.getByRole("button", { name: "Settings" }).click();
+await org.getByText("Fine-tune").click();
 await org.getByRole("checkbox", { name: /Group players by playing level/ }).check();
 await org.getByRole("button", { name: "Save changes" }).click();
 await org.getByText("🎚️ Grouped by level").waitFor({ timeout: 10000 });
@@ -402,7 +404,11 @@ await org.goto(`${BASE}/app`);
 await org.getByText("Past sessions").waitFor({ timeout: 10000 });
 await org.getByRole("button", { name: /New session/ }).click();
 await org.getByPlaceholder("Thursday Padel Jam").fill("Bring Back Night");
-await org.getByRole("button", { name: /Competitive/ }).click(); // Mexicano
+// Night types bundle the switches: Open night = Mexicano + beginner court. The rest sits under Fine-tune.
+await org.getByRole("button", { name: /Open night/ }).click();
+await org.getByText("Fine-tune").click();
+if ((await org.getByRole("button", { name: /Competitive/ }).getAttribute("aria-pressed")) !== "true") fail("Open night should select the Mexicano style");
+if (!(await org.getByRole("checkbox", { name: /Beginner court/ }).isChecked())) fail("Open night should switch the beginner court on");
 await org.getByRole("checkbox", { name: /^👩👨 Mixed pairs/ }).check();
 await org.getByRole("checkbox", { name: /Group players by playing level/ }).check();
 await org.getByLabel("Bring back the players from").selectOption({ index: 1 });
@@ -411,6 +417,7 @@ await org.waitForURL("**/app/sessions/**");
 await org.getByText("George").first().waitFor({ timeout: 10000 });
 if ((await org.locator("ul > li").count()) < 8) fail("copied roster should have 8 players");
 await org.getByText("Mexicano").first().waitFor();
+await org.getByText("🌱 Open night").waitFor();
 await org.getByText("🎚️ Grouped by level").waitFor();
 if ((await genderOf(org, "George").inputValue()) !== "man") fail("bring-back should carry gender over");
 if ((await levelOf(org, "George").inputValue()) !== "4") fail("bring-back should carry level over");

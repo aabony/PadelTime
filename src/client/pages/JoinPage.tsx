@@ -7,6 +7,7 @@ import { Badge, Button, Card, ErrorNote, InfoRow, PageSpinner, ProgressBar, Stat
 import { Logo } from "../App";
 import { statusTone } from "./Home";
 import { blurbFor, formatMeta } from "../../shared/formatMeta";
+import { NIGHT_TYPES, nightTypeOf } from "../../shared/nightTypes";
 import { GenderToggle } from "../components/GenderSelect";
 import { LevelToggle } from "../components/LevelSelect";
 import { StandingsTable } from "../components/StandingsTable";
@@ -212,6 +213,14 @@ export function JoinPage() {
             <Card className="mt-4">
               <h3 className="mb-1 text-lg font-black text-navy">How it works</h3>
               <div className="divide-y divide-line">
+                {(() => {
+                  const t = nightTypeOf(data);
+                  return t ? (
+                    <InfoRow icon={NIGHT_TYPES[t].emoji}>
+                      <b>{NIGHT_TYPES[t].name}</b> — {NIGHT_TYPES[t].flyer}
+                    </InfoRow>
+                  ) : null;
+                })()}
                 <InfoRow icon={formatMeta(data.format).emoji}>
                   <b>
                     {data.fixedTeams && "Team "}

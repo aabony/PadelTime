@@ -33,6 +33,8 @@ import { LevelSelect, LevelToggle } from "../components/LevelSelect";
 import { GroupByLevelToggle } from "../components/GroupByLevelToggle";
 import { TeamsToggle } from "../components/TeamsToggle";
 import { BeginnerCourtToggle, CompetitiveToggle, NewbieToggle } from "../components/BeginnerCourtToggle";
+import { FineTune, NightTypePicker } from "../components/NightTypePicker";
+import { NIGHT_TYPES, flagsOf, nightTypeOf } from "../../shared/nightTypes";
 import { BEGINNER_COURT } from "../../shared/formats/pools";
 import { PartnerSelect } from "../components/PartnerSelect";
 import { CourtNumbersField } from "../components/CourtNumbersField";
@@ -223,6 +225,10 @@ function Hero({ d, isOrganizer, onSettings }: { d: SessionDetail; isOrganizer: b
           <Badge tone={statusTone(d.status)}>
             {d.status === "checkin" && d.rounds.length > 0 ? "Paused" : SESSION_STATUS_LABEL[d.status]}
           </Badge>
+          {(() => {
+            const t = nightTypeOf(d);
+            return t ? <Badge tone="zinc">{NIGHT_TYPES[t].emoji} {NIGHT_TYPES[t].name}</Badge> : null;
+          })()}
           {d.mixedPairs && <Badge tone="zinc">👩👨 Mixed pairs</Badge>}
           {d.groupByLevel && <Badge tone="zinc">🎚️ Grouped by level</Badge>}
           {d.fixedTeams && <Badge tone="zinc">🤝 Fixed teams</Badge>}
@@ -407,10 +413,10 @@ function SettingsModal({
           <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
         </Field>
         {d.status !== "complete" && (
-          <StylePicker
-            value={form.format}
-            onChange={(format) => setForm({ ...form, format })}
-            teams={form.fixedTeams}
+          <NightTypePicker
+            flags={form}
+            courts={form.courts}
+            onChange={(key) => setForm({ ...form, ...flagsOf(key) })}
             hint={d.rounds.length > 0 ? "A change applies from the next round dealt." : undefined}
           />
         )}
@@ -435,39 +441,42 @@ function SettingsModal({
           />
           <StepperField label="Court time (min)" presets={[60, 90, 120]} step={15} value={form.durationMin} min={0} max={600} onChange={(durationMin) => setForm({ ...form, durationMin })} />
         </div>
-        <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-line px-3.5 py-3">
-          <input
-            type="checkbox"
-            className="mt-0.5 size-5 accent-royal"
-            checked={form.mixedPairs}
-            onChange={(e) => setForm({ ...form, mixedPairs: e.target.checked })}
-          />
-          <span>
-            <span className="block text-sm font-bold text-navy">👩👨 Mixed pairs</span>
-            <span className="block text-xs text-muted">
-              One woman + one man per team when possible. Applies from the next round.
+        <FineTune custom={nightTypeOf(form) == null}>
+          {d.status !== "complete" && <StylePicker value={form.format} onChange={(format) => setForm({ ...form, format })} teams={form.fixedTeams} />}
+          <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-line px-3.5 py-3">
+            <input
+              type="checkbox"
+              className="mt-0.5 size-5 accent-royal"
+              checked={form.mixedPairs}
+              onChange={(e) => setForm({ ...form, mixedPairs: e.target.checked })}
+            />
+            <span>
+              <span className="block text-sm font-bold text-navy">👩👨 Mixed pairs</span>
+              <span className="block text-xs text-muted">
+                One woman + one man per team when possible. Applies from the next round.
+              </span>
             </span>
-          </span>
-        </label>
-        <GroupByLevelToggle checked={form.groupByLevel} onChange={(groupByLevel) => setForm({ ...form, groupByLevel })} />
-        {form.courts >= 2 && !form.fixedTeams && (
-          <BeginnerCourtToggle
-            checked={form.beginnerCourt}
-            courtName={parseCourtLabels(form.courtLabels)[0]}
+          </label>
+          <GroupByLevelToggle checked={form.groupByLevel} onChange={(groupByLevel) => setForm({ ...form, groupByLevel })} />
+          {form.courts >= 2 && !form.fixedTeams && (
+            <BeginnerCourtToggle
+              checked={form.beginnerCourt}
+              courtName={parseCourtLabels(form.courtLabels)[0]}
+              note={live ? "Applies from the next round." : undefined}
+              onChange={(beginnerCourt) => setForm({ ...form, beginnerCourt })}
+            />
+          )}
+          <CompetitiveToggle
+            checked={form.competitiveSitouts}
             note={live ? "Applies from the next round." : undefined}
-            onChange={(beginnerCourt) => setForm({ ...form, beginnerCourt })}
+            onChange={(competitiveSitouts) => setForm({ ...form, competitiveSitouts })}
           />
-        )}
-        <CompetitiveToggle
-          checked={form.competitiveSitouts}
-          note={live ? "Applies from the next round." : undefined}
-          onChange={(competitiveSitouts) => setForm({ ...form, competitiveSitouts })}
-        />
-        <TeamsToggle
-          checked={form.fixedTeams}
-          note={live ? "Applies from the next round." : undefined}
-          onChange={(fixedTeams) => setForm({ ...form, fixedTeams })}
-        />
+          <TeamsToggle
+            checked={form.fixedTeams}
+            note={live ? "Applies from the next round." : undefined}
+            onChange={(fixedTeams) => setForm({ ...form, fixedTeams })}
+          />
+        </FineTune>
         <Button
           className="w-full"
           busy={busyKey === "settings"}

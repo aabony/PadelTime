@@ -192,6 +192,10 @@ export interface JoinInfo {
   fixedTeams: boolean;
   /** Your fixed partner's name, if you have one. */
   myPartner: string | null;
+  /** The beginner court is on (newbies the organizer tags play the first court among themselves). */
+  beginnerCourt: boolean;
+  /** Competitive sit-outs are on (after three games each, the bottom of the table sits). */
+  competitiveSitouts: boolean;
 }
 
 // Read-only public board (TV / court display) payload.
