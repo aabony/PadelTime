@@ -61,6 +61,7 @@ export const Api = {
       groupByLevel?: boolean;
       fixedTeams?: boolean;
       beginnerCourt?: boolean;
+      beginnerCourtNo?: number;
       competitiveSitouts?: boolean;
     },
   ) => req<{ id: string }>(groupId ? `/groups/${groupId}/sessions` : "/sessions", post(body)),

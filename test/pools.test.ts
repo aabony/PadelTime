@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { americano } from "../src/shared/formats/americano";
 import { mexicano } from "../src/shared/formats/mexicano";
-import { BEGINNER_COURT, planWithPools, poolRounds, poolsActive } from "../src/shared/formats/pools";
+import { BEGINNER_COURT, beginnerCourtOf, ladderCourts, planWithPools, poolOfCourt, poolRounds, poolsActive } from "../src/shared/formats/pools";
 import { COMPETITIVE_FLOOR, pickByes } from "../src/shared/formats/byes";
 import { mulberry32 } from "../src/shared/formats/types";
 import type { EngineContext } from "../src/shared/formats/types";
@@ -182,5 +182,35 @@ describe("competitive sit-outs", () => {
     const late = night.slice(3);
     const sits = (ids: string[]) => late.reduce((n, r) => n + r.plan.byes.filter((p) => ids.includes(p)).length, 0);
     expect(sits(["p5", "p6", "p7", "p8"])).toBeGreaterThan(sits(["p1", "p2", "p3", "p4"]));
+  });
+});
+
+describe("a beginner court other than court 1", () => {
+  it("planWithPools puts the newbies on the chosen court and deals the ladder across the rest in order", () => {
+    const players = names(16);
+    const newbies = ["p13", "p14", "p15", "p16"];
+    for (let seed = 1; seed <= 10; seed++) {
+      const plan = planWithPools(ctxOf(players, 4, [], ladder(names(12)), seed), mexicano, newbies, 3);
+      expect(plan.matches.map((m) => m.court).sort()).toEqual([1, 2, 3, 4]);
+      expect(onCourt(plan, 3).every((p) => newbies.includes(p))).toBe(true);
+      for (const c of [1, 2, 4]) expect(onCourt(plan, c).some((p) => newbies.includes(p))).toBe(false);
+      // Mexicano's top four land on the first ladder court, which is now court 1.
+      expect(onCourt(plan, 1).sort()).toEqual(["p1", "p2", "p3", "p4"]);
+    }
+  });
+
+  it("poolRounds and poolOfCourt follow the chosen court", () => {
+    expect(poolOfCourt(3, 3)).toBe("beginner");
+    expect(poolOfCourt(1, 3)).toBe("ladder");
+    expect(poolOfCourt(1)).toBe("beginner");
+    expect(ladderCourts(4, 3)).toEqual([1, 2, 4]);
+    expect(ladderCourts(3)).toEqual([2, 3]);
+  });
+
+  it("beginnerCourtOf keeps the choice inside the courts the session has", () => {
+    expect(beginnerCourtOf({ beginnerCourtNo: 3, courts: 4 })).toBe(3);
+    expect(beginnerCourtOf({ beginnerCourtNo: 4, courts: 2 })).toBe(2);
+    expect(beginnerCourtOf({ beginnerCourtNo: null, courts: 3 })).toBe(1);
+    expect(beginnerCourtOf({ beginnerCourtNo: 0, courts: 3 })).toBe(1);
   });
 });

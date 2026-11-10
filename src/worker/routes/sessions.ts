@@ -6,6 +6,7 @@ import type { DB, SessionRow } from "../lib/detail";
 import { buildDetail, isGroupMember, isGroupOrganizer, loadRounds, loadSession } from "../lib/detail";
 import { beginnerCourtActive, dropUnplayedUpNext, generateNextRound, keepUpNext } from "../lib/engine";
 import { getFormat } from "../../shared/formats/registry";
+import { beginnerCourtOf } from "../../shared/formats/pools";
 import { parseGender } from "../../shared/genders";
 import { parseLevel } from "../../shared/levels";
 import { swapInRound, swapTeamsInRound } from "../../shared/swap";
@@ -96,6 +97,12 @@ sessionRoutes.patch("/sessions/:id", async (c) => {
   if (typeof body.groupByLevel === "boolean") patch.groupByLevel = body.groupByLevel;
   // The beginner court and competitive sit-outs apply from the next round dealt.
   if (typeof body.beginnerCourt === "boolean") patch.beginnerCourt = body.beginnerCourt;
+  // Which court is the beginner court: kept within the courts the session has (fewer courts → clamped).
+  const courtsAfter = patch.courts ?? session.courts;
+  const beginnerCourtNo = asInt(body.beginnerCourtNo);
+  if (beginnerCourtNo != null || (patch.courts != null && session.beginnerCourtNo > courtsAfter)) {
+    patch.beginnerCourtNo = beginnerCourtOf({ beginnerCourtNo: beginnerCourtNo ?? session.beginnerCourtNo, courts: courtsAfter });
+  }
   if (typeof body.competitiveSitouts === "boolean") patch.competitiveSitouts = body.competitiveSitouts;
 
   // Max players can change any time (extra people turn up mid-session). The

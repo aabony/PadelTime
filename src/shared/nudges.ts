@@ -1,4 +1,4 @@
-import { poolOfCourt } from "./formats/pools";
+import { BEGINNER_COURT, poolOfCourt } from "./formats/pools";
 import type { Nudge, RoundRow } from "./types";
 
 // Move up / move down are the organizer's taps. These are the hints next to
@@ -15,6 +15,7 @@ export const DOWN_AFTER = 3;
 export function computeNudges(
   players: { id: string; status: string; newbie?: boolean }[],
   rounds: RoundRow[],
+  beginnerCourt = BEGINNER_COURT,
 ): Nudge[] {
   const results = new Map<string, { court: number; won: boolean }[]>();
   for (const r of rounds) {
@@ -29,13 +30,13 @@ export function computeNudges(
     if (p.status !== "checked_in") continue;
     const mine = results.get(p.id) ?? [];
     if (p.newbie) {
-      const onCourt1 = mine.filter((x) => poolOfCourt(x.court) === "beginner");
+      const onCourt1 = mine.filter((x) => poolOfCourt(x.court, beginnerCourt) === "beginner");
       const streak = onCourt1.slice(-UP_STREAK);
       if (streak.length >= UP_STREAK && streak.every((x) => x.won)) {
         out.push({ playerId: p.id, kind: "up", reason: `${streak.length} straight wins on the beginner court` });
       }
     } else {
-      const inLadder = mine.filter((x) => poolOfCourt(x.court) === "ladder");
+      const inLadder = mine.filter((x) => poolOfCourt(x.court, beginnerCourt) === "ladder");
       if (inLadder.length >= DOWN_AFTER && inLadder.every((x) => !x.won)) {
         out.push({ playerId: p.id, kind: "down", reason: `0 wins after ${inLadder.length} ladder games` });
       }

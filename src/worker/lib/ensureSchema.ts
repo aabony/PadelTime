@@ -80,4 +80,9 @@ async function apply(db: Env["DB"]): Promise<void> {
     addedProfile = true;
   }
   if (addedProfile) await record("0010_player_profiles.sql");
+  // Which court is the beginner court (0011).
+  if (!(await columns("game_sessions")).has("beginner_court_no")) {
+    await db.prepare("ALTER TABLE game_sessions ADD COLUMN beginner_court_no integer NOT NULL DEFAULT 1").run();
+    await record("0011_beginner_court_no.sql");
+  }
 }

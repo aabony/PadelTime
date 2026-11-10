@@ -5,7 +5,7 @@ import { getFormat } from "../../shared/formats/registry";
 import { computeTeamStandings, minGamesToRank, pointsPerGame } from "../../shared/standings";
 import type { GroupRole, MeResponse, SessionStatus, SessionSummary, UserInfo } from "../../shared/types";
 import { displayName, isProfileComplete, validateProfile } from "../../shared/profile";
-import { BEGINNER_COURT } from "../../shared/formats/pools";
+import { beginnerCourtOf } from "../../shared/formats/pools";
 import { gameSessions, groupMembers, groups, matches, playerResults, sessionPlayers, user } from "../db/schema";
 import type { DB } from "../lib/detail";
 import { isGroupOrganizer, loadPlayersFor, loadRoundsFor } from "../lib/detail";
@@ -29,7 +29,10 @@ async function confirmedCounts(db: DB, sessionIds: string[]): Promise<Map<string
   return new Map(rows.map((r) => [r.sessionId, Number(r.n)]));
 }
 
-async function winnersFor(db: DB, sessions: { id: string; fixedTeams: boolean; beginnerCourt: boolean }[]): Promise<Map<string, string>> {
+async function winnersFor(
+  db: DB,
+  sessions: { id: string; fixedTeams: boolean; beginnerCourt: boolean; beginnerCourtNo: number; courts: number }[],
+): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   // Keep teams together: the winner is the top team of the same table as the podium.
   const teamNights = sessions.filter((s) => s.fixedTeams).map((s) => s.id);
@@ -42,8 +45,8 @@ async function winnersFor(db: DB, sessions: { id: string; fixedTeams: boolean; b
   }
   const solo = sessions.filter((s) => !s.fixedTeams).map((s) => s.id);
   if (solo.length === 0) return out;
-  // Beginner-court nights: the winner is the ladder's — court 1's games stay out of it.
-  const withBeginnerCourt = new Set(sessions.filter((s) => s.beginnerCourt).map((s) => s.id));
+  // Beginner-court nights: the winner is the ladder's — the beginner court's games stay out of it.
+  const beginnerCourtOfSession = new Map(sessions.filter((s) => s.beginnerCourt).map((s) => [s.id, beginnerCourtOf(s)]));
   const sums = (
     await db
       .select({
@@ -57,7 +60,7 @@ async function winnersFor(db: DB, sessions: { id: string; fixedTeams: boolean; b
       .innerJoin(matches, eq(playerResults.matchId, matches.id))
       .where(inArray(playerResults.sessionId, solo))
       .groupBy(playerResults.sessionId, playerResults.playerId, matches.court)
-  ).filter((r) => !(withBeginnerCourt.has(r.sessionId) && r.court === BEGINNER_COURT));
+  ).filter((r) => r.court !== beginnerCourtOfSession.get(r.sessionId));
   // Same rule as the standings: most points among players with at least half
   // as many games as the busiest player.
   const bySession = new Map<string, { playerId: string; points: number; played: number }[]>();
@@ -176,6 +179,7 @@ async function createSession(
         groupByLevel: body.groupByLevel === true,
         fixedTeams: body.fixedTeams === true,
         beginnerCourt: body.beginnerCourt === true && body.fixedTeams !== true,
+        beginnerCourtNo: beginnerCourtOf({ beginnerCourtNo: asInt(body.beginnerCourtNo), courts }),
         competitiveSitouts: body.competitiveSitouts === true,
         status: "draft",
         inviteCode: inviteCode(),

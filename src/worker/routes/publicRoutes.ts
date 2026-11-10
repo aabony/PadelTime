@@ -10,6 +10,7 @@ import { parseGender } from "../../shared/genders";
 import type { Gender } from "../../shared/genders";
 import { normalizeLevel, parseLevel } from "../../shared/levels";
 import { isProfileComplete } from "../../shared/profile";
+import { beginnerCourtOf } from "../../shared/formats/pools";
 import { newId, now } from "../lib/util";
 import type { ApiCtx } from "./context";
 
@@ -227,7 +228,7 @@ publicRoutes.get("/results/:code", async (c) => {
   const { session, groupName } = loaded;
   const players = await loadPlayers(db, session.id);
   const rounds = await loadRounds(db, session.id);
-  const tables = splitTables(session, players) ? poolStandings(players, rounds) : null;
+  const tables = splitTables(session, players) ? poolStandings(players, rounds, beginnerCourtOf(session)) : null;
   const onBoard = (s: { playerId: string; played: number }) => {
     const p = players.find((x) => x.id === s.playerId);
     return s.played > 0 || p?.status === "checked_in";

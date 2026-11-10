@@ -7,6 +7,7 @@ import { gameSessions, groupMembers, groups, matches, rounds, sessionPlayers, us
 import { buildHistory, creditAbsences } from "../../shared/history";
 import { poolRounds, poolsActive } from "../../shared/formats/pools";
 import { computeNudges } from "../../shared/nudges";
+import { beginnerCourtOf } from "../../shared/formats/pools";
 import { computeStandings, computeTeamStandings } from "../../shared/standings";
 import type {
   MatchRow,
@@ -160,11 +161,15 @@ export function splitTables(session: Pick<SessionRow, "beginnerCourt" | "fixedTe
   return session.beginnerCourt && !session.fixedTeams && session.courts >= 2 && players.some((p) => p.newbie);
 }
 
-/** The two tables: the ladder from its courts, the beginner court's from court 1 — each for the players currently in that pool. */
-export function poolStandings(players: PlayerRow[], roundRows: RoundRow[]): { ladder: StandingRow[]; beginner: StandingRow[] } {
+/** The two tables: the ladder from its courts, the beginner court's from its own — each for the players currently in that pool. */
+export function poolStandings(
+  players: PlayerRow[],
+  roundRows: RoundRow[],
+  beginnerCourt: number,
+): { ladder: StandingRow[]; beginner: StandingRow[] } {
   return {
-    ladder: computeStandings(players.filter((p) => !p.newbie), poolRounds(roundRows, "ladder")),
-    beginner: computeStandings(players.filter((p) => p.newbie), poolRounds(roundRows, "beginner")),
+    ladder: computeStandings(players.filter((p) => !p.newbie), poolRounds(roundRows, "ladder", beginnerCourt)),
+    beginner: computeStandings(players.filter((p) => p.newbie), poolRounds(roundRows, "beginner", beginnerCourt)),
   };
 }
 
@@ -284,7 +289,8 @@ export async function buildDetail(
   }
 
   const split = splitTables(session, players);
-  const tables = split ? poolStandings(players, roundRows) : null;
+  const beginnerCourt = beginnerCourtOf(session);
+  const tables = split ? poolStandings(players, roundRows, beginnerCourt) : null;
   const standings = tables ? tables.ladder : computeStandings(players, roundRows);
   const counts = {
     confirmed: players.filter((p) => p.status === "confirmed").length,
@@ -311,6 +317,7 @@ export async function buildDetail(
     groupByLevel: session.groupByLevel,
     fixedTeams: session.fixedTeams,
     beginnerCourt: session.beginnerCourt,
+    beginnerCourtNo: beginnerCourt,
     competitiveSitouts: session.competitiveSitouts,
     poolsActive: poolsActive({
       beginnerCourt: session.beginnerCourt,
@@ -331,7 +338,7 @@ export async function buildDetail(
     standings,
     teamStandings: session.fixedTeams ? computeTeamStandings(players, roundRows) : undefined,
     beginnerStandings: tables?.beginner,
-    nudges: myRole === "organizer" && split ? computeNudges(players, roundRows) : undefined,
+    nudges: myRole === "organizer" && split ? computeNudges(players, roundRows, beginnerCourt) : undefined,
     warnings: myRole === "organizer" ? computeWarnings(players, roundRows, session.fixedTeams, parseCourtLabels(session.courtLabels ?? ""), split) : [],
     counts,
     createdAt: session.createdAt,

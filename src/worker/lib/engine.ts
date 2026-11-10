@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { getFormat } from "../../shared/formats/registry";
-import { BEGINNER_COURT, planWithPools, poolRounds, poolsActive } from "../../shared/formats/pools";
+import { beginnerCourtOf, planWithPools, poolRounds, poolsActive } from "../../shared/formats/pools";
 import { autoPair } from "../../shared/formats/teams";
 import type { EngineContext, PlannedMatch } from "../../shared/formats/types";
 import type { MatchRow, RoundRow } from "../../shared/types";
@@ -58,8 +58,9 @@ export async function generateNextRound(
 
   // Late arrivals are credited for the rounds they missed, so they join the rotation.
   const history = creditAbsences(buildHistory(played), played, eligible);
-  // Beginner court: the newbies play court 1 among themselves; the ladder is ranked from its own courts only.
+  // Beginner court: the newbies play their court among themselves; the ladder is ranked from its own courts only.
   const newbies = players.filter((p) => p.newbie && p.status === "checked_in").map((p) => p.id);
+  const beginnerCourt = beginnerCourtOf(session);
   const pools = poolsActive({
     beginnerCourt: session.beginnerCourt,
     fixedTeams: session.fixedTeams,
@@ -69,7 +70,7 @@ export async function generateNextRound(
   });
   // Ranked formats deal courts from points per match played (bye-adjusted).
   const ranked = rankForCourts(
-    computeStandings(players.map((p) => ({ id: p.id, name: p.id })), pools ? poolRounds(played, "ladder") : played),
+    computeStandings(players.map((p) => ({ id: p.id, name: p.id })), pools ? poolRounds(played, "ladder", beginnerCourt) : played),
   ).filter((r) => r.played > 0);
 
   const ctx: EngineContext = {
@@ -88,7 +89,7 @@ export async function generateNextRound(
   };
   if (session.fixedTeams) ctx.teams = await fixTeams(db, players, eligible, { ...ctx, levels });
 
-  const plan = pools ? planWithPools(ctx, format, newbies) : format.planRound(ctx);
+  const plan = pools ? planWithPools(ctx, format, newbies, beginnerCourt) : format.planRound(ctx);
   if (plan.matches.length === 0) {
     if (session.fixedTeams) {
       return { error: "Keep teams together needs two full teams checked in — check in both partners, or change the pairings." };
@@ -97,7 +98,7 @@ export async function generateNextRound(
   }
 
   if (latest && finishing.length) {
-    plan.matches = courtsWhenDealtAhead(plan.matches, latest.matches, ctx.courts, pools ? BEGINNER_COURT : 0);
+    plan.matches = courtsWhenDealtAhead(plan.matches, latest.matches, ctx.courts, pools ? beginnerCourt : 0);
   }
 
   const ts = now();
@@ -147,7 +148,7 @@ export async function keepUpNext(db: DB, session: SessionRow): Promise<void> {
   if (before && !before.complete) {
     // Already one round on deck: a court that just finished frees up, so a game
     // whose four are all standing by moves onto it (nothing's played yet).
-    await recourtUpNext(db, before, latest, session.courts, (await beginnerCourtActive(db, session)) ? BEGINNER_COURT : 0);
+    await recourtUpNext(db, before, latest, session.courts, (await beginnerCourtActive(db, session)) ? beginnerCourtOf(session) : 0);
     return;
   }
   try {
@@ -192,19 +193,19 @@ export async function dropUnplayedUpNext(db: DB, sessionId: string): Promise<voi
   }
 }
 
+/** `reserved` is the beginner court's number (0 = none): its game keeps that court and waits for it if need be. */
 export function courtsWhenDealtAhead(planned: PlannedMatch[], current: MatchRow[], courts: number, reserved = 0): PlannedMatch[] {
-  // Reserved courts (the beginner court) keep their game: it waits for that court if need be.
-  const kept = planned.filter((m) => m.court <= reserved);
-  const pool = Array.from({ length: courts }, (_, i) => i + 1).filter((c) => c > reserved);
+  const kept = planned.filter((m) => m.court === reserved);
+  const pool = Array.from({ length: courts }, (_, i) => i + 1).filter((c) => c !== reserved);
   const finishingOn = new Map<string, number>();
   for (const m of current) if (m.status !== "confirmed") for (const p of [...m.a, ...m.b]) finishingOn.set(p, m.court);
   const busyCourts = new Set(finishingOn.values());
   const free = pool.filter((c) => !busyCourts.has(c));
   const taken = new Set<number>();
-  const out = planned.filter((m) => m.court > reserved).map((m) => ({ ...m, court: 0 }));
+  const out = planned.filter((m) => m.court !== reserved).map((m) => ({ ...m, court: 0 }));
   // Waiting courts first, onto the court their players are finishing on.
   for (const m of out) {
-    const on = [...m.a, ...m.b].map((p) => finishingOn.get(p)).find((c) => c != null && c > reserved && !taken.has(c));
+    const on = [...m.a, ...m.b].map((p) => finishingOn.get(p)).find((c) => c != null && c !== reserved && !taken.has(c));
     if (on != null) taken.add((m.court = on));
   }
   // Ready courts onto free courts; anything left takes whatever number is left.

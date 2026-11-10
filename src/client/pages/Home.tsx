@@ -7,7 +7,7 @@ import type { FormatKey, SessionStatus, SessionSummary } from "../../shared/type
 import { StylePicker } from "../components/StylePicker";
 import { NightSummary } from "../components/NightSummary";
 import { CourtNumbersField } from "../components/CourtNumbersField";
-import { parseCourtLabels } from "../../shared/courts";
+import { courtLabel, fitCourtLabels, parseCourtLabels } from "../../shared/courts";
 import { GroupByLevelToggle } from "../components/GroupByLevelToggle";
 import { BeginnerCourtToggle, CompetitiveToggle } from "../components/BeginnerCourtToggle";
 import { FineTune, NightTypePicker } from "../components/NightTypePicker";
@@ -198,6 +198,7 @@ export function NewSessionModal({
     groupByLevel: false,
     fixedTeams: false,
     beginnerCourt: false,
+    beginnerCourtNo: 1,
     competitiveSitouts: false,
   });
   const submit = async (e: React.FormEvent) => {
@@ -219,6 +220,7 @@ export function NewSessionModal({
         groupByLevel: form.groupByLevel,
         fixedTeams: form.fixedTeams,
         beginnerCourt: form.beginnerCourt && !form.fixedTeams,
+        beginnerCourtNo: form.beginnerCourtNo,
         competitiveSitouts: form.competitiveSitouts,
         copyPlayersFrom: form.copyPlayersFrom || null,
       });
@@ -258,7 +260,7 @@ export function NewSessionModal({
           label="players (max)"
           teams={form.fixedTeams}
           beginnerCourt={form.beginnerCourt && !form.fixedTeams}
-          courtName={parseCourtLabels(form.courtLabels)[0]}
+          courtName={courtLabel(fitCourtLabels(parseCourtLabels(form.courtLabels), form.courts), Math.min(form.beginnerCourtNo, form.courts))}
           onPick={(pointsPerMatch) => setForm({ ...form, pointsPerMatch })}
         />
         <FineTune custom={nightTypeOf(form) == null}>
@@ -274,7 +276,10 @@ export function NewSessionModal({
           {form.courts >= 2 && !form.fixedTeams && (
             <BeginnerCourtToggle
               checked={form.beginnerCourt}
-              courtName={parseCourtLabels(form.courtLabels)[0]}
+              courts={form.courts}
+              courtLabels={fitCourtLabels(parseCourtLabels(form.courtLabels), form.courts)}
+              courtNo={form.beginnerCourtNo}
+              onCourtChange={(beginnerCourtNo) => setForm({ ...form, beginnerCourtNo })}
               onChange={(beginnerCourt) => setForm({ ...form, beginnerCourt })}
             />
           )}

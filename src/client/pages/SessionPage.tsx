@@ -35,10 +35,9 @@ import { TeamsToggle } from "../components/TeamsToggle";
 import { BeginnerCourtToggle, CompetitiveToggle, NewbieToggle } from "../components/BeginnerCourtToggle";
 import { FineTune, NightTypePicker } from "../components/NightTypePicker";
 import { NIGHT_TYPES, flagsOf, nightTypeOf } from "../../shared/nightTypes";
-import { BEGINNER_COURT } from "../../shared/formats/pools";
 import { PartnerSelect } from "../components/PartnerSelect";
 import { CourtNumbersField } from "../components/CourtNumbersField";
-import { courtLabel, parseCourtLabels } from "../../shared/courts";
+import { courtLabel, fitCourtLabels, parseCourtLabels } from "../../shared/courts";
 import { NightSummary } from "../components/NightSummary";
 import { formatMeta } from "../../shared/formatMeta";
 
@@ -232,7 +231,7 @@ function Hero({ d, isOrganizer, onSettings }: { d: SessionDetail; isOrganizer: b
           {d.mixedPairs && <Badge tone="zinc">👩👨 Mixed pairs</Badge>}
           {d.groupByLevel && <Badge tone="zinc">🎚️ Grouped by level</Badge>}
           {d.fixedTeams && <Badge tone="zinc">🤝 Fixed teams</Badge>}
-          {d.beginnerCourt && !d.fixedTeams && <Badge tone="zinc">🌱 Beginner court {courtLabel(d.courtLabels, BEGINNER_COURT)}</Badge>}
+          {d.beginnerCourt && !d.fixedTeams && <Badge tone="zinc">🌱 Beginner court {courtLabel(d.courtLabels, d.beginnerCourtNo)}</Badge>}
           {d.competitiveSitouts && <Badge tone="zinc">🏁 Competitive sit-outs</Badge>}
         </div>
         <h1 className="mt-2 text-2xl font-black leading-tight tracking-tight text-navy">{d.name}</h1>
@@ -401,6 +400,7 @@ function SettingsModal({
     groupByLevel: d.groupByLevel,
     fixedTeams: d.fixedTeams,
     beginnerCourt: d.beginnerCourt,
+    beginnerCourtNo: d.beginnerCourtNo,
     competitiveSitouts: d.competitiveSitouts,
   });
   // Every score on the board adds up to the points per game, so they can't change once one is in.
@@ -461,7 +461,10 @@ function SettingsModal({
           {form.courts >= 2 && !form.fixedTeams && (
             <BeginnerCourtToggle
               checked={form.beginnerCourt}
-              courtName={parseCourtLabels(form.courtLabels)[0]}
+              courts={form.courts}
+              courtLabels={fitCourtLabels(parseCourtLabels(form.courtLabels), form.courts)}
+              courtNo={form.beginnerCourtNo}
+              onCourtChange={(beginnerCourtNo) => setForm({ ...form, beginnerCourtNo })}
               note={live ? "Applies from the next round." : undefined}
               onChange={(beginnerCourt) => setForm({ ...form, beginnerCourt })}
             />
@@ -497,6 +500,7 @@ function SettingsModal({
                 groupByLevel: form.groupByLevel,
                 fixedTeams: form.fixedTeams,
                 beginnerCourt: form.beginnerCourt && !form.fixedTeams,
+                beginnerCourtNo: form.beginnerCourtNo,
                 competitiveSitouts: form.competitiveSitouts,
               });
               onClose();
@@ -839,7 +843,7 @@ function NewbieHint({ d, players }: { d: SessionDetail; players: PlayerRow[] }) 
   return (
     <p className="mt-3 rounded-xl bg-canvas px-3 py-2 text-xs text-muted">
       🌱 Newbies tagged: <b className={n === 0 ? "text-amber-dark" : "text-navy"}>{n}</b> of {players.length} · they play Court{" "}
-      {courtLabel(d.courtLabels, BEGINNER_COURT)} among themselves{n === 0 && " — tag them above, or the court runs as a normal court"}
+      {courtLabel(d.courtLabels, d.beginnerCourtNo)} among themselves{n === 0 && " — tag them above, or the court runs as a normal court"}
       {n > 0 && n < 4 && " — fewer than 4, so the bottom of the ladder fills the court"}. Players don't see the tag.
     </p>
   );
@@ -902,7 +906,7 @@ function StartPreview({ d, run, busyKey }: { d: SessionDetail; run?: Run; busyKe
         points={d.pointsPerMatch}
         beginnerCourt={d.beginnerCourt && !d.fixedTeams}
         newbies={d.myRole === "organizer" ? signedUp(d).filter((p) => p.newbie).length : undefined}
-        courtName={d.courtLabels[0]}
+        courtName={courtLabel(d.courtLabels, d.beginnerCourtNo)}
         onPick={canApply ? (pointsPerMatch) => run("rec", () => Api.updateSession(d.id, { pointsPerMatch })) : undefined}
         applying={busyKey === "rec"}
         folded
@@ -1308,9 +1312,9 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
   );
 }
 
-/** Court 1 is the beginner court while the beginner court is running (the pill is the organizer's). */
+/** The chosen court is the beginner court while the beginner court is running (the pill is the organizer's). */
 function isBeginnerCourt(d: SessionDetail, m: MatchRow): boolean {
-  return d.poolsActive && m.court === BEGINNER_COURT;
+  return d.poolsActive && m.court === d.beginnerCourtNo;
 }
 
 /** Who sits a round out — by pool when the beginner court is on, so each pool's rotation reads on its own. */
@@ -1411,7 +1415,7 @@ function LiveRosterCard({ d, isOrganizer, run, busyKey }: ViewProps) {
   // Beginner court on: the newbies' own table sits under the ladder's.
   const sections = [
     { key: "ladder", title: d.beginnerStandings ? "Ladder" : null, rows: playing },
-    ...(d.beginnerStandings ? [{ key: "beginner", title: `🌱 Beginner court · Court ${courtLabel(d.courtLabels, BEGINNER_COURT)}`, rows: d.beginnerStandings.filter(here) }] : []),
+    ...(d.beginnerStandings ? [{ key: "beginner", title: `🌱 Beginner court · Court ${courtLabel(d.courtLabels, d.beginnerCourtNo)}`, rows: d.beginnerStandings.filter(here) }] : []),
   ];
   const benched = d.players.filter((p) => p.status === "waitlist" || p.status === "dropped");
   const inCount = d.counts.confirmed + d.counts.checkedIn;
@@ -2220,7 +2224,7 @@ function CompleteView({ d, isOrganizer, run, busyKey }: ViewProps) {
       </Card>
       {d.beginnerStandings && d.beginnerStandings.some((s) => s.played > 0) && (
         <Card>
-          <SectionHeader title={`🌱 Beginner court · Court ${courtLabel(d.courtLabels, BEGINNER_COURT)}`} />
+          <SectionHeader title={`🌱 Beginner court · Court ${courtLabel(d.courtLabels, d.beginnerCourtNo)}`} />
           <StandingsTable standings={d.beginnerStandings.filter((s) => s.played > 0)} highlightId={d.myPlayerId} />
         </Card>
       )}

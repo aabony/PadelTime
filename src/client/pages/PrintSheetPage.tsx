@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { planWithPools, poolsActive } from "../../shared/formats/pools";
+import { BEGINNER_COURT, planWithPools, poolsActive } from "../../shared/formats/pools";
 import { americano } from "../../shared/formats/americano";
 import { autoPair } from "../../shared/formats/teams";
 import { formatMeta } from "../../shared/formatMeta";
@@ -71,8 +71,9 @@ function planRounds(
   seed: number,
   prior: HistoryRound[],
   extra: Partial<EngineContext> = {},
-  /** Beginner court on: the newbies, who get court 1 to themselves. */
+  /** Beginner court on: the newbies, who get the beginner court to themselves. */
   newbies: string[] = [],
+  beginnerCourt = BEGINNER_COURT,
 ): PlannedRound[] {
   const history = [...prior];
   const planned: PlannedRound[] = [];
@@ -88,7 +89,7 @@ function planRounds(
       ...extra,
       rng,
     };
-    const plan = pools ? planWithPools(ctx, americano, newbies) : americano.planRound(ctx);
+    const plan = pools ? planWithPools(ctx, americano, newbies, beginnerCourt) : americano.planRound(ctx);
     const round: PlannedRound = {
       number: r,
       byes: plan.byes,
@@ -206,7 +207,7 @@ function sessionSheet(d: SessionDetail, roundsWanted: number, seed: number): She
       ? []
       : d.format === "mexicano"
         ? blankRounds(existing.length + 1, totalRounds, Math.min(d.courts, Math.floor((extra.teams ? extra.teams.length * 2 : activeIds.length) / 4)))
-        : planRounds(activeIds, d.courts, totalRounds, seed, prior, extra, d.beginnerCourt ? roster.filter((p) => p.newbie).map((p) => p.id) : []).map((r) => ({
+        : planRounds(activeIds, d.courts, totalRounds, seed, prior, extra, d.beginnerCourt ? roster.filter((p) => p.newbie).map((p) => p.id) : [], d.beginnerCourtNo).map((r) => ({
           number: r.number,
           byes: byNumber(r.byes),
           matches: r.matches.map((m) => ({

@@ -4,23 +4,31 @@ import type { RoundRow } from "../types";
 
 // The beginner court.
 //
-// Court 1 (the first court rented) is reserved for the players the organizer
-// has tagged as newbies. They rotate among themselves Americano-style (fresh
-// partner each round, sit-outs shared fairly) and keep their own table. Everyone
-// else — the ladder — plays the session's format on the remaining courts and
-// never shares a court with a newbie unless the organizer moves someone across
-// (the tag is the only thing that moves a player between pools).
+// One court — the organizer picks which (the first one rented by default) —
+// is reserved for the players the organizer has tagged as newbies. They rotate
+// among themselves Americano-style (fresh partner each round, sit-outs shared
+// fairly) and keep their own table. Everyone else — the ladder — plays the
+// session's format on the remaining courts and never shares a court with a
+// newbie unless the organizer moves someone across (the tag is the only thing
+// that moves a player between pools).
 //
 // One court is also the cap on newbies' court time: four play, the rest sit.
-// When fewer than four newbies are here, court 1 is topped up from the bottom
-// of the ladder for that round, so it still runs and the mixing stays at the
-// boundary.
+// When fewer than four newbies are here, the beginner court is topped up from
+// the bottom of the ladder for that round, so it still runs and the mixing
+// stays at the boundary.
 
+/** The beginner court when a session hasn't chosen one: the first court. */
 export const BEGINNER_COURT = 1;
 /** Below this many checked-in players only one court fills anyway, so everyone plays as one pool. */
 export const MIN_PLAYERS_FOR_POOLS = 8;
 
 export type Pool = "beginner" | "ladder";
+
+/** Which court (1-based, internal numbering) is the beginner court on this session: the chosen one, kept within the courts it has. */
+export function beginnerCourtOf(s: { beginnerCourtNo?: number | null; courts: number }): number {
+  const n = s.beginnerCourtNo ?? BEGINNER_COURT;
+  return Math.min(Math.max(Math.floor(n) || BEGINNER_COURT, 1), Math.max(s.courts, 1));
+}
 
 /** Whether the beginner court runs this round (or, for display, on this night). */
 export function poolsActive(o: {
@@ -33,13 +41,13 @@ export function poolsActive(o: {
   return o.beginnerCourt && !o.fixedTeams && o.courts >= 2 && o.newbies > 0 && o.eligible >= MIN_PLAYERS_FOR_POOLS;
 }
 
-export function poolOfCourt(court: number): Pool {
-  return court === BEGINNER_COURT ? "beginner" : "ladder";
+export function poolOfCourt(court: number, beginnerCourt = BEGINNER_COURT): Pool {
+  return court === beginnerCourt ? "beginner" : "ladder";
 }
 
 /** The rounds with only one pool's matches (what that pool's table and ranking are built from). */
-export function poolRounds(rounds: RoundRow[], pool: Pool): RoundRow[] {
-  return rounds.map((r) => ({ ...r, matches: r.matches.filter((m) => poolOfCourt(m.court) === pool) }));
+export function poolRounds(rounds: RoundRow[], pool: Pool, beginnerCourt = BEGINNER_COURT): RoundRow[] {
+  return rounds.map((r) => ({ ...r, matches: r.matches.filter((m) => poolOfCourt(m.court, beginnerCourt) === pool) }));
 }
 
 /** Ladder players best first (points per game, as the standings order them), players without results last. */
@@ -49,13 +57,23 @@ function ladderOrder(ctx: EngineContext, ladder: string[]): string[] {
   return [...ladder].sort((x, y) => pos(x) - pos(y));
 }
 
+/** The ladder's courts in order: every court but the beginner one. */
+export function ladderCourts(courts: number, beginnerCourt = BEGINNER_COURT): number[] {
+  return Array.from({ length: courts }, (_, i) => i + 1).filter((c) => c !== beginnerCourt);
+}
+
 /**
- * Plan a round with the beginner court on: court 1 from the newbie pool
- * (Americano rotation, no level grouping), the rest from the ladder with the
- * session's format, court numbers shifted up by one. Byes are the two pools'
- * sit-outs together.
+ * Plan a round with the beginner court on: the beginner court from the newbie
+ * pool (Americano rotation, no level grouping), the rest from the ladder with
+ * the session's format, dealt across the other courts in order. Byes are the
+ * two pools' sit-outs together.
  */
-export function planWithPools(ctx: EngineContext, format: FormatStrategy, newbies: Iterable<string>): RoundPlan {
+export function planWithPools(
+  ctx: EngineContext,
+  format: FormatStrategy,
+  newbies: Iterable<string>,
+  beginnerCourt = BEGINNER_COURT,
+): RoundPlan {
   const tagged = new Set(newbies);
   const pool1 = ctx.players.filter((p) => tagged.has(p));
   let ladder = ctx.players.filter((p) => !tagged.has(p));
@@ -94,10 +112,11 @@ export function planWithPools(ctx: EngineContext, format: FormatStrategy, newbie
     teams: undefined,
     busy: ctx.busy?.filter(inPool(ladder)),
   });
+  const others = ladderCourts(ctx.courts, beginnerCourt);
   return {
     matches: [
-      ...beginner.matches.map((m) => ({ ...m, court: BEGINNER_COURT })),
-      ...rest.matches.map((m) => ({ ...m, court: m.court + 1 })),
+      ...beginner.matches.map((m) => ({ ...m, court: beginnerCourt })),
+      ...rest.matches.map((m) => ({ ...m, court: others[m.court - 1] ?? m.court })),
     ],
     byes: [...beginner.byes, ...rest.byes],
   };

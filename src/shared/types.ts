@@ -149,8 +149,10 @@ export interface SessionDetail {
   groupByLevel: boolean;
   /** Keep teams together: partners play the whole night as a pair. */
   fixedTeams: boolean;
-  /** Beginner court: court 1 is reserved for organizer-tagged newbies. */
+  /** Beginner court: one court is reserved for organizer-tagged newbies. */
   beginnerCourt: boolean;
+  /** Which court that is (1-based internal number; show it with courtLabel). */
+  beginnerCourtNo: number;
   /** Competitive sit-outs: after the floor, the bottom of each pool sits. */
   competitiveSitouts: boolean;
   /** The beginner court is running tonight (toggle on, newbies checked in, enough players). */

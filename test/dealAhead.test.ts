@@ -79,3 +79,21 @@ describe("dealing ahead (a court still finishing)", () => {
     expect(plain.find((p) => p.a.includes("n1"))!.court).toBe(1);
   });
 });
+
+describe("a reserved beginner court other than court 1", () => {
+  it("keeps the beginners' game on the chosen court and deals the ladder around it", () => {
+    const m = (court: number, a: [string, string], b: [string, string], status: MatchRow["status"]) =>
+      ({ id: `${court}`, roundId: "r", court, a, b, scoreA: null, scoreB: null, status, submittedBy: null }) as MatchRow;
+    // Court 1 done; court 2 (beginners) still playing; court 3 still playing.
+    const current = [m(1, ["a", "b"], ["c", "d"], "confirmed"), m(2, ["n1", "n2"], ["n3", "n4"], "pending"), m(3, ["e", "f"], ["g", "h"], "pending")];
+    const planned = [
+      { court: 2, a: ["n1", "n5"] as [string, string], b: ["n6", "n2"] as [string, string] },
+      { court: 1, a: ["e", "x"] as [string, string], b: ["y", "z"] as [string, string] },
+      { court: 3, a: ["a", "b"] as [string, string], b: ["c", "d"] as [string, string] },
+    ];
+    const out = courtsWhenDealtAhead(planned, current, 3, 2);
+    expect(out.find((p) => p.a.includes("n1"))!.court).toBe(2); // reserved: waits for court 2 itself
+    expect(out.find((p) => p.a.includes("a"))!.court).toBe(1); // all free: the ladder court that just finished
+    expect(out.find((p) => p.a.includes("e"))!.court).toBe(3); // waits for e on court 3
+  });
+});

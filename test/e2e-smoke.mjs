@@ -638,42 +638,64 @@ await api("PATCH", `/sessions/${tn.id}`, { fixedTeams: false });
 if ((await api("GET", `/sessions/${tn.id}`)).fixedTeams) fail("Keep teams together should switch off mid-session");
 log("points change until the first score; Keep teams together switches off mid-game");
 
-// --- Beginner court: newbies on court 2 (the first rented court), the ladder on 3 and 4 ----
-const bc = await api("POST", "/sessions", { name: "Beginner Court Night", format: "mexicano", courtLabels: ["2", "3", "4"], pointsPerMatch: 16, maxPlayers: 20, beginnerCourt: true });
+// --- Beginner court on the second rented court ("3"): newbies there, the ladder on 2 and 4 ----
+const bc = await api("POST", "/sessions", { name: "Beginner Court Night", format: "mexicano", courtLabels: ["2", "3", "4"], pointsPerMatch: 16, maxPlayers: 20, beginnerCourt: true, beginnerCourtNo: 2 });
 for (let i = 1; i <= 8; i++) await api("POST", `/sessions/${bc.id}/players`, { guestName: `L${i}` });
 for (let i = 1; i <= 6; i++) await api("POST", `/sessions/${bc.id}/players`, { guestName: `N${i}`, newbie: true });
 let bd = await api("GET", `/sessions/${bc.id}`);
 if (!bd.beginnerCourt) fail("the session should have the beginner court on");
+if (bd.beginnerCourtNo !== 2) fail(`the beginner court should be court 2, got ${bd.beginnerCourtNo}`);
 const newbieIds = new Set(bd.players.filter((p) => p.newbie).map((p) => p.id));
 if (newbieIds.size !== 6) fail(`6 newbies should be tagged, got ${newbieIds.size}`);
 await api("POST", `/sessions/${bc.id}/status`, { action: "start" });
 bd = await api("GET", `/sessions/${bc.id}`);
 if (!bd.poolsActive) fail("the beginner court should be running with 6 newbies among 14");
 for (const r of bd.rounds) {
-  const court1 = r.matches.find((m) => m.court === 1);
-  if (!court1 || ![...court1.a, ...court1.b].every((p) => newbieIds.has(p))) fail(`round ${r.number}: court 1 should be four newbies`);
-  for (const m of r.matches.filter((m) => m.court !== 1)) if ([...m.a, ...m.b].some((p) => newbieIds.has(p))) fail(`round ${r.number}: a newbie is on a ladder court`);
+  const court1 = r.matches.find((m) => m.court === 2);
+  if (!court1 || ![...court1.a, ...court1.b].every((p) => newbieIds.has(p))) fail(`round ${r.number}: court 2 should be four newbies`);
+  for (const m of r.matches.filter((m) => m.court !== 2)) if ([...m.a, ...m.b].some((p) => newbieIds.has(p))) fail(`round ${r.number}: a newbie is on a ladder court`);
   if (r.byes.length !== 2 || !r.byes.every((p) => newbieIds.has(p))) fail(`round ${r.number}: the two sitting should both be newbies`);
 }
 if (!bd.beginnerStandings || bd.beginnerStandings.length !== 6) fail("the beginner court should have its own 6-row table");
 if (bd.standings.length !== 8) fail(`the ladder table should hold the 8 ladder players, got ${bd.standings.length}`);
 await org.goto(`${BASE}/app/sessions/${bc.id}`);
 await org.getByTestId("now-playing").getByTestId("beginner-court").waitFor({ timeout: 10000 });
-await org.getByText("🌱 Beginner court 2").waitFor();
+await org.getByText("🌱 Beginner court 3").waitFor();
 await org.getByTestId("up-next").getByText(/Sitting · beginner court · 2/).waitFor();
 await org.getByText("Ladder", { exact: true }).waitFor();
-await org.getByText(/Beginner court · Court 2/).waitFor();
+await org.getByText(/Beginner court · Court 3/).waitFor();
 const switches = await org.getByRole("switch", { name: "Newbie", exact: true }).count();
 if (switches !== 14) {
   await shot(org, "17-beginner-court-fail");
   fail(`every roster row should carry the Newbie switch for the organizer (found ${switches}; rows: ${await org.locator("tbody tr").count()})`);
 }
 await shot(org, "17-beginner-court");
-log("beginner court: 14 players on courts 2/3/4 — four newbies on Court 2 each round, none on the ladder courts, two tables");
+log("beginner court: 14 players on courts 2/3/4 — four newbies on Court 3 (the chosen one) each round, none on the ladder courts, two tables");
+// Settings: the beginner court is a dropdown; moving it to Court 4 applies from the next deal.
+await org.getByRole("button", { name: "Settings" }).click();
+await org.getByText("Fine-tune").click();
+const bcSelect = org.getByRole("combobox", { name: "Beginner court" });
+if ((await bcSelect.inputValue()) !== "2") fail("Settings should show the chosen beginner court (court 2 = \"3\")");
+await bcSelect.selectOption("3");
+await org.getByRole("button", { name: "Save changes" }).click();
+await org.getByText("🌱 Beginner court 4").waitFor({ timeout: 10000 });
+await api("POST", `/sessions/${bc.id}/rounds`, { regenerate: true });
+bd = await api("GET", `/sessions/${bc.id}`);
+const moved = bd.rounds[1].matches.find((m) => m.court === 3);
+if (!moved || ![...moved.a, ...moved.b].every((p) => newbieIds.has(p))) fail("after moving the beginner court to court 3, the re-dealt round should put the newbies there");
+await bcSelect.waitFor({ state: "hidden" }).catch(() => {});
+await org.getByRole("button", { name: "Settings" }).click();
+await org.getByText("Fine-tune").click();
+await org.getByRole("combobox", { name: "Beginner court" }).selectOption("2");
+await org.getByRole("button", { name: "Save changes" }).click();
+await org.getByText("🌱 Beginner court 3").waitFor({ timeout: 10000 });
+await api("POST", `/sessions/${bc.id}/rounds`, { regenerate: true });
+bd = await api("GET", `/sessions/${bc.id}`);
+log("beginner court: Settings moves it to Court 4 and back; the round on deck follows");
 // The pools don't swap across: a newbie on court 1 can't trade with a ladder player.
 const onDeck = bd.rounds[1];
-const nbOut = onDeck.matches.find((m) => m.court === 1).a[0];
-const ladderIn = onDeck.matches.find((m) => m.court === 2).a[0];
+const nbOut = onDeck.matches.find((m) => m.court === 2).a[0];
+const ladderIn = onDeck.matches.find((m) => m.court === 1).a[0];
 const crossSwap = await org.request.post(`${BASE}/api/sessions/${bc.id}/rounds/${onDeck.id}/swap`, { data: { out: nbOut, in: ladderIn } });
 if (crossSwap.ok()) fail("a newbie must not swap with a ladder player");
 // Move up: untag a newbie in the roster → reshuffle the round on deck → they're on a ladder court.
@@ -687,8 +709,8 @@ await org.waitForFunction(
 await api("POST", `/sessions/${bc.id}/rounds`, { regenerate: true });
 bd = await api("GET", `/sessions/${bc.id}`);
 const redealt = bd.rounds[1];
-if (redealt.matches.find((m) => m.court === 1) && [...redealt.matches.find((m) => m.court === 1).a, ...redealt.matches.find((m) => m.court === 1).b].includes(mover.id)) fail("the moved-up player should leave court 1");
-if (!redealt.matches.some((m) => m.court !== 1 && [...m.a, ...m.b].includes(mover.id)) && !redealt.byes.includes(mover.id)) fail("the moved-up player should be in the ladder now");
+if (redealt.matches.find((m) => m.court === 2) && [...redealt.matches.find((m) => m.court === 2).a, ...redealt.matches.find((m) => m.court === 2).b].includes(mover.id)) fail("the moved-up player should leave the beginner court");
+if (!redealt.matches.some((m) => m.court !== 2 && [...m.a, ...m.b].includes(mover.id)) && !redealt.byes.includes(mover.id)) fail("the moved-up player should be in the ladder now");
 if (bd.standings.length !== 9 || bd.beginnerStandings.length !== 5) fail("the tables should follow the tag: 9 in the ladder, 5 on the beginner court");
 // Results carry both tables to the public page.
 for (const m of bd.rounds[0].matches) await api("POST", `/matches/${m.id}/score`, { scoreA: 10, scoreB: 6 });
