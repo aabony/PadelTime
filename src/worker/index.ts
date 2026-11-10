@@ -17,7 +17,7 @@ app.use("/api/*", async (c, next) => {
 
 // Better Auth owns /api/auth/* (sign-up, sign-in, session, sign-out, …).
 app.on(["GET", "POST"], "/api/auth/*", (c) =>
-  makeAuth(c.env, new URL(c.req.url).origin).handler(c.req.raw),
+  makeAuth(c.env, new URL(c.req.url).origin, (p) => c.executionCtx.waitUntil(p)).handler(c.req.raw),
 );
 
 app.route("/api", api);

@@ -1,88 +1,97 @@
 import type { Env } from "../env";
 
 // Production D1 can't be migrated from this environment (the deploy token has
-// no D1 permission), so additive migrations are also applied lazily here:
-// once per isolate, on the first API request. Idempotent and cheap (one
-// PRAGMA); records the migration so wrangler's bookkeeping stays in sync.
-let ready: Promise<void> | null = null;
+// no D1 permission), so additive migrations are also applied lazily here, on
+// the first API requests of each isolate. Idempotent and cheap: one round trip
+// reads the columns of the three tables; nothing else happens once they're all
+// there. Records the migration so wrangler's bookkeeping stays in sync.
+//
+// IMPORTANT: no promise is shared between requests. On Workers a request is
+// cancelled when its client disconnects (a reload, a closed tab), and a promise
+// created in that request then never settles — anything else awaiting it hangs
+// until its own client gives up. Sharing the in-flight check did exactly that:
+// one cancelled first request left every later request on the isolate spinning.
+// So each request runs its own check until one of them has seen the schema
+// complete; only that boolean is shared.
+let upToDate = false;
 
-export function ensureSchema(db: Env["DB"]): Promise<void> {
-  if (!ready) {
-    ready = apply(db).catch((e) => {
-      ready = null; // retry on the next request
-      throw e;
-    });
+const TABLES = ["session_players", "game_sessions", "user"] as const;
+
+interface Column {
+  migration: string;
+  table: (typeof TABLES)[number];
+  column: string;
+  type: string;
+}
+
+const NN0 = "integer NOT NULL DEFAULT 0";
+
+/** Every column added since 0001, in migration order. Add new ones at the end. */
+export const COLUMNS: Column[] = [
+  { migration: "0004_player_levels.sql", table: "session_players", column: "level", type: "integer" },
+  { migration: "0005_gender_mixed_pairs.sql", table: "session_players", column: "gender", type: "text" },
+  { migration: "0005_gender_mixed_pairs.sql", table: "game_sessions", column: "mixed_pairs", type: NN0 },
+  { migration: "0006_group_by_level.sql", table: "game_sessions", column: "group_by_level", type: NN0 },
+  { migration: "0007_fixed_teams.sql", table: "game_sessions", column: "fixed_teams", type: NN0 },
+  { migration: "0007_fixed_teams.sql", table: "session_players", column: "partner_id", type: "text" },
+  { migration: "0008_court_labels.sql", table: "game_sessions", column: "court_labels", type: "text" },
+  { migration: "0009_beginner_court.sql", table: "game_sessions", column: "beginner_court", type: NN0 },
+  { migration: "0009_beginner_court.sql", table: "game_sessions", column: "competitive_sitouts", type: NN0 },
+  { migration: "0009_beginner_court.sql", table: "session_players", column: "newbie", type: NN0 },
+  { migration: "0010_player_profiles.sql", table: "user", column: "first_name", type: "text" },
+  { migration: "0010_player_profiles.sql", table: "user", column: "last_name", type: "text" },
+  { migration: "0010_player_profiles.sql", table: "user", column: "phone", type: "text" },
+  { migration: "0010_player_profiles.sql", table: "user", column: "dob", type: "text" },
+  { migration: "0010_player_profiles.sql", table: "user", column: "gender", type: "text" },
+  { migration: "0010_player_profiles.sql", table: "user", column: "level", type: "integer" },
+  { migration: "0010_player_profiles.sql", table: "user", column: "playtomic_level", type: "real" },
+  { migration: "0010_player_profiles.sql", table: "user", column: "is_admin", type: NN0 },
+  { migration: "0011_beginner_court_no.sql", table: "game_sessions", column: "beginner_court_no", type: "integer NOT NULL DEFAULT 1" },
+];
+
+export async function ensureSchema(db: Env["DB"]): Promise<void> {
+  if (upToDate) return;
+  await apply(db);
+  upToDate = true;
+}
+
+/** The columns each table has now — one round trip, falling back to one per table. */
+async function existingColumns(db: Env["DB"]): Promise<Map<string, Set<string>>> {
+  const statements = TABLES.map((t) => db.prepare(`PRAGMA table_info(${t})`));
+  let rows: { name: string }[][];
+  try {
+    rows = (await db.batch<{ name: string }>(statements)).map((r) => r.results);
+  } catch {
+    rows = [];
+    for (const s of statements) rows.push((await s.all<{ name: string }>()).results);
   }
-  return ready;
+  return new Map(TABLES.map((t, i) => [t, new Set(rows[i].map((c) => c.name))]));
 }
 
 async function apply(db: Env["DB"]): Promise<void> {
-  const columns = async (table: string) =>
-    new Set((await db.prepare(`PRAGMA table_info(${table})`).all<{ name: string }>()).results.map((c) => c.name));
-  const record = async (name: string) => {
+  const have = await existingColumns(db);
+  // A table with no columns doesn't exist yet (a database before 0001): leave it to the real migrations.
+  const missing = COLUMNS.filter((c) => {
+    const columns = have.get(c.table);
+    return columns && columns.size > 0 && !columns.has(c.column);
+  });
+  if (missing.length === 0) return;
+
+  const applied = new Set<string>();
+  for (const c of missing) {
+    try {
+      await db.prepare(`ALTER TABLE ${c.table} ADD COLUMN ${c.column} ${c.type}`).run();
+    } catch (e) {
+      // Another request (or isolate) added it between our read and our write.
+      if (!/duplicate column/i.test(String((e as Error)?.message ?? e))) throw e;
+    }
+    applied.add(c.migration);
+  }
+  for (const name of applied) {
     try {
       await db.prepare("INSERT OR IGNORE INTO d1_migrations (name) VALUES (?)").bind(name).run();
     } catch {
       // bookkeeping only
     }
-  };
-  const players = await columns("session_players");
-  if (!players.has("level")) {
-    await db.prepare("ALTER TABLE session_players ADD COLUMN level integer").run();
-    await record("0004_player_levels.sql");
-  }
-  if (!players.has("gender")) {
-    await db.prepare("ALTER TABLE session_players ADD COLUMN gender text").run();
-    const sessions = await columns("game_sessions");
-    if (!sessions.has("mixed_pairs")) {
-      await db.prepare("ALTER TABLE game_sessions ADD COLUMN mixed_pairs integer NOT NULL DEFAULT 0").run();
-    }
-    await record("0005_gender_mixed_pairs.sql");
-  }
-  const sessions = await columns("game_sessions");
-  if (!sessions.has("group_by_level")) {
-    await db.prepare("ALTER TABLE game_sessions ADD COLUMN group_by_level integer NOT NULL DEFAULT 0").run();
-    await record("0006_group_by_level.sql");
-  }
-  // Each column checked on its own, so a half-applied run finishes next time.
-  const hasTeams = sessions.has("fixed_teams");
-  const hasPartner = (await columns("session_players")).has("partner_id");
-  if (!hasTeams) await db.prepare("ALTER TABLE game_sessions ADD COLUMN fixed_teams integer NOT NULL DEFAULT 0").run();
-  if (!hasPartner) await db.prepare("ALTER TABLE session_players ADD COLUMN partner_id text").run();
-  if (!hasTeams || !hasPartner) await record("0007_fixed_teams.sql");
-  if (!sessions.has("court_labels")) {
-    await db.prepare("ALTER TABLE game_sessions ADD COLUMN court_labels text").run();
-    await record("0008_court_labels.sql");
-  }
-  const hasBeginnerCourt = sessions.has("beginner_court");
-  const hasCompetitive = sessions.has("competitive_sitouts");
-  const hasNewbie = (await columns("session_players")).has("newbie");
-  if (!hasBeginnerCourt) await db.prepare("ALTER TABLE game_sessions ADD COLUMN beginner_court integer NOT NULL DEFAULT 0").run();
-  if (!hasCompetitive) await db.prepare("ALTER TABLE game_sessions ADD COLUMN competitive_sitouts integer NOT NULL DEFAULT 0").run();
-  if (!hasNewbie) await db.prepare("ALTER TABLE session_players ADD COLUMN newbie integer NOT NULL DEFAULT 0").run();
-  if (!hasBeginnerCourt || !hasCompetitive || !hasNewbie) await record("0009_beginner_court.sql");
-  // Player profiles + admin flag (0010). Each column on its own so a half-applied run finishes next time.
-  const users = await columns("user");
-  const profileColumns: [string, string][] = [
-    ["first_name", "text"],
-    ["last_name", "text"],
-    ["phone", "text"],
-    ["dob", "text"],
-    ["gender", "text"],
-    ["level", "integer"],
-    ["playtomic_level", "real"],
-    ["is_admin", "integer NOT NULL DEFAULT 0"],
-  ];
-  let addedProfile = false;
-  for (const [name, type] of profileColumns) {
-    if (users.has(name)) continue;
-    await db.prepare(`ALTER TABLE user ADD COLUMN ${name} ${type}`).run();
-    addedProfile = true;
-  }
-  if (addedProfile) await record("0010_player_profiles.sql");
-  // Which court is the beginner court (0011).
-  if (!(await columns("game_sessions")).has("beginner_court_no")) {
-    await db.prepare("ALTER TABLE game_sessions ADD COLUMN beginner_court_no integer NOT NULL DEFAULT 1").run();
-    await record("0011_beginner_court_no.sql");
   }
 }

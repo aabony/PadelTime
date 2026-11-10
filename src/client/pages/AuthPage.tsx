@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { authClient } from "../lib/auth";
-import { Api } from "../lib/api";
+import { Api, ApiError, withTimeout } from "../lib/api";
 import { Button, Card, ErrorNote, Field, Input } from "../components/ui";
 import { Logo } from "../App";
 import { safeNext } from "./ProfilePage";
@@ -54,20 +54,28 @@ export function AuthPage({ mode }: { mode: AuthMode }) {
     return () => clearTimeout(t);
   }, [cooldown]);
 
+  // Whatever happens to a request — a slow network, a dropped connection, a
+  // thrown error — the button comes back with a message. It never just spins.
+  const problem = (e: unknown, fallback: string) => (e instanceof ApiError ? e.message : fallback);
+
   const sendCode = async () => {
     setBusy(true);
     setError(null);
-    const res = await authClient.emailOtp.sendVerificationOtp({
-      email: email.trim().toLowerCase(),
-      type: "sign-in",
-    });
-    setBusy(false);
-    if (res.error) {
-      setError(res.error.message ?? "Couldn't send the code — try again");
-    } else {
-      setStep("code");
-      setCode("");
-      setCooldown(30);
+    try {
+      const res = await withTimeout(
+        authClient.emailOtp.sendVerificationOtp({ email: email.trim().toLowerCase(), type: "sign-in" }),
+      );
+      if (res.error) {
+        setError(res.error.message ?? "Couldn't send the code — try again");
+      } else {
+        setStep("code");
+        setCode("");
+        setCooldown(30);
+      }
+    } catch (e) {
+      setError(problem(e, "Couldn't send the code — check your connection and try again"));
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -76,7 +84,15 @@ export function AuthPage({ mode }: { mode: AuthMode }) {
     verifying.current = true;
     setBusy(true);
     setError(null);
-    const res = await authClient.signIn.emailOtp({ email: email.trim().toLowerCase(), otp });
+    let res: Awaited<ReturnType<typeof authClient.signIn.emailOtp>>;
+    try {
+      res = await withTimeout(authClient.signIn.emailOtp({ email: email.trim().toLowerCase(), otp }));
+    } catch (e) {
+      setBusy(false);
+      verifying.current = false;
+      setError(problem(e, "Couldn't check the code — check your connection and try again"));
+      return;
+    }
     if (res.error) {
       setBusy(false);
       verifying.current = false;

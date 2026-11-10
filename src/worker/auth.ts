@@ -16,10 +16,16 @@ import { sendOtpEmail } from "./lib/email";
 // Instantiated per request: env bindings are request-scoped on Workers, and
 // baseURL follows the request origin so workers.dev and the custom domain
 // both work with zero config changes.
-export function makeAuth(env: Env, origin: string) {
+//
+// `waitUntil` (the request's ExecutionContext) lets the sign-in code email go
+// out after the response: "Email me a code" answers as soon as the code is
+// stored instead of waiting on the mail provider, and the send survives the
+// client disconnecting.
+export function makeAuth(env: Env, origin: string, waitUntil?: (p: Promise<unknown>) => void) {
   const db = drizzle(env.DB, { schema });
   return betterAuth({
     baseURL: origin,
+    advanced: waitUntil ? { backgroundTasks: { handler: waitUntil } } : undefined,
     secret: env.BETTER_AUTH_SECRET || "insecure-dev-secret-change-me",
     database: drizzleAdapter(db, {
       provider: "sqlite",

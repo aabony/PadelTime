@@ -17,12 +17,35 @@ export class ApiError extends Error {
   }
 }
 
-async function req<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`/api${path}`, {
-    credentials: "same-origin",
-    headers: init?.body ? { "Content-Type": "application/json" } : undefined,
-    ...init,
+/** No request should leave a spinner turning forever: give up after this long and say so. */
+export const REQUEST_TIMEOUT_MS = 20000;
+export const TIMED_OUT = "That took too long — check your connection and try again";
+
+/** Reject with a plain message if `work` hasn't settled in time (the request itself may still finish). */
+export function withTimeout<T>(work: Promise<T>, ms = REQUEST_TIMEOUT_MS): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const limit = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new ApiError(TIMED_OUT, 408)), ms);
   });
+  return Promise.race([work, limit]).finally(() => clearTimeout(timer));
+}
+
+async function req<T>(path: string, init?: RequestInit): Promise<T> {
+  // AbortSignal.timeout cancels the request itself where the browser has it.
+  const signal = typeof AbortSignal !== "undefined" && "timeout" in AbortSignal ? AbortSignal.timeout(REQUEST_TIMEOUT_MS) : undefined;
+  let res: Response;
+  try {
+    res = await fetch(`/api${path}`, {
+      credentials: "same-origin",
+      headers: init?.body ? { "Content-Type": "application/json" } : undefined,
+      signal,
+      ...init,
+    });
+  } catch (e) {
+    const name = (e as Error)?.name;
+    if (name === "TimeoutError" || name === "AbortError") throw new ApiError(TIMED_OUT, 408);
+    throw new ApiError("Couldn't reach PadelTime — check your connection and try again", 0);
+  }
   const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
   if (!res.ok) {
     throw new ApiError((data.error as string) ?? `Request failed (${res.status})`, res.status);
