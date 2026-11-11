@@ -759,6 +759,10 @@ const coachCard = org.getByTestId("coached-court");
 await coachCard.getByText("Court 4 · with the coach").waitFor();
 await coachCard.getByText("Coachee1 · Coachee2 · Coachee3").waitFor();
 if ((await org.getByText(/open Court 4/).count()) !== 0) fail("the coached court must not be offered as an empty tournament court");
+// Screen order for the organizer: now playing, up next, then the coach's court.
+const yOf = async (loc) => (await loc.boundingBox()).y;
+const [yNow, yNext, yCoach] = [await yOf(org.getByTestId("now-playing")), await yOf(org.getByTestId("up-next")), await yOf(coachCard)];
+if (!(yNow < yNext && yNext < yCoach)) fail(`expected now playing, then up next, then the coached court — got y ${yNow} / ${yNext} / ${yCoach}`);
 await shot(org, "18-coached-court");
 log("coached court: 12 play the tournament on courts 1–3, 3 newbies train on Court 4 — out of the draw, no table");
 // A player who registered as a Newbie joins from the link and sees where to go.

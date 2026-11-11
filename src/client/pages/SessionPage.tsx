@@ -1084,6 +1084,8 @@ function useNameOf(d: SessionDetail) {
 function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
   const nameOf = useNameOf(d);
   const me = d.players.find((p) => p.id === d.myPlayerId);
+  // Training with the coach tonight (not the organizer's own view of the night).
+  const coachedMe = !isOrganizer && !!me && me.newbie && me.status === "checked_in";
   const latest = d.rounds[d.rounds.length - 1];
   const prior = d.rounds[d.rounds.length - 2];
   // On deck: while a round is being played the next one is already dealt.
@@ -1149,7 +1151,8 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
         </div>
       )}
 
-      {d.coachedActive && <CoachedCourtCard d={d} me={me} isOrganizer={isOrganizer} />}
+      {/* A newbie's own "you're with the coach" comes first, like any player's own card. */}
+      {d.coachedActive && coachedMe && <CoachedCourtCard d={d} me={me} isOrganizer={isOrganizer} />}
 
       {/* A player's own view: the game they're in now, then where they're headed next. */}
       {!isOrganizer && me && me.status === "checked_in" && playing && (
@@ -1269,6 +1272,9 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
         </Card>
         </div>
       )}
+
+      {/* The coach's court sits under the tournament's rounds: now playing, up next, then who's training. */}
+      {d.coachedActive && !coachedMe && <CoachedCourtCard d={d} me={me} isOrganizer={isOrganizer} />}
 
       {isOrganizer && last && (
         <Card>
