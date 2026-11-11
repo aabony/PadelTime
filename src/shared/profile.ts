@@ -12,7 +12,7 @@ export interface PlayerProfile {
   /** ISO date, "YYYY-MM-DD". */
   dob: string;
   gender: Gender;
-  /** Playing level on the app's 2 / 3 / 4 scale (beginner / intermediate / advanced). */
+  /** Playing level on the app's 1–4 scale (newbie / beginner / intermediate / advanced). */
   level: number;
   /** Optional Playtomic level, 0.5 to 7.0 with one decimal. */
   playtomicLevel: number | null;

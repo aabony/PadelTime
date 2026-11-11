@@ -8,7 +8,7 @@ import type { DB } from "../lib/detail";
 import { loadPlayers, loadRounds, loadSessionByCode, poolStandings, splitTables } from "../lib/detail";
 import { parseGender } from "../../shared/genders";
 import type { Gender } from "../../shared/genders";
-import { normalizeLevel, parseLevel } from "../../shared/levels";
+import { isNewbie, normalizeLevel, parseLevel } from "../../shared/levels";
 import { isProfileComplete } from "../../shared/profile";
 import { beginnerCourtOf } from "../../shared/formats/pools";
 import { newId, now } from "../lib/util";
@@ -185,6 +185,8 @@ publicRoutes.post("/join/:code", async (c) => {
         gender: parseGender(guest.gender) ?? gender,
         // A level the organizer already gave this guest wins over the player's own.
         level: normalizeLevel(guest.level) ?? level,
+        // A self-declared Newbie arrives tagged for the beginner court (the organizer's tag stays if already set).
+        newbie: guest.newbie || isNewbie(normalizeLevel(guest.level) ?? level),
       })
       .where(eq(sessionPlayers.id, guest.id));
     return c.json({ status });
@@ -200,6 +202,8 @@ publicRoutes.post("/join/:code", async (c) => {
     checkedInAt,
     gender,
     level,
+    // A self-declared Newbie arrives tagged for the beginner court; the organizer can untag them.
+    newbie: isNewbie(level),
   });
 
   // Joining a session makes you part of its group (recurring-group model, plan §18).

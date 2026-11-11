@@ -20,7 +20,7 @@ export const user = sqliteTable("user", {
   dob: text("dob"),
   /** "woman" | "man". */
   gender: text("gender"),
-  /** 2 beginner, 3 intermediate, 4 advanced. */
+  /** 1 newbie, 2 beginner, 3 intermediate, 4 advanced. */
   level: integer("level"),
   /** Optional Playtomic level, 0.5–7.0. */
   playtomicLevel: real("playtomic_level"),
@@ -159,7 +159,7 @@ export const sessionPlayers = sqliteTable(
     status: text("status").notNull().default("confirmed"),
     joinedAt: integer("joined_at").notNull(),
     checkedInAt: integer("checked_in_at"),
-    /** Organizer-set level: 2 beginner, 3 intermediate, 4 advanced (old 1 reads as beginner); null = not set. Organizer-only. */
+    /** Organizer-set level: 1 newbie, 2 beginner, 3 intermediate, 4 advanced; null = not set. Organizer-only. */
     level: integer("level"),
     /** "woman" | "man" | null — drives the mixed-pairs option. */
     gender: text("gender"),

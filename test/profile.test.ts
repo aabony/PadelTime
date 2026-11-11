@@ -66,10 +66,10 @@ describe("validateProfile", () => {
     }
   });
 
-  it("reads levels sent as strings and accepts the legacy 1 as beginner", () => {
+  it("reads levels sent as strings and accepts Newbie (1)", () => {
     expect(validateProfile({ ...good, level: "4" }, today).ok).toBe(true);
     const r = validateProfile({ ...good, level: 1 }, today);
-    expect(r.ok && r.profile.level).toBe(2);
+    expect(r.ok && r.profile.level).toBe(1);
   });
 });
 

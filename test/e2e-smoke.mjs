@@ -36,7 +36,7 @@ const contextOpts = { ignoreHTTPSErrors: !!(process.env.HTTPS_PROXY || process.e
 // Passwordless sign-in: request a code, read it from the DEV_MODE-only
 // endpoint (stands in for the inbox), verify, then fill in the profile the
 // first time (first/last name, phone, DOB, gender, level — Playtomic optional).
-async function otpSignIn(page, name, email) {
+async function otpSignIn(page, name, email, level = "Intermediate") {
   await page.getByPlaceholder("you@example.com").fill(email);
   await page.getByRole("button", { name: "Email me a code" }).click();
   await page.getByPlaceholder("••••••").waitFor({ timeout: 10000 });
@@ -54,7 +54,7 @@ async function otpSignIn(page, name, email) {
     await page.getByLabel("Phone").fill("+34 600 123 456");
     await page.getByLabel("Date of birth").fill("1990-05-04");
     await page.getByRole("group", { name: "Gender" }).getByRole("button", { name: /Man/ }).click();
-    await page.getByRole("group", { name: "Your level" }).getByRole("button", { name: /Intermediate/ }).click();
+    await page.getByRole("group", { name: "Your level" }).getByRole("button", { name: new RegExp(level) }).click();
     await page.getByLabel("Playtomic level (optional)").fill("3.5");
     await page.getByRole("button", { name: "Let's play" }).click();
   } catch {
@@ -712,6 +712,22 @@ const redealt = bd.rounds[1];
 if (redealt.matches.find((m) => m.court === 2) && [...redealt.matches.find((m) => m.court === 2).a, ...redealt.matches.find((m) => m.court === 2).b].includes(mover.id)) fail("the moved-up player should leave the beginner court");
 if (!redealt.matches.some((m) => m.court !== 2 && [...m.a, ...m.b].includes(mover.id)) && !redealt.byes.includes(mover.id)) fail("the moved-up player should be in the ladder now");
 if (bd.standings.length !== 9 || bd.beginnerStandings.length !== 5) fail("the tables should follow the tag: 9 in the ladder, 5 on the beginner court");
+// A player who registered as a Newbie arrives already tagged for the beginner court.
+const niaCtx = await newContext({ ...contextOpts, viewport: { width: 390, height: 844 } });
+const nia = await niaCtx.newPage();
+await nia.goto(`${BASE}/join/${bd.inviteCode}`);
+await nia.getByRole("button", { name: "Register to join →" }).click();
+await nia.waitForURL("**/register**");
+await otpSignIn(nia, "Nia", `nia${run}@test.com`, "Newbie");
+await nia.waitForURL("**/join/**", { timeout: 15000 });
+if ((await nia.getByRole("group", { name: "Your level" }).getByRole("button", { name: /Newbie/ }).getAttribute("aria-pressed")) !== "true") fail("the join page should preselect the profile's Newbie level");
+await nia.getByRole("button", { name: /Join — deal me in/ }).click({ timeout: 15000 });
+await nia.getByText(/You're in ✓/).waitFor({ timeout: 10000 });
+bd = await api("GET", `/sessions/${bc.id}`);
+const niaRow = bd.players.find((p) => p.name.startsWith("Nia"));
+if (!niaRow || niaRow.level !== 1 || !niaRow.newbie) fail(`a self-declared Newbie should join at level 1 and tagged newbie, got ${JSON.stringify(niaRow)}`);
+if (bd.beginnerStandings.length !== 6) fail("the Newbie who just joined should be on the beginner court's table");
+log("a player who registered as a Newbie joins already tagged for the beginner court");
 // Results carry both tables to the public page.
 for (const m of bd.rounds[0].matches) await api("POST", `/matches/${m.id}/score`, { scoreA: 10, scoreB: 6 });
 await api("POST", `/sessions/${bc.id}/status`, { action: "complete" });

@@ -2,7 +2,7 @@ import { LEVELS, levelMeta } from "../../shared/levels";
 import { cls } from "./ui";
 
 /**
- * The organizer's level picker for any player (Beginner / Intermediate /
+ * The organizer's level picker for any player (Newbie / Beginner / Intermediate /
  * Advanced). A native select so it's one tap on a phone.
  */
 export function LevelSelect({
@@ -40,7 +40,7 @@ export function LevelSelect({
   );
 }
 
-/** A player's own level: three buttons for the join page / status card. */
+/** A player's own level: one button per level (2 × 2 on a phone) for the profile, the join page and the status card. */
 export function LevelToggle({
   value,
   onChange,
@@ -52,7 +52,7 @@ export function LevelToggle({
 }) {
   const current = levelMeta(value)?.value ?? null;
   return (
-    <div className="grid grid-cols-3 gap-2" role="group" aria-label="Your level">
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" role="group" aria-label="Your level">
       {LEVELS.map((l) => {
         const on = current === l.value;
         return (

@@ -77,7 +77,7 @@ export interface PlayerRow {
   joinedAt: number;
   /** "woman" | "man" | null — used by the mixed-pairs option. */
   gender: "woman" | "man" | null;
-  /** Organizer-set level (2 beginner, 3 intermediate, 4 advanced). Only ever sent to the organizer; null for everyone else. */
+  /** Level (1 newbie, 2 beginner, 3 intermediate, 4 advanced). Only ever sent to the organizer; null for everyone else. */
   level: number | null;
   /** Fixed partner's session_player id when the session keeps teams together. */
   partnerId: string | null;

@@ -8,6 +8,7 @@ import { LevelToggle } from "../components/LevelSelect";
 import { Logo } from "../App";
 import { PLAYTOMIC_MAX, PLAYTOMIC_MIN, validateProfile } from "../../shared/profile";
 import type { Gender } from "../../shared/genders";
+import { levelMeta } from "../../shared/levels";
 import type { UserInfo } from "../../shared/types";
 
 // The player profile — asked once, right after the first sign-in code, and
@@ -130,7 +131,10 @@ export function ProfileForm({ user, next }: { user: UserInfo; next: string | nul
         <FieldGroup label="You are" hint="Needed for mixed-pairs nights (one woman + one man per team).">
           <GenderToggle value={form.gender} onChange={(gender) => set("gender", gender)} />
         </FieldGroup>
-        <FieldGroup label="Your level" hint="Only you and the organizer see it. You can change it later.">
+        <FieldGroup
+          label="Your level"
+          hint={`${levelMeta(form.level)?.blurb ?? "Pick the one that fits best."} Only you and the organizer see it; you can change it later.`}
+        >
           <LevelToggle value={form.level} onChange={(level) => set("level", level)} />
         </FieldGroup>
         <Field label="Playtomic level (optional)" hint={`The number on your Playtomic profile, ${PLAYTOMIC_MIN} to ${PLAYTOMIC_MAX}.`}>

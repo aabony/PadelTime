@@ -1,18 +1,24 @@
 import { describe, expect, it } from "vitest";
-import { isBeginner, levelMeta, normalizeLevel, parseLevel } from "../src/shared/levels";
+import { LEVELS, isBeginner, isNewbie, levelMeta, normalizeLevel, parseLevel } from "../src/shared/levels";
 
 describe("playing levels", () => {
-  it("parses the three levels from the wire", () => {
+  it("parses the four levels from the wire", () => {
+    expect(parseLevel(1)).toBe(1);
     expect(parseLevel(2)).toBe(2);
     expect(parseLevel("3")).toBe(3);
     expect(parseLevel(4)).toBe(4);
   });
 
-  it("reads the old 'Newbie' value 1 as Beginner", () => {
-    expect(parseLevel(1)).toBe(2);
-    expect(normalizeLevel(1)).toBe(2);
-    expect(levelMeta(1)?.label).toBe("Beginner");
+  it("Newbie is its own level, below Beginner, on the beginner side of the grouping line", () => {
+    expect(normalizeLevel(1)).toBe(1);
+    expect(levelMeta(1)?.label).toBe("Newbie");
+    expect(LEVELS.map((l) => l.label)).toEqual(["Newbie", "Beginner", "Intermediate", "Advanced"]);
+    expect(isNewbie(1)).toBe(true);
+    expect(isNewbie(2)).toBe(false);
+    expect(isNewbie(null)).toBe(false);
     expect(isBeginner(1)).toBe(true);
+    expect(isBeginner(2)).toBe(true);
+    expect(LEVELS.every((l) => l.blurb.length > 0)).toBe(true);
   });
 
   it("rejects anything else", () => {
@@ -22,7 +28,7 @@ describe("playing levels", () => {
   });
 
   it("labels each level", () => {
-    expect([2, 3, 4].map((v) => levelMeta(v)?.label)).toEqual(["Beginner", "Intermediate", "Advanced"]);
+    expect([1, 2, 3, 4].map((v) => levelMeta(v)?.label)).toEqual(["Newbie", "Beginner", "Intermediate", "Advanced"]);
     expect(isBeginner(3)).toBe(false);
     expect(isBeginner(null)).toBe(false);
   });
