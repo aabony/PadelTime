@@ -9,6 +9,7 @@ import { JoinPage } from "./pages/JoinPage";
 import { PrintSheetPage } from "./pages/PrintSheetPage";
 import { PlanPage } from "./pages/PlanPage";
 import { ProfilePage } from "./pages/ProfilePage";
+import { MembersPage } from "./pages/MembersPage";
 import { firstName } from "./lib/format";
 
 export function Logo({ to = "/app" }: { to?: string }) {
@@ -81,6 +82,7 @@ export function App() {
       <Route element={<AppLayout />}>
         <Route path="/app" element={<Home />} />
         <Route path="/app/sessions/:id" element={<SessionPage />} />
+        <Route path="/app/members" element={<MembersPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

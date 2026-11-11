@@ -8,6 +8,7 @@ import type {
   SessionDetail,
   UserInfo,
 } from "../../shared/types";
+import type { MembersResponse } from "../../shared/members";
 
 export class ApiError extends Error {
   status: number;
@@ -58,6 +59,7 @@ const patch = (body: unknown): RequestInit => ({ method: "PATCH", body: JSON.str
 
 export const Api = {
   me: () => req<MeResponse>("/me"),
+  members: () => req<MembersResponse>("/admin/members"),
   saveProfile: (body: Record<string, unknown>) =>
     req<{ user: UserInfo }>("/me/profile", { method: "PUT", body: JSON.stringify(body) }),
   createGroup: (name: string) => req<{ id: string }>("/groups", post({ name })),

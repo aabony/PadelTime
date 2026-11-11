@@ -5,6 +5,8 @@ import * as schema from "../db/schema";
 import { makeAuth } from "../auth";
 import { normalizeLevel } from "../../shared/levels";
 import { parseGender } from "../../shared/genders";
+import { adminRoutes } from "./admin";
+import { isAdminEmail } from "./admins";
 import type { ApiCtx, AuthedUser } from "./context";
 import { groupRoutes } from "./groups";
 import { matchRoutes } from "./matches";
@@ -13,17 +15,7 @@ import { sessionRoutes } from "./sessions";
 
 export const api = new Hono<ApiCtx>();
 
-/** ADMIN_EMAILS: "a@x.com, b@y.com, *@club.com" — exact addresses or whole domains. */
-export function isAdminEmail(list: string | undefined, email: string): boolean {
-  const e = email.trim().toLowerCase();
-  if (!e) return false;
-  const domain = e.slice(e.indexOf("@"));
-  return (list ?? "")
-    .split(",")
-    .map((s) => s.trim().toLowerCase())
-    .filter(Boolean)
-    .some((entry) => entry === e || (entry.startsWith("*@") && entry.slice(1) === domain));
-}
+export { isAdminEmail };
 
 api.use("*", async (c, next) => {
   const db = drizzle(c.env.DB, { schema });
@@ -57,6 +49,7 @@ api.use("*", async (c, next) => {
 
 api.get("/health", (c) => c.json({ ok: true }));
 api.route("/", groupRoutes);
+api.route("/", adminRoutes);
 api.route("/", sessionRoutes);
 api.route("/", matchRoutes);
 api.route("/", publicRoutes);

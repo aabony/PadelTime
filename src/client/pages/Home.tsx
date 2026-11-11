@@ -105,9 +105,16 @@ export function Home() {
           <h1 className="whitespace-nowrap text-2xl font-black tracking-tight text-navy">Hey {firstName(data.user.name)} 👋</h1>
         </div>
         {admin && (
-          <Button className="shrink-0 whitespace-nowrap" aria-label="New session" onClick={() => setShowCreate(true)}>
-            + New session
-          </Button>
+          <div className="flex shrink-0 items-center gap-2">
+            <Link to="/app/members">
+              <Button variant="outline" className="whitespace-nowrap" aria-label="Members">
+                👥<span className="hidden sm:inline">&nbsp;Members</span>
+              </Button>
+            </Link>
+            <Button className="whitespace-nowrap" aria-label="New session" onClick={() => setShowCreate(true)}>
+              + New session
+            </Button>
+          </div>
         )}
       </div>
 

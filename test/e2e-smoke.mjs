@@ -899,5 +899,32 @@ if (vCourts !== "1,2" || vPoints !== "16" || vMax !== "11")
   fail(`signed-out hand-off expected courts 2 / points 16 / max 11 after sign-in, got ${vCourts} / ${vPoints} / ${vMax}`);
 log("signed-out planner → sign in → lands on the prefilled form (2 courts · 16 points · 11 max)");
 
+// --- Admin: the members list ---------------------------------------------------
+const membersRefused = await paula.request.get(`${BASE}/api/admin/members`);
+if (membersRefused.status() !== 403) fail(`a player must not read the members list, got ${membersRefused.status()}`);
+const membersList = await api("GET", "/admin/members");
+const paulaRow = membersList.members.find((m) => m.email === `paula${run}@test.com`);
+if (!paulaRow) fail("Paula should be on the members list");
+if (paulaRow.firstName !== "Paula" || paulaRow.phone !== "+34600123456" || paulaRow.dob !== "1990-05-04" || paulaRow.level !== 3 || paulaRow.playtomicLevel !== 3.5) fail(`Paula's profile should be listed, got ${JSON.stringify(paulaRow)}`);
+if (paulaRow.stats.tournaments < 1 || paulaRow.stats.games < 1 || paulaRow.stats.wins + paulaRow.stats.losses + paulaRow.stats.ties !== paulaRow.stats.games) fail(`Paula's stats should count her games, got ${JSON.stringify(paulaRow.stats)}`);
+if (!membersList.members.find((m) => m.email === `andrew${run}@admin.test`)?.isAdmin) fail("the organizer should be marked as an admin");
+await org.goto(`${BASE}/app`);
+await org.getByRole("button", { name: "Members" }).click();
+await org.waitForURL("**/app/members");
+await org.getByRole("heading", { name: "Members" }).waitFor({ timeout: 10000 });
+await org.getByRole("searchbox", { name: "Search members" }).fill(`paula${run}`);
+const cards = org.getByTestId("members").locator("li");
+await org.waitForFunction(() => document.querySelectorAll('[data-testid="members"] li').length === 1, null, { timeout: 10000 });
+await cards.first().getByText("Paula Test").waitFor();
+await cards.first().getByRole("link", { name: "+34600123456" }).waitFor();
+await cards.first().getByText("💪 Intermediate").waitFor();
+await shot(org, "19-members");
+const [dl] = await Promise.all([org.waitForEvent("download"), org.getByRole("button", { name: /Export CSV/ }).click()]);
+if (!/^padeltime-members-\d{4}-\d{2}-\d{2}\.csv$/.test(dl.suggestedFilename())) fail(`unexpected export name ${dl.suggestedFilename()}`);
+await paula.goto(`${BASE}/app/members`);
+await paula.getByText("Admins only").waitFor({ timeout: 10000 });
+if ((await paula.getByRole("button", { name: "Members" }).count()) !== 0) fail("players must not see the Members button");
+log("admin members list: profile, contact and game stats per member; search, CSV export; players are refused");
+
 await browser.close();
 console.log("\nE2E SMOKE: ALL PASSED ✅");
