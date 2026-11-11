@@ -7,7 +7,7 @@ import { gameSessions, groupMembers, groups, matches, rounds, sessionPlayers, us
 import { buildHistory, creditAbsences } from "../../shared/history";
 import { poolRounds, poolsActive } from "../../shared/formats/pools";
 import { computeNudges } from "../../shared/nudges";
-import { beginnerCourtOf } from "../../shared/formats/pools";
+import { beginnerCourtOf, coachedActive } from "../../shared/formats/pools";
 import { computeStandings, computeTeamStandings } from "../../shared/standings";
 import type {
   MatchRow,
@@ -161,6 +161,19 @@ export function splitTables(session: Pick<SessionRow, "beginnerCourt" | "fixedTe
   return session.beginnerCourt && !session.fixedTeams && session.courts >= 2 && players.some((p) => p.newbie);
 }
 
+/** Whether a session's beginner court is a coached court tonight (newbies train there, out of the draw). */
+export function isCoached(session: Pick<SessionRow, "beginnerCourt" | "beginnerCourtCoached" | "fixedTeams" | "courts">): boolean {
+  return coachedActive({ beginnerCourt: session.beginnerCourt, coached: session.beginnerCourtCoached, fixedTeams: session.fixedTeams, courts: session.courts });
+}
+
+/**
+ * The beginner court's table to show: on a coached court nobody plays games,
+ * so there's no table unless games were played there earlier in the night.
+ */
+export function beginnerTable(coached: boolean, table: StandingRow[] | undefined): StandingRow[] | undefined {
+  return coached && !table?.some((r) => r.played > 0) ? undefined : table;
+}
+
 /** The two tables: the ladder from its courts, the beginner court's from its own — each for the players currently in that pool. */
 export function poolStandings(
   players: PlayerRow[],
@@ -179,6 +192,8 @@ export function computeWarnings(
   fixedTeams = false,
   labels: string[] = [],
   pools = false,
+  /** Coached court: the newbies are with the coach, not in the rotation, so their sit-outs aren't compared. */
+  coached = false,
 ): string[] {
   // Things to act on first; partner repeats (often unavoidable) fill whatever room is left.
   const warnings: string[] = [];
@@ -236,7 +251,11 @@ export function computeWarnings(
   const rotating = activeIds.filter((id) => !benched.has(id));
   // Beginner court: each pool rotates on its own, so fairness is judged within the pool.
   const newbie = new Set(players.filter((p) => p.newbie).map((p) => p.id));
-  const groups = pools ? [rotating.filter((id) => newbie.has(id)), rotating.filter((id) => !newbie.has(id))] : [rotating];
+  const groups = coached
+    ? [rotating.filter((id) => !newbie.has(id))]
+    : pools
+      ? [rotating.filter((id) => newbie.has(id)), rotating.filter((id) => !newbie.has(id))]
+      : [rotating];
   for (const group of groups) {
     if (group.length === 0 || allRounds.length === 0) continue;
     // Same accounting as the engine: rounds a late arrival missed count as their share of sit-outs.
@@ -289,6 +308,7 @@ export async function buildDetail(
   }
 
   const split = splitTables(session, players);
+  const coached = isCoached(session);
   const beginnerCourt = beginnerCourtOf(session);
   const tables = split ? poolStandings(players, roundRows, beginnerCourt) : null;
   const standings = tables ? tables.ladder : computeStandings(players, roundRows);
@@ -318,8 +338,10 @@ export async function buildDetail(
     fixedTeams: session.fixedTeams,
     beginnerCourt: session.beginnerCourt,
     beginnerCourtNo: beginnerCourt,
+    beginnerCourtCoached: session.beginnerCourtCoached,
+    coachedActive: coached,
     competitiveSitouts: session.competitiveSitouts,
-    poolsActive: poolsActive({
+    poolsActive: !coached && poolsActive({
       beginnerCourt: session.beginnerCourt,
       fixedTeams: session.fixedTeams,
       courts: session.courts,
@@ -333,13 +355,14 @@ export async function buildDetail(
     players:
       myRole === "organizer"
         ? players
-        : players.map((p) => ({ ...p, level: p.id === myPlayerId ? p.level : null, newbie: false, playtomicLevel: null, phone: null })),
+        : // On a coached court who's with the coach is no secret (they're on that court), so the tag is sent.
+          players.map((p) => ({ ...p, level: p.id === myPlayerId ? p.level : null, newbie: coached && p.newbie, playtomicLevel: null, phone: null })),
     rounds: roundRows,
     standings,
     teamStandings: session.fixedTeams ? computeTeamStandings(players, roundRows) : undefined,
-    beginnerStandings: tables?.beginner,
-    nudges: myRole === "organizer" && split ? computeNudges(players, roundRows, beginnerCourt) : undefined,
-    warnings: myRole === "organizer" ? computeWarnings(players, roundRows, session.fixedTeams, parseCourtLabels(session.courtLabels ?? ""), split) : [],
+    beginnerStandings: beginnerTable(coached, tables?.beginner),
+    nudges: myRole === "organizer" && split && !coached ? computeNudges(players, roundRows, beginnerCourt) : undefined,
+    warnings: myRole === "organizer" ? computeWarnings(players, roundRows, session.fixedTeams, parseCourtLabels(session.courtLabels ?? ""), split, coached) : [],
     counts,
     createdAt: session.createdAt,
   };

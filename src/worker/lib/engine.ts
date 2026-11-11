@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { getFormat } from "../../shared/formats/registry";
-import { beginnerCourtOf, planWithPools, poolRounds, poolsActive } from "../../shared/formats/pools";
+import { beginnerCourtOf, coachedActive, planCoached, planWithPools, poolRounds, poolsActive } from "../../shared/formats/pools";
 import { autoPair } from "../../shared/formats/teams";
 import type { EngineContext, PlannedMatch } from "../../shared/formats/types";
 import type { MatchRow, RoundRow } from "../../shared/types";
@@ -30,7 +30,9 @@ export async function generateNextRound(
   const players = (await db.select().from(sessionPlayers).where(eq(sessionPlayers.sessionId, session.id))).sort(
     (a, b) => a.joinedAt - b.joinedAt,
   );
-  const eligible = players.filter((p) => p.status === "checked_in").map((p) => p.id);
+  // Coached court: the players tagged Newbie are with the coach, not in the draw.
+  const coached = coachedActive({ beginnerCourt: session.beginnerCourt, coached: session.beginnerCourtCoached, fixedTeams: session.fixedTeams, courts: session.courts });
+  const eligible = players.filter((p) => p.status === "checked_in" && !(coached && p.newbie)).map((p) => p.id);
   const levels: Record<string, number> = {};
   const genders: Record<string, "woman" | "man"> = {};
   for (const p of players) {
@@ -61,16 +63,18 @@ export async function generateNextRound(
   // Beginner court: the newbies play their court among themselves; the ladder is ranked from its own courts only.
   const newbies = players.filter((p) => p.newbie && p.status === "checked_in").map((p) => p.id);
   const beginnerCourt = beginnerCourtOf(session);
-  const pools = poolsActive({
-    beginnerCourt: session.beginnerCourt,
-    fixedTeams: session.fixedTeams,
-    courts: session.courts,
-    eligible: eligible.length,
-    newbies: newbies.length,
-  });
+  const pools =
+    !coached &&
+    poolsActive({
+      beginnerCourt: session.beginnerCourt,
+      fixedTeams: session.fixedTeams,
+      courts: session.courts,
+      eligible: eligible.length,
+      newbies: newbies.length,
+    });
   // Ranked formats deal courts from points per match played (bye-adjusted).
   const ranked = rankForCourts(
-    computeStandings(players.map((p) => ({ id: p.id, name: p.id })), pools ? poolRounds(played, "ladder", beginnerCourt) : played),
+    computeStandings(players.map((p) => ({ id: p.id, name: p.id })), pools || coached ? poolRounds(played, "ladder", beginnerCourt) : played),
   ).filter((r) => r.played > 0);
 
   const ctx: EngineContext = {
@@ -89,7 +93,11 @@ export async function generateNextRound(
   };
   if (session.fixedTeams) ctx.teams = await fixTeams(db, players, eligible, { ...ctx, levels });
 
-  const plan = pools ? planWithPools(ctx, format, newbies, beginnerCourt) : format.planRound(ctx);
+  const plan = coached
+    ? planCoached(ctx, format, [], beginnerCourt) // the newbies are already out of `eligible`
+    : pools
+      ? planWithPools(ctx, format, newbies, beginnerCourt)
+      : format.planRound(ctx);
   if (plan.matches.length === 0) {
     if (session.fixedTeams) {
       return { error: "Keep teams together needs two full teams checked in — check in both partners, or change the pairings." };
@@ -98,7 +106,7 @@ export async function generateNextRound(
   }
 
   if (latest && finishing.length) {
-    plan.matches = courtsWhenDealtAhead(plan.matches, latest.matches, ctx.courts, pools ? beginnerCourt : 0);
+    plan.matches = courtsWhenDealtAhead(plan.matches, latest.matches, ctx.courts, pools || coached ? beginnerCourt : 0);
   }
 
   const ts = now();
@@ -158,9 +166,10 @@ export async function keepUpNext(db: DB, session: SessionRow): Promise<void> {
   }
 }
 
-/** Whether the beginner court is running tonight (the toggle, and newbies checked in among enough players). */
+/** Whether the beginner court is set aside tonight: coached, or a games court with newbies checked in among enough players. */
 export async function beginnerCourtActive(db: DB, session: SessionRow): Promise<boolean> {
   if (!session.beginnerCourt || session.fixedTeams) return false;
+  if (coachedActive({ beginnerCourt: true, coached: session.beginnerCourtCoached, courts: session.courts })) return true;
   const players = await db.select().from(sessionPlayers).where(eq(sessionPlayers.sessionId, session.id));
   const here = players.filter((p) => p.status === "checked_in");
   return poolsActive({

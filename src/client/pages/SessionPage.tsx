@@ -38,6 +38,7 @@ import { NIGHT_TYPES, flagsOf, nightTypeOf } from "../../shared/nightTypes";
 import { PartnerSelect } from "../components/PartnerSelect";
 import { CourtNumbersField } from "../components/CourtNumbersField";
 import { courtLabel, fitCourtLabels, parseCourtLabels } from "../../shared/courts";
+import { ladderCourts } from "../../shared/formats/pools";
 import { NightSummary } from "../components/NightSummary";
 import { formatMeta } from "../../shared/formatMeta";
 
@@ -231,7 +232,11 @@ function Hero({ d, isOrganizer, onSettings }: { d: SessionDetail; isOrganizer: b
           {d.mixedPairs && <Badge tone="zinc">👩👨 Mixed pairs</Badge>}
           {d.groupByLevel && <Badge tone="zinc">🎚️ Grouped by level</Badge>}
           {d.fixedTeams && <Badge tone="zinc">🤝 Fixed teams</Badge>}
-          {d.beginnerCourt && !d.fixedTeams && <Badge tone="zinc">🌱 Beginner court {courtLabel(d.courtLabels, d.beginnerCourtNo)}</Badge>}
+          {d.beginnerCourt && !d.fixedTeams && (
+            <Badge tone="zinc">
+              {d.beginnerCourtCoached ? "🎓 Coached court" : "🌱 Beginner court"} {courtLabel(d.courtLabels, d.beginnerCourtNo)}
+            </Badge>
+          )}
           {d.competitiveSitouts && <Badge tone="zinc">🏁 Competitive sit-outs</Badge>}
         </div>
         <h1 className="mt-2 text-2xl font-black leading-tight tracking-tight text-navy">{d.name}</h1>
@@ -401,6 +406,7 @@ function SettingsModal({
     fixedTeams: d.fixedTeams,
     beginnerCourt: d.beginnerCourt,
     beginnerCourtNo: d.beginnerCourtNo,
+    beginnerCourtCoached: d.beginnerCourtCoached,
     competitiveSitouts: d.competitiveSitouts,
   });
   // Every score on the board adds up to the points per game, so they can't change once one is in.
@@ -465,6 +471,8 @@ function SettingsModal({
               courtLabels={fitCourtLabels(parseCourtLabels(form.courtLabels), form.courts)}
               courtNo={form.beginnerCourtNo}
               onCourtChange={(beginnerCourtNo) => setForm({ ...form, beginnerCourtNo })}
+              coached={form.beginnerCourtCoached}
+              onCoachedChange={(beginnerCourtCoached) => setForm({ ...form, beginnerCourtCoached })}
               note={live ? "Applies from the next round." : undefined}
               onChange={(beginnerCourt) => setForm({ ...form, beginnerCourt })}
             />
@@ -501,6 +509,7 @@ function SettingsModal({
                 fixedTeams: form.fixedTeams,
                 beginnerCourt: form.beginnerCourt && !form.fixedTeams,
                 beginnerCourtNo: form.beginnerCourtNo,
+                beginnerCourtCoached: form.beginnerCourtCoached,
                 competitiveSitouts: form.competitiveSitouts,
               });
               onClose();
@@ -623,7 +632,10 @@ function partnerOf(d: SessionDetail, p: PlayerRow): PlayerRow | undefined {
  * What a round can fill from these players. With Keep teams together only whole
  * teams play: pairs who are both here, plus the unpaired paired up (the engine's rule).
  */
-function roundCapacity(d: SessionDetail, here: PlayerRow[]) {
+function roundCapacity(d: SessionDetail, everyone: PlayerRow[]) {
+  // Coached court: the newbies are with the coach and that court isn't dealt.
+  const here = d.coachedActive ? everyone.filter((p) => !p.newbie) : everyone;
+  const courtsInPlay = d.coachedActive ? d.courts - 1 : d.courts;
   let playable = here.length;
   if (d.fixedTeams) {
     const ids = new Set(here.map((p) => p.id));
@@ -633,7 +645,7 @@ function roundCapacity(d: SessionDetail, here: PlayerRow[]) {
     }).length;
     playable = 2 * (pairs + Math.floor(here.filter((p) => !partnerOf(d, p)).length / 2));
   }
-  const courts = Math.min(d.courts, Math.floor(playable / 4));
+  const courts = Math.min(courtsInPlay, Math.floor(playable / 4));
   return { playable, courts, sitting: here.length - courts * 4 };
 }
 const signedUp = (d: SessionDetail) => d.players.filter((p) => p.status === "confirmed" || p.status === "checked_in");
@@ -840,6 +852,15 @@ function PlayersCard({ d, isOrganizer, run, busyKey }: ViewProps) {
 /** Beginner court: how many are tagged, and the reminder that the tag is the organizer's call. */
 function NewbieHint({ d, players }: { d: SessionDetail; players: PlayerRow[] }) {
   const n = players.filter((p) => p.newbie).length;
+  if (d.beginnerCourtCoached) {
+    return (
+      <p className="mt-3 rounded-xl bg-canvas px-3 py-2 text-xs text-muted">
+        🎓 With the coach: <b className={n === 0 ? "text-amber-dark" : "text-navy"}>{n}</b> of {players.length} · they train on Court{" "}
+        {courtLabel(d.courtLabels, d.beginnerCourtNo)} and aren't in the draw{n === 0 && " — tag them above"}. Untag someone to bring them into the tournament
+        from the next round dealt.
+      </p>
+    );
+  }
   return (
     <p className="mt-3 rounded-xl bg-canvas px-3 py-2 text-xs text-muted">
       🌱 Newbies tagged: <b className={n === 0 ? "text-amber-dark" : "text-navy"}>{n}</b> of {players.length} · they play Court{" "}
@@ -890,8 +911,11 @@ function MyStatusCard({ d, run, busyKey }: { d: SessionDetail; run: Run; busyKey
 }
 
 function StartPreview({ d, run, busyKey }: { d: SessionDetail; run?: Run; busyKey?: string | null }) {
-  const ready = d.counts.confirmed + d.counts.checkedIn;
-  if (ready === 0) return null;
+  const everyone = d.counts.confirmed + d.counts.checkedIn;
+  if (everyone === 0) return null;
+  // Coached court: the newbies train with the coach, so the numbers are for the tournament on the other courts.
+  const coachedCount = d.coachedActive ? signedUp(d).filter((p) => p.newbie).length : 0;
+  const ready = everyone - coachedCount;
   const canApply = run && d.myRole === "organizer" && d.rounds.length === 0;
   // Keep teams together: only whole teams play; the rest sit until paired.
   const cap = roundCapacity(d, signedUp(d));
@@ -901,10 +925,15 @@ function StartPreview({ d, run, busyKey }: { d: SessionDetail; run?: Run; busyKe
         players={d.fixedTeams ? cap.playable : ready}
         idle={d.fixedTeams ? ready - cap.playable : 0}
         teams={d.fixedTeams}
-        courts={d.courts}
+        courts={d.coachedActive ? d.courts - 1 : d.courts}
         durationMin={d.durationMin}
         points={d.pointsPerMatch}
-        beginnerCourt={d.beginnerCourt && !d.fixedTeams}
+        coachNote={
+          d.coachedActive
+            ? `🎓 Court ${courtLabel(d.courtLabels, d.beginnerCourtNo)} is the coached court${coachedCount ? ` (${coachedCount} with the coach)` : ""}. These numbers are for the tournament on the other ${d.courts - 1} court${d.courts - 1 === 1 ? "" : "s"}.`
+            : undefined
+        }
+        beginnerCourt={d.beginnerCourt && !d.fixedTeams && !d.coachedActive}
         newbies={d.myRole === "organizer" ? signedUp(d).filter((p) => p.newbie).length : undefined}
         courtName={courtLabel(d.courtLabels, d.beginnerCourtNo)}
         onPick={canApply ? (pointsPerMatch) => run("rec", () => Api.updateSession(d.id, { pointsPerMatch })) : undefined}
@@ -1119,6 +1148,8 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
           ))}
         </div>
       )}
+
+      {d.coachedActive && <CoachedCourtCard d={d} me={me} isOrganizer={isOrganizer} />}
 
       {/* A player's own view: the game they're in now, then where they're headed next. */}
       {!isOrganizer && me && me.status === "checked_in" && playing && (
@@ -1672,17 +1703,20 @@ function SitsNext({ round }: { round: RoundRow }) {
 
 /** Booked courts sitting empty: say why (too few players or teams), and what opens the next one. */
 function IdleCourtsNote({ d, inPlay }: { d: SessionDetail; inPlay: number }) {
-  if (inPlay >= d.courts) return null;
+  // Coached court: that court is the coach's, and the newbies aren't counted — only the tournament's courts and players.
+  const courts = d.coachedActive ? d.courts - 1 : d.courts;
+  if (inPlay >= courts) return null;
   const { playable } = roundCapacity(d, checkedIn(d));
-  const here = checkedIn(d).length;
+  const here = d.coachedActive ? playable : checkedIn(d).length;
+  const nextCourt = d.coachedActive ? (ladderCourts(d.courts, d.beginnerCourtNo)[inPlay] ?? inPlay + 1) : inPlay + 1;
   const need = (inPlay + 1) * 4 - playable;
   const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
   return (
     <p className="-mt-1 mb-3 rounded-xl bg-canvas px-3 py-2 text-xs text-muted">
-      {plural(inPlay, "court")} of {d.courts} in play: {plural(here, "player")}
+      {plural(inPlay, "court")} of {courts} in play: {plural(here, "player")}
       {d.fixedTeams && ` (${plural(Math.floor(playable / 2), "team")})`} fill {inPlay === 1 ? "one" : inPlay}. Each court needs 4
       {d.fixedTeams ? " — two teams" : ""}, so {need > 0 && `${plural(need, "more player")} ${d.fixedTeams ? `(${plural(Math.ceil(need / 2), "team")}) ` : ""}open`}
-      {need <= 0 && "the next round opens"} Court {courtLabel(d.courtLabels, inPlay + 1)}.
+      {need <= 0 && "the next round opens"} Court {courtLabel(d.courtLabels, nextCourt)}.
     </p>
   );
 }
@@ -1878,7 +1912,7 @@ function SwapModal({
   const inRound = new Set([...round.byes, ...round.matches.flatMap((x) => [...x.a, ...x.b])]);
   // Beginner court: the pools don't mix, so only the same pool can come on (the Newbie tag moves people across).
   const newbie = (id: string) => !!d.players.find((p) => p.id === id)?.newbie;
-  const samePool = (id: string) => !d.poolsActive || newbie(id) === newbie(m.a[0]);
+  const samePool = (id: string) => !(d.poolsActive || d.coachedActive) || newbie(id) === newbie(m.a[0]);
   const late = d.players.filter((p) => p.status === "checked_in" && !inRound.has(p.id) && samePool(p.id)).map((p) => p.id);
   const otherGames = round.matches.filter((x) => x.id !== m.id && x.scoreA == null && x.status === "pending" && samePool(x.a[0]));
   // Players or teams off court, paired by their partner on the roster.
@@ -2259,5 +2293,39 @@ function ProfileBadges({ p }: { p: PlayerRow }) {
         </a>
       )}
     </>
+  );
+}
+
+/**
+ * Coached court: who's training with the coach. A newbie sees where they are
+ * and that the organizer brings them into the tournament; everyone else sees
+ * the list (and the organizer, how to move someone in).
+ */
+function CoachedCourtCard({ d, me, isOrganizer }: { d: SessionDetail; me: PlayerRow | undefined; isOrganizer: boolean }) {
+  const court = courtLabel(d.courtLabels, d.beginnerCourtNo);
+  const withCoach = d.players.filter((p) => p.newbie && p.status === "checked_in");
+  const mine = !!me && withCoach.some((p) => p.id === me.id);
+  if (!isOrganizer && !mine && withCoach.length === 0) return null;
+  return (
+    <div data-testid="coached-court">
+    <Card className="border-mint-dark/30 bg-mint-soft/40">
+      {mine && !isOrganizer ? (
+        <>
+          <p className="text-lg font-black text-navy">🎓 You're on Court {court} with the coach</p>
+          <p className="mt-1 text-sm text-muted">No scores to enter. The organizer brings you into the tournament when you're ready.</p>
+        </>
+      ) : (
+        <p className="text-sm font-black uppercase tracking-wider text-mint-dark">🎓 Court {court} · with the coach</p>
+      )}
+      {withCoach.length > 0 ? (
+        <p className="mt-2 text-sm text-ink">{withCoach.map((p) => p.name).join(" · ")}</p>
+      ) : (
+        <p className="mt-2 text-sm text-muted">Nobody yet — tag players as Newbie in the roster.</p>
+      )}
+      {isOrganizer && withCoach.length > 0 && (
+        <p className="mt-2 text-xs text-muted">To bring someone into the tournament, tap their 🌱 Newbie tag in the roster — they're dealt in from the next round.</p>
+      )}
+    </Card>
+    </div>
   );
 }

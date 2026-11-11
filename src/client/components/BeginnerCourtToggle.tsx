@@ -7,8 +7,10 @@ const selectCls =
 /**
  * "Beginner court" — the session toggle, shared by the new-session form and
  * Settings. One court (the organizer picks which; the first rented court by
- * default) is reserved for the players the organizer tags as newbies; they
- * rotate among themselves and keep their own table.
+ * default) is reserved for the players the organizer tags as newbies. Two
+ * ways to run it: Games (they rotate among themselves and keep their own
+ * table) or Coaching (they train with a coach and are left out of the draw
+ * until the organizer untags them).
  */
 export function BeginnerCourtToggle({
   checked,
@@ -18,6 +20,8 @@ export function BeginnerCourtToggle({
   courtLabels = [],
   courtNo,
   onCourtChange,
+  coached,
+  onCoachedChange,
   note,
 }: {
   checked: boolean;
@@ -31,6 +35,9 @@ export function BeginnerCourtToggle({
   /** Which court (1-based internal number) is the beginner court. */
   courtNo: number;
   onCourtChange: (courtNo: number) => void;
+  /** Coaching instead of games on that court. */
+  coached: boolean;
+  onCoachedChange: (coached: boolean) => void;
   note?: string;
 }) {
   // A court that no longer exists (courts were reduced) falls back to the first.
@@ -43,8 +50,9 @@ export function BeginnerCourtToggle({
         <span>
           <span className="block text-sm font-bold text-navy">🌱 Beginner court</span>
           <span className="block text-xs text-muted">
-            Court {name} is for the players you tag as newbies: they play each other and keep their own table. Everyone else plays the
-            ladder on the other courts. Only you move someone across.
+            {checked && coached
+              ? `Court ${name} is for coaching: the players you tag as newbies train there and aren't in the draw. The tournament runs on the other courts. Untag someone to bring them in.`
+              : `Court ${name} is for the players you tag as newbies: they play each other and keep their own table. Everyone else plays the ladder on the other courts. Only you move someone across.`}
             {note && ` ${note}`}
           </span>
         </span>
@@ -65,6 +73,30 @@ export function BeginnerCourtToggle({
             ))}
           </select>
         </label>
+      )}
+      {checked && !disabled && (
+        <div className="mt-3 flex items-center justify-between gap-3">
+          <span className="text-xs font-bold uppercase tracking-wider text-muted">On that court</span>
+          <div className="flex gap-1.5" role="group" aria-label="Beginner court mode">
+            {[
+              { coached: false, label: "🎾 Games" },
+              { coached: true, label: "🎓 Coaching" },
+            ].map((o) => (
+              <button
+                key={o.label}
+                type="button"
+                aria-pressed={coached === o.coached}
+                onClick={() => onCoachedChange(o.coached)}
+                className={cls(
+                  "h-9 rounded-full border px-3 text-xs font-bold transition-colors",
+                  coached === o.coached ? "border-royal bg-royal text-white" : "border-line bg-white text-navy hover:border-line-strong",
+                )}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   );

@@ -153,6 +153,10 @@ export interface SessionDetail {
   beginnerCourt: boolean;
   /** Which court that is (1-based internal number; show it with courtLabel). */
   beginnerCourtNo: number;
+  /** That court is a coached court: newbies train there with a coach instead of playing games. */
+  beginnerCourtCoached: boolean;
+  /** The coached court is in effect tonight: tagged newbies are out of the draw, and `newbie` is sent to everyone. */
+  coachedActive: boolean;
   /** Competitive sit-outs: after the floor, the bottom of each pool sits. */
   competitiveSitouts: boolean;
   /** The beginner court is running tonight (toggle on, newbies checked in, enough players). */

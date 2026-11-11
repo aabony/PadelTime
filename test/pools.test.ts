@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { americano } from "../src/shared/formats/americano";
 import { mexicano } from "../src/shared/formats/mexicano";
-import { BEGINNER_COURT, beginnerCourtOf, ladderCourts, planWithPools, poolOfCourt, poolRounds, poolsActive } from "../src/shared/formats/pools";
+import { BEGINNER_COURT, beginnerCourtOf, coachedActive, ladderCourts, planCoached, planWithPools, poolOfCourt, poolRounds, poolsActive } from "../src/shared/formats/pools";
 import { COMPETITIVE_FLOOR, pickByes } from "../src/shared/formats/byes";
 import { mulberry32 } from "../src/shared/formats/types";
 import type { EngineContext } from "../src/shared/formats/types";
@@ -212,5 +212,39 @@ describe("a beginner court other than court 1", () => {
     expect(beginnerCourtOf({ beginnerCourtNo: 4, courts: 2 })).toBe(2);
     expect(beginnerCourtOf({ beginnerCourtNo: null, courts: 3 })).toBe(1);
     expect(beginnerCourtOf({ beginnerCourtNo: 0, courts: 3 })).toBe(1);
+  });
+});
+
+describe("coached court", () => {
+  it("is on whenever the court is set to coaching (no minimum players), but never with fixed teams or one court", () => {
+    expect(coachedActive({ beginnerCourt: true, coached: true, courts: 4 })).toBe(true);
+    expect(coachedActive({ beginnerCourt: true, coached: false, courts: 4 })).toBe(false);
+    expect(coachedActive({ beginnerCourt: false, coached: true, courts: 4 })).toBe(false);
+    expect(coachedActive({ beginnerCourt: true, coached: true, courts: 1 })).toBe(false);
+    expect(coachedActive({ beginnerCourt: true, coached: true, fixedTeams: true, courts: 4 })).toBe(false);
+  });
+
+  it("leaves the newbies out of the draw and nobody on the coached court", () => {
+    const players = names(15);
+    const newbies = ["p13", "p14", "p15"];
+    for (let seed = 1; seed <= 10; seed++) {
+      const plan = planCoached(ctxOf(players, 4, [], ladder(names(12)), seed), mexicano, newbies, 4);
+      // 12 in the tournament on courts 1–3; court 4 is the coach's.
+      expect(plan.matches.map((m) => m.court).sort()).toEqual([1, 2, 3]);
+      const dealt = plan.matches.flatMap((m) => [...m.a, ...m.b]);
+      expect(dealt).toHaveLength(12);
+      expect(dealt.some((id) => newbies.includes(id))).toBe(false);
+      expect(plan.byes.some((id) => newbies.includes(id))).toBe(false);
+      expect(plan.byes).toHaveLength(0);
+    }
+  });
+
+  it("deals around a coached court in the middle, and sits only tournament players", () => {
+    const players = names(12);
+    const newbies = ["p11", "p12"];
+    const plan = planCoached(ctxOf(players, 3, [], ladder(names(10)), 2), americano, newbies, 2);
+    expect(plan.matches.map((m) => m.court).sort()).toEqual([1, 3]);
+    expect(plan.byes).toHaveLength(2);
+    expect(plan.byes.every((id) => !newbies.includes(id))).toBe(true);
   });
 });

@@ -199,8 +199,12 @@ export function NewSessionModal({
     fixedTeams: false,
     beginnerCourt: false,
     beginnerCourtNo: 1,
+    beginnerCourtCoached: false,
     competitiveSitouts: false,
   });
+  // Coached court: that court isn't part of the tournament, and its players aren't in the draw.
+  const coachedForm = form.beginnerCourt && form.beginnerCourtCoached && !form.fixedTeams && form.courts >= 2;
+  const beginnerCourtName = courtLabel(fitCourtLabels(parseCourtLabels(form.courtLabels), form.courts), Math.min(form.beginnerCourtNo, form.courts));
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
@@ -221,6 +225,7 @@ export function NewSessionModal({
         fixedTeams: form.fixedTeams,
         beginnerCourt: form.beginnerCourt && !form.fixedTeams,
         beginnerCourtNo: form.beginnerCourtNo,
+        beginnerCourtCoached: form.beginnerCourtCoached,
         competitiveSitouts: form.competitiveSitouts,
         copyPlayersFrom: form.copyPlayersFrom || null,
       });
@@ -254,13 +259,18 @@ export function NewSessionModal({
         </div>
         <NightSummary
           players={form.maxPlayers}
-          courts={form.courts}
+          courts={coachedForm ? form.courts - 1 : form.courts}
           durationMin={form.durationMin}
           points={form.pointsPerMatch}
           label="players (max)"
           teams={form.fixedTeams}
-          beginnerCourt={form.beginnerCourt && !form.fixedTeams}
-          courtName={courtLabel(fitCourtLabels(parseCourtLabels(form.courtLabels), form.courts), Math.min(form.beginnerCourtNo, form.courts))}
+          beginnerCourt={form.beginnerCourt && !form.fixedTeams && !coachedForm}
+          courtName={beginnerCourtName}
+          coachNote={
+            coachedForm
+              ? `🎓 Court ${beginnerCourtName} is the coached court: players tagged Newbie train there and aren't in the draw. These numbers are for the tournament on the other ${form.courts - 1} court${form.courts - 1 === 1 ? "" : "s"}.`
+              : undefined
+          }
           onPick={(pointsPerMatch) => setForm({ ...form, pointsPerMatch })}
         />
         <FineTune custom={nightTypeOf(form) == null}>
@@ -280,6 +290,8 @@ export function NewSessionModal({
               courtLabels={fitCourtLabels(parseCourtLabels(form.courtLabels), form.courts)}
               courtNo={form.beginnerCourtNo}
               onCourtChange={(beginnerCourtNo) => setForm({ ...form, beginnerCourtNo })}
+              coached={form.beginnerCourtCoached}
+              onCoachedChange={(beginnerCourtCoached) => setForm({ ...form, beginnerCourtCoached })}
               onChange={(beginnerCourt) => setForm({ ...form, beginnerCourt })}
             />
           )}

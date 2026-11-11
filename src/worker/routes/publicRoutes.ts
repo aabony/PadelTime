@@ -5,7 +5,7 @@ import type { ResultsData, JoinInfo, PlayerStatus, SessionStatus } from "../../s
 import { computeStandings, computeTeamStandings } from "../../shared/standings";
 import { groupMembers, sessionPlayers, verification } from "../db/schema";
 import type { DB } from "../lib/detail";
-import { loadPlayers, loadRounds, loadSessionByCode, poolStandings, splitTables } from "../lib/detail";
+import { beginnerTable, isCoached, loadPlayers, loadRounds, loadSessionByCode, poolStandings, splitTables } from "../lib/detail";
 import { parseGender } from "../../shared/genders";
 import type { Gender } from "../../shared/genders";
 import { isNewbie, normalizeLevel, parseLevel } from "../../shared/levels";
@@ -249,7 +249,7 @@ publicRoutes.get("/results/:code", async (c) => {
     // People who never made it onto a court don't belong on the TV.
     standings: (tables ? tables.ladder : computeStandings(players, rounds)).filter(onBoard),
     teamStandings: session.fixedTeams ? computeTeamStandings(players, rounds) : undefined,
-    beginnerStandings: tables?.beginner.filter(onBoard),
+    beginnerStandings: beginnerTable(isCoached(session), tables?.beginner)?.filter(onBoard),
   };
   return c.json(board);
 });

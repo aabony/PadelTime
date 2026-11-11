@@ -97,6 +97,8 @@ sessionRoutes.patch("/sessions/:id", async (c) => {
   if (typeof body.groupByLevel === "boolean") patch.groupByLevel = body.groupByLevel;
   // The beginner court and competitive sit-outs apply from the next round dealt.
   if (typeof body.beginnerCourt === "boolean") patch.beginnerCourt = body.beginnerCourt;
+  // Games court ↔ coached court (newbies train with a coach, out of the draw): also from the next round dealt.
+  if (typeof body.beginnerCourtCoached === "boolean") patch.beginnerCourtCoached = body.beginnerCourtCoached;
   // Which court is the beginner court: kept within the courts the session has (fewer courts → clamped).
   const courtsAfter = patch.courts ?? session.courts;
   const beginnerCourtNo = asInt(body.beginnerCourtNo);

@@ -180,6 +180,7 @@ async function createSession(
         fixedTeams: body.fixedTeams === true,
         beginnerCourt: body.beginnerCourt === true && body.fixedTeams !== true,
         beginnerCourtNo: beginnerCourtOf({ beginnerCourtNo: asInt(body.beginnerCourtNo), courts }),
+        beginnerCourtCoached: body.beginnerCourtCoached === true,
         competitiveSitouts: body.competitiveSitouts === true,
         status: "draft",
         inviteCode: inviteCode(),

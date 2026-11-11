@@ -134,6 +134,8 @@ export const gameSessions = sqliteTable(
     beginnerCourt: integer("beginner_court", { mode: "boolean" }).notNull().default(false),
     /** Which court that is (1-based internal number; players see its rented name). */
     beginnerCourtNo: integer("beginner_court_no").notNull().default(1),
+    /** That court is coached instead of played: newbies train there and are left out of the draw. */
+    beginnerCourtCoached: integer("beginner_court_coached", { mode: "boolean" }).notNull().default(false),
     /** Competitive sit-outs: once everyone in a pool has played the floor, the bottom of that pool sits. */
     competitiveSitouts: integer("competitive_sitouts", { mode: "boolean" }).notNull().default(false),
     status: text("status").notNull().default("draft"),

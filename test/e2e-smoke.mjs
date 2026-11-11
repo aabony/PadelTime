@@ -736,6 +736,69 @@ if (!pub.beginnerStandings || !pub.beginnerStandings.some((r) => r.played > 0)) 
 if (pub.standings.some((r) => newbieIds.has(r.playerId) && r.playerId !== mover.id)) fail("newbies stay off the ladder table");
 log("beginner court: cross-pool swap refused; untagging moves a player up on the next deal; results carry both tables");
 
+// --- Coached court: 3 tournament courts + Court 4 for newbies training with a coach ----
+const cc = await api("POST", "/sessions", { name: "Coached Court Night", format: "americano", courts: 4, pointsPerMatch: 16, maxPlayers: 24, beginnerCourt: true, beginnerCourtNo: 4, beginnerCourtCoached: true });
+for (let i = 1; i <= 12; i++) await api("POST", `/sessions/${cc.id}/players`, { guestName: `T${i}` });
+for (let i = 1; i <= 3; i++) await api("POST", `/sessions/${cc.id}/players`, { guestName: `Coachee${i}`, newbie: true });
+await api("POST", `/sessions/${cc.id}/status`, { action: "start" });
+let cd = await api("GET", `/sessions/${cc.id}`);
+if (!cd.beginnerCourtCoached || !cd.coachedActive || cd.poolsActive) fail("the session should be running a coached court (not a games court)");
+const coachees = new Set(cd.players.filter((p) => p.newbie).map((p) => p.id));
+if (coachees.size !== 3) fail(`3 players should be with the coach, got ${coachees.size}`);
+for (const r of cd.rounds) {
+  if (r.matches.some((m) => m.court === 4)) fail(`round ${r.number}: nobody should be dealt onto the coached court`);
+  if (r.matches.length !== 3) fail(`round ${r.number}: the tournament should fill courts 1–3, got ${r.matches.length}`);
+  if (r.matches.some((m) => [...m.a, ...m.b].some((p) => coachees.has(p))) || r.byes.some((p) => coachees.has(p))) fail(`round ${r.number}: a coached player is in the draw`);
+  if (r.byes.length !== 0) fail(`round ${r.number}: 12 tournament players on 3 courts — nobody should sit`);
+}
+if (cd.beginnerStandings) fail("a coached court has no table");
+if (cd.standings.length !== 12) fail(`the standings should hold the 12 tournament players, got ${cd.standings.length}`);
+await org.goto(`${BASE}/app/sessions/${cc.id}`);
+await org.getByText("🎓 Coached court 4").waitFor({ timeout: 10000 });
+const coachCard = org.getByTestId("coached-court");
+await coachCard.getByText("Court 4 · with the coach").waitFor();
+await coachCard.getByText("Coachee1 · Coachee2 · Coachee3").waitFor();
+if ((await org.getByText(/open Court 4/).count()) !== 0) fail("the coached court must not be offered as an empty tournament court");
+await shot(org, "18-coached-court");
+log("coached court: 12 play the tournament on courts 1–3, 3 newbies train on Court 4 — out of the draw, no table");
+// A player who registered as a Newbie joins from the link and sees where to go.
+const cocoCtx = await newContext({ ...contextOpts, viewport: { width: 390, height: 844 } });
+const coco = await cocoCtx.newPage();
+await coco.goto(`${BASE}/join/${cd.inviteCode}`);
+await coco.getByRole("button", { name: "Register to join →" }).click();
+await coco.waitForURL("**/register**");
+await otpSignIn(coco, "Coco", `coco${run}@test.com`, "Newbie");
+await coco.waitForURL("**/join/**", { timeout: 15000 });
+await coco.getByRole("button", { name: /Join — deal me in/ }).click({ timeout: 15000 });
+await coco.getByText(/You're in ✓/).waitFor({ timeout: 10000 });
+await coco.getByRole("button", { name: "Open session" }).click();
+await coco.waitForURL("**/app/sessions/**");
+await coco.getByText("You're on Court 4 with the coach").waitFor({ timeout: 10000 });
+await shot(coco, "18b-coached-player");
+log("coached court: a registered Newbie joins from the link and is told 'You're on Court 4 with the coach'");
+// Bring one into the tournament: untag → reshuffle the round on deck → they're in the draw.
+const promoted = cd.players.find((p) => p.name === "Coachee1");
+await api("PATCH", `/sessions/${cc.id}/players/${promoted.id}`, { action: "set_newbie", newbie: false });
+await api("POST", `/sessions/${cc.id}/rounds`, { regenerate: true });
+cd = await api("GET", `/sessions/${cc.id}`);
+const deck = cd.rounds[cd.rounds.length - 1];
+if (![...deck.byes, ...deck.matches.flatMap((m) => [...m.a, ...m.b])].includes(promoted.id)) fail("the player moved off the coached court should be in the next round dealt");
+if (deck.matches.some((m) => m.court === 4)) fail("the coached court should still be left alone");
+if (deck.byes.length !== 1) fail(`13 tournament players on 3 courts: one should sit, got ${deck.byes.length}`);
+// Halftime: turn Court 4 into a games court — the newbies now play each other there.
+await api("PATCH", `/sessions/${cc.id}`, { beginnerCourtCoached: false });
+await api("POST", `/sessions/${cc.id}/rounds`, { regenerate: true });
+cd = await api("GET", `/sessions/${cc.id}`);
+if (cd.coachedActive || !cd.poolsActive) fail("after switching to Games the beginner court should be a games court");
+const games = cd.rounds[cd.rounds.length - 1];
+const court4 = games.matches.find((m) => m.court === 4);
+const stillNewbie = cd.players.filter((p) => p.newbie).map((p) => p.id);
+if (!court4) fail("after switching to Games, Court 4 should have a game");
+if (!stillNewbie.every((id) => [...court4.a, ...court4.b].includes(id))) fail("the remaining newbies should all be on Court 4");
+await org.reload();
+await org.getByText("🌱 Beginner court 4").waitFor({ timeout: 10000 });
+log("coached court: untagging brings a player into the tournament; switching Court 4 to Games at halftime puts the newbies in games there");
+
 await org.goto(`${BASE}/app`);
 await org.getByRole("button", { name: /New session/ }).click();
 await org.getByPlaceholder("Thursday Padel Jam").fill("Quick Start Night");

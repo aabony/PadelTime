@@ -41,6 +41,16 @@ export function poolsActive(o: {
   return o.beginnerCourt && !o.fixedTeams && o.courts >= 2 && o.newbies > 0 && o.eligible >= MIN_PLAYERS_FOR_POOLS;
 }
 
+/**
+ * Whether the beginner court is a coached court tonight: the players tagged
+ * Newbie train there with a coach and are left out of the draw; the tournament
+ * runs on the other courts. Unlike the games court it needs no minimum — the
+ * court is booked for the coach whoever turns up.
+ */
+export function coachedActive(o: { beginnerCourt: boolean; coached: boolean; fixedTeams?: boolean; courts: number }): boolean {
+  return o.beginnerCourt && o.coached && !o.fixedTeams && o.courts >= 2;
+}
+
 export function poolOfCourt(court: number, beginnerCourt = BEGINNER_COURT): Pool {
   return court === beginnerCourt ? "beginner" : "ladder";
 }
@@ -120,4 +130,29 @@ export function planWithPools(
     ],
     byes: [...beginner.byes, ...rest.byes],
   };
+}
+
+/**
+ * Plan a round with a coached court: the tagged newbies are with the coach and
+ * out of the draw; everyone else plays the session's format on the other
+ * courts, in order. Nobody is dealt onto the coached court.
+ */
+export function planCoached(
+  ctx: EngineContext,
+  format: FormatStrategy,
+  newbies: Iterable<string>,
+  coachedCourt = BEGINNER_COURT,
+): RoundPlan {
+  const tagged = new Set(newbies);
+  const playing = ctx.players.filter((p) => !tagged.has(p));
+  const inDraw = new Set(playing);
+  const plan = format.planRound({
+    ...ctx,
+    players: playing,
+    courts: ctx.courts - 1,
+    standings: ctx.standings.filter((s) => inDraw.has(s.playerId)),
+    busy: ctx.busy?.filter((p) => inDraw.has(p)),
+  });
+  const others = ladderCourts(ctx.courts, coachedCourt);
+  return { matches: plan.matches.map((m) => ({ ...m, court: others[m.court - 1] ?? m.court })), byes: plan.byes };
 }

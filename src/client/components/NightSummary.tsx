@@ -24,6 +24,7 @@ export function NightSummary({
   beginnerCourt = false,
   newbies,
   courtName,
+  coachNote,
 }: {
   players: number;
   courts: number;
@@ -45,6 +46,8 @@ export function NightSummary({
   newbies?: number;
   /** The first court's name, for the beginner-court lines. */
   courtName?: string;
+  /** Coached court: one line saying who's left out of these numbers (the caller already passed the tournament's players and courts). */
+  coachNote?: string;
 }) {
   const [open, setOpen] = useState(!folded);
   const total = players + idle;
@@ -137,6 +140,7 @@ export function NightSummary({
         <p className="mt-1 px-1 text-xs text-muted">Set the court time to compare game lengths.</p>
       )}
 
+      {coachNote && <p className="mt-2 px-1 text-xs text-muted">{coachNote}</p>}
       {beginnerCourt && courts >= 2 && (
         <BeginnerCourtLines players={players} newbies={newbies} courts={courts} rounds={estimateRounds(durationMin, points)} courtName={courtName} />
       )}

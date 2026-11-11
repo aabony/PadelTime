@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { BEGINNER_COURT, planWithPools, poolsActive } from "../../shared/formats/pools";
+import { BEGINNER_COURT, ladderCourts, planWithPools, poolsActive } from "../../shared/formats/pools";
 import { americano } from "../../shared/formats/americano";
 import { autoPair } from "../../shared/formats/teams";
 import { formatMeta } from "../../shared/formatMeta";
@@ -199,19 +199,26 @@ function sessionSheet(d: SessionDetail, roundsWanted: number, seed: number): She
     byes: r.byes,
     matches: r.matches.map((m) => ({ a: m.a, b: m.b })),
   }));
-  const activeIds = roster.filter((p) => p.status !== "dropped").map((p) => p.id);
+  // Coached court: the newbies train with the coach, so the sheet plans the tournament on the other courts.
+  const coached = d.coachedActive;
+  const sheetCourts = coached ? d.courts - 1 : d.courts;
+  const courtOnSheet = (court: number) => (coached ? (ladderCourts(d.courts, d.beginnerCourtNo)[court - 1] ?? court) : court);
+  const activeIds = roster.filter((p) => p.status !== "dropped" && !(coached && p.newbie)).map((p) => p.id);
   const extra = groupingFor(d, activeIds, seed);
   const totalRounds = Math.max(roundsWanted, existing.length);
   const planned: SheetRound[] =
     activeIds.length < 4
       ? []
       : d.format === "mexicano"
-        ? blankRounds(existing.length + 1, totalRounds, Math.min(d.courts, Math.floor((extra.teams ? extra.teams.length * 2 : activeIds.length) / 4)))
-        : planRounds(activeIds, d.courts, totalRounds, seed, prior, extra, d.beginnerCourt ? roster.filter((p) => p.newbie).map((p) => p.id) : [], d.beginnerCourtNo).map((r) => ({
+        ? blankRounds(existing.length + 1, totalRounds, Math.min(sheetCourts, Math.floor((extra.teams ? extra.teams.length * 2 : activeIds.length) / 4))).map((r) => ({
+            ...r,
+            matches: r.matches.map((m) => ({ ...m, court: courtOnSheet(m.court) })),
+          }))
+        : planRounds(activeIds, sheetCourts, totalRounds, seed, prior, extra, d.beginnerCourt && !coached ? roster.filter((p) => p.newbie).map((p) => p.id) : [], d.beginnerCourtNo).map((r) => ({
           number: r.number,
           byes: byNumber(r.byes),
           matches: r.matches.map((m) => ({
-            court: m.court,
+            court: courtOnSheet(m.court),
             a: [num(m.a[0]), num(m.a[1])] as [number, number],
             b: [num(m.b[0]), num(m.b[1])] as [number, number],
             scoreA: null,
