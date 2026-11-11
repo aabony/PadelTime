@@ -185,6 +185,8 @@ export const rounds = sqliteTable(
       .references(() => gameSessions.id, { onDelete: "cascade" }),
     number: integer("number").notNull(),
     byesJson: text("byes_json").notNull().default("[]"),
+    /** 'main' | 'beginner' (the beginner court's own games, numbered from BEGINNER_TRACK_BASE); null = dealt before the tracks existed. */
+    track: text("track"),
     createdAt: integer("created_at").notNull(),
   },
   (t) => [

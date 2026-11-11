@@ -52,7 +52,7 @@ export function BeginnerCourtToggle({
           <span className="block text-xs text-muted">
             {checked && coached
               ? `Court ${name} is for coaching: the players you tag as newbies train there and aren't in the draw. The tournament runs on the other courts. Untag someone to bring them in.`
-              : `Court ${name} is for the players you tag as newbies: they play each other and keep their own table. Everyone else plays the ladder on the other courts. Only you move someone across.`}
+              : `Court ${name} is for the players you tag as newbies: they play each other and keep their own table. It runs on its own clock, so it never holds up the rounds on the other courts. Needs 4 newbies. Only you move someone across.`}
             {note && ` ${note}`}
           </span>
         </span>

@@ -204,7 +204,7 @@ function BeginnerCourtLines({
     <div className="mt-2 space-y-1 px-1 text-xs text-muted">
       <p>
         🌱 Court {court}: <b className="text-navy">{newbies}</b> newbie{newbies === 1 ? "" : "s"}
-        {newbies < 4 && newbies > 0 && " (topped up from the bottom of the ladder)"}
+        {newbies < 4 && newbies > 0 && " — it takes 4 for a game there, so until a fourth arrives they play the main draw"}
         {plan && newbies >= 4 && (
           <>
             {" "}

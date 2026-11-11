@@ -632,10 +632,13 @@ function partnerOf(d: SessionDetail, p: PlayerRow): PlayerRow | undefined {
  * What a round can fill from these players. With Keep teams together only whole
  * teams play: pairs who are both here, plus the unpaired paired up (the engine's rule).
  */
+/** The beginner court is out of the main rounds tonight: a coached court, or one running its own games. */
+const setAside = (d: SessionDetail) => d.coachedActive || d.poolsActive;
+
 function roundCapacity(d: SessionDetail, everyone: PlayerRow[]) {
-  // Coached court: the newbies are with the coach and that court isn't dealt.
-  const here = d.coachedActive ? everyone.filter((p) => !p.newbie) : everyone;
-  const courtsInPlay = d.coachedActive ? d.courts - 1 : d.courts;
+  // Beginner court set aside (coaching, or its own games): the newbies aren't in the rounds and that court isn't dealt in them.
+  const here = setAside(d) ? everyone.filter((p) => !p.newbie) : everyone;
+  const courtsInPlay = setAside(d) ? d.courts - 1 : d.courts;
   let playable = here.length;
   if (d.fixedTeams) {
     const ids = new Set(here.map((p) => p.id));
@@ -865,7 +868,7 @@ function NewbieHint({ d, players }: { d: SessionDetail; players: PlayerRow[] }) 
     <p className="mt-3 rounded-xl bg-canvas px-3 py-2 text-xs text-muted">
       🌱 Newbies tagged: <b className={n === 0 ? "text-amber-dark" : "text-navy"}>{n}</b> of {players.length} · they play Court{" "}
       {courtLabel(d.courtLabels, d.beginnerCourtNo)} among themselves{n === 0 && " — tag them above, or the court runs as a normal court"}
-      {n > 0 && n < 4 && " — fewer than 4, so the bottom of the ladder fills the court"}. Players don't see the tag.
+      {n > 0 && n < 4 && " — it takes 4 for a game there; until a fourth arrives they play the main draw"}. Players don't see the tag.
     </p>
   );
 }
@@ -1084,6 +1087,9 @@ function useNameOf(d: SessionDetail) {
 function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
   const nameOf = useNameOf(d);
   const me = d.players.find((p) => p.id === d.myPlayerId);
+  // The beginner court's game waiting for a score, if it's running its own games.
+  const lastBeginnerGame = d.beginnerRounds[d.beginnerRounds.length - 1];
+  const beginnerGame = lastBeginnerGame && !lastBeginnerGame.complete ? lastBeginnerGame : undefined;
   // Training with the coach tonight (not the organizer's own view of the night).
   const coachedMe = !isOrganizer && !!me && me.newbie && me.status === "checked_in";
   const latest = d.rounds[d.rounds.length - 1];
@@ -1149,6 +1155,20 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
             <p key={i}>⚠ {w}</p>
           ))}
         </div>
+      )}
+
+      {/* A newbie's own game on the beginner court (its own sequence, so it isn't in the rounds below). */}
+      {!isOrganizer && me && me.newbie && me.status === "checked_in" && beginnerGame && (
+        <>
+          {beginnerGame.matches.some((m) => [...m.a, ...m.b].includes(me.id)) ? (
+            <MyMatchCard d={d} round={beginnerGame} nameOf={nameOf} run={run} busyKey={busyKey} />
+          ) : (
+            <Card className="border-amber-soft bg-amber-soft/50">
+              <p className="font-black text-amber-dark">You sit game {beginnerGame.number} on Court {courtLabel(d.courtLabels, d.beginnerCourtNo)}</p>
+              <p className="mt-0.5 text-sm text-amber-dark/90">You're in the rotation for the next one.</p>
+            </Card>
+          )}
+        </>
       )}
 
       {/* A newbie's own "you're with the coach" comes first, like any player's own card. */}
@@ -1272,6 +1292,9 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
         </Card>
         </div>
       )}
+
+      {/* The beginner court's own games sit under the tournament's rounds and never hold them up. */}
+      <BeginnerGamesCard d={d} nameOf={nameOf} isOrganizer={isOrganizer} run={run} busyKey={busyKey} />
 
       {/* The coach's court sits under the tournament's rounds: now playing, up next, then who's training. */}
       {d.coachedActive && !coachedMe && <CoachedCourtCard d={d} me={me} isOrganizer={isOrganizer} />}
@@ -1709,12 +1732,12 @@ function SitsNext({ round }: { round: RoundRow }) {
 
 /** Booked courts sitting empty: say why (too few players or teams), and what opens the next one. */
 function IdleCourtsNote({ d, inPlay }: { d: SessionDetail; inPlay: number }) {
-  // Coached court: that court is the coach's, and the newbies aren't counted — only the tournament's courts and players.
-  const courts = d.coachedActive ? d.courts - 1 : d.courts;
+  // Beginner court set aside: that court and the newbies aren't counted — only the tournament's courts and players.
+  const courts = setAside(d) ? d.courts - 1 : d.courts;
   if (inPlay >= courts) return null;
   const { playable } = roundCapacity(d, checkedIn(d));
-  const here = d.coachedActive ? playable : checkedIn(d).length;
-  const nextCourt = d.coachedActive ? (ladderCourts(d.courts, d.beginnerCourtNo)[inPlay] ?? inPlay + 1) : inPlay + 1;
+  const here = setAside(d) ? playable : checkedIn(d).length;
+  const nextCourt = setAside(d) ? (ladderCourts(d.courts, d.beginnerCourtNo)[inPlay] ?? inPlay + 1) : inPlay + 1;
   const need = (inPlay + 1) * 4 - playable;
   const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
   return (
@@ -2076,7 +2099,9 @@ function MyMatchCard({
             Up next · round {round.number}
           </span>
         ) : (
-          <span className="text-xs font-bold uppercase tracking-wider text-muted">Round {round.number} · your match</span>
+          <span className="text-xs font-bold uppercase tracking-wider text-muted">
+            {round.track === "beginner" ? "Game" : "Round"} {round.number} · your match
+          </span>
         )}
         {!(standBy && myMatch.status === "pending") && <MatchStatusBadge m={myMatch} />}
       </div>
@@ -2332,6 +2357,66 @@ function CoachedCourtCard({ d, me, isOrganizer }: { d: SessionDetail; me: Player
         <p className="mt-2 text-xs text-muted">To bring someone into the tournament, tap their 🌱 Newbie tag in the roster — they're dealt in from the next round.</p>
       )}
     </Card>
+    </div>
+  );
+}
+
+/**
+ * The beginner court in Games mode: its own sequence of games, under the
+ * tournament's rounds. One game at a time — the next is dealt when this one's
+ * score goes in — so it runs on its own clock and never holds up a round.
+ */
+function BeginnerGamesCard({ d, nameOf, isOrganizer, run, busyKey }: ViewProps & { nameOf: (id: string) => string }) {
+  const games = d.beginnerRounds;
+  const last = games[games.length - 1];
+  const waiting = last && !last.complete ? last : undefined;
+  if (!d.poolsActive && !waiting) return null;
+  const court = courtLabel(d.courtLabels, d.beginnerCourtNo);
+  const played = games.filter((g) => g.complete).length;
+  const here = d.players.filter((p) => p.newbie && p.status === "checked_in").length;
+  const untouched = !!waiting && waiting.matches.every((m) => m.scoreA == null && m.status === "pending");
+  return (
+    <div data-testid="beginner-games">
+      <Card className="border-mint-dark/30">
+        <div className="mb-3 flex items-end justify-between gap-3">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.16em] text-mint-dark">🌱 Beginner court</p>
+            <h2 className="text-xl font-black leading-tight text-navy">{waiting ? `Game ${waiting.number}` : `Court ${court}`}</h2>
+          </div>
+          <span className="text-xs font-semibold text-muted">
+            {played} game{played === 1 ? "" : "s"} played
+          </span>
+        </div>
+        {waiting ? (
+          <>
+            <div className="space-y-3">
+              {waiting.matches.map((m) => (
+                <CourtCard key={m.id} d={d} m={m} nameOf={nameOf} isOrganizer={isOrganizer} run={run} busyKey={busyKey} beginner />
+              ))}
+            </div>
+            {waiting.byes.length > 0 && (
+              <p className="mt-3 text-sm text-muted">
+                <span className="text-xs font-black uppercase tracking-wider text-muted">Sitting game {waiting.number}</span>{" "}
+                {waiting.byes.map(nameOf).join(" · ")}
+              </p>
+            )}
+          </>
+        ) : (
+          <p className="text-sm text-muted">
+            No game on Court {court} right now{here < 4 ? ` — it takes 4 newbies (${here} here)` : ""}.
+          </p>
+        )}
+        <p className="mt-3 text-xs text-muted">
+          Separate from the rounds above: enter its score whenever the game ends and the next one is dealt. It never holds up the other courts.
+        </p>
+        {isOrganizer && ((waiting && untouched) || (!waiting && d.poolsActive)) && (
+          <div className="mt-3">
+            <Button size="sm" variant="secondary" busy={busyKey === "bgame"} onClick={() => run("bgame", () => Api.beginnerGame(d.id))}>
+              {waiting ? `🔀 Reshuffle game ${waiting.number}` : "▶️ Deal a game"}
+            </Button>
+          </div>
+        )}
+      </Card>
     </div>
   );
 }

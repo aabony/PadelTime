@@ -7,7 +7,7 @@ import { gameSessions, groupMembers, groups, matches, rounds, sessionPlayers, us
 import { buildHistory, creditAbsences } from "../../shared/history";
 import { poolRounds, poolsActive } from "../../shared/formats/pools";
 import { computeNudges } from "../../shared/nudges";
-import { beginnerCourtOf, coachedActive } from "../../shared/formats/pools";
+import { BEGINNER_TRACK_BASE, beginnerCourtOf, coachedActive } from "../../shared/formats/pools";
 import { computeStandings, computeTeamStandings } from "../../shared/standings";
 import type {
   MatchRow,
@@ -110,12 +110,47 @@ export async function loadPlayersFor(db: DB, sessionIds: string[]): Promise<Map<
   return out;
 }
 
+/** The tournament's rounds (not the beginner court's own games — see loadTracks). */
 export async function loadRounds(db: DB, sessionId: string): Promise<RoundRow[]> {
   return (await loadRoundsFor(db, [sessionId])).get(sessionId) ?? [];
 }
 
-/** Rounds (with their matches) of several sessions in a few queries. */
+export interface Tracks {
+  /** The tournament's rounds. */
+  main: RoundRow[];
+  /** The beginner court's own games, numbered 1, 2, 3… */
+  beginner: RoundRow[];
+}
+
+/** A session's rounds by track: the tournament's rounds, and the beginner court's own games. */
+export async function loadTracks(db: DB, sessionId: string): Promise<Tracks> {
+  return (await loadTracksFor(db, [sessionId])).get(sessionId) ?? { main: [], beginner: [] };
+}
+
+export async function loadTracksFor(db: DB, sessionIds: string[]): Promise<Map<string, Tracks>> {
+  const all = await loadAllRoundsFor(db, sessionIds);
+  return new Map(
+    sessionIds.map((id) => {
+      const rows = all.get(id) ?? [];
+      return [
+        id,
+        {
+          main: rows.filter((r) => r.track !== "beginner"),
+          beginner: rows.filter((r) => r.track === "beginner").map((r) => ({ ...r, number: r.number - BEGINNER_TRACK_BASE })),
+        },
+      ];
+    }),
+  );
+}
+
+/** The tournament's rounds (with their matches) of several sessions in a few queries. */
 export async function loadRoundsFor(db: DB, sessionIds: string[]): Promise<Map<string, RoundRow[]>> {
+  const tracks = await loadTracksFor(db, sessionIds);
+  return new Map(sessionIds.map((id) => [id, tracks.get(id)?.main ?? []]));
+}
+
+/** Every round of several sessions, both tracks, in stored order (beginner games after the main rounds). */
+async function loadAllRoundsFor(db: DB, sessionIds: string[]): Promise<Map<string, RoundRow[]>> {
   const out = new Map<string, RoundRow[]>(sessionIds.map((id) => [id, []]));
   for (const ids of chunksOf(sessionIds)) {
     const roundRows = await db.select().from(rounds).where(inArray(rounds.sessionId, ids)).orderBy(rounds.number);
@@ -150,6 +185,7 @@ export async function loadRoundsFor(db: DB, sessionIds: string[]): Promise<Map<s
         byes,
         matches: ms,
         complete: ms.length > 0 && ms.every((m) => m.status === "confirmed"),
+        track: r.track === "beginner" || r.track === "main" ? r.track : null,
       });
     }
   }
@@ -174,15 +210,25 @@ export function beginnerTable(coached: boolean, table: StandingRow[] | undefined
   return coached && !table?.some((r) => r.played > 0) ? undefined : table;
 }
 
-/** The two tables: the ladder from its courts, the beginner court's from its own — each for the players currently in that pool. */
+/**
+ * The two tables, from every round of both tracks: the ladder's from the main
+ * rounds, the beginner court's from its own games — each for the players
+ * currently in that pool. A newbie who also has ladder games (played before
+ * they were tagged, or while the beginner court wasn't running) keeps their
+ * line on the ladder too, so no result disappears.
+ */
 export function poolStandings(
   players: PlayerRow[],
-  roundRows: RoundRow[],
+  allRounds: RoundRow[],
   beginnerCourt: number,
 ): { ladder: StandingRow[]; beginner: StandingRow[] } {
+  const ladderRounds = poolRounds(allRounds, "ladder", beginnerCourt);
+  const playedLadder = new Set(
+    ladderRounds.flatMap((r) => r.matches.filter((m) => m.status === "confirmed").flatMap((m) => [...m.a, ...m.b])),
+  );
   return {
-    ladder: computeStandings(players.filter((p) => !p.newbie), poolRounds(roundRows, "ladder", beginnerCourt)),
-    beginner: computeStandings(players.filter((p) => p.newbie), poolRounds(roundRows, "beginner", beginnerCourt)),
+    ladder: computeStandings(players.filter((p) => !p.newbie || playedLadder.has(p.id)), ladderRounds),
+    beginner: computeStandings(players.filter((p) => p.newbie), poolRounds(allRounds, "beginner", beginnerCourt)),
   };
 }
 
@@ -288,10 +334,11 @@ export async function buildDetail(
   viewerIsAdmin = false,
 ): Promise<SessionDetail> {
   const players = await loadPlayers(db, session.id);
-  const roundRows = await loadRounds(db, session.id);
+  const { main: roundRows, beginner: beginnerRounds } = await loadTracks(db, session.id);
+  const bothTracks = [...roundRows, ...beginnerRounds];
 
   for (const p of players) {
-    p.byes = roundRows.filter((r) => r.byes.includes(p.id)).length;
+    p.byes = bothTracks.filter((r) => r.byes.includes(p.id)).length;
   }
 
   let myRole: SessionDetail["myRole"] = "none";
@@ -310,13 +357,23 @@ export async function buildDetail(
   const split = splitTables(session, players);
   const coached = isCoached(session);
   const beginnerCourt = beginnerCourtOf(session);
-  const tables = split ? poolStandings(players, roundRows, beginnerCourt) : null;
+  const tables = split ? poolStandings(players, bothTracks, beginnerCourt) : null;
   const standings = tables ? tables.ladder : computeStandings(players, roundRows);
   const counts = {
     confirmed: players.filter((p) => p.status === "confirmed").length,
     waitlist: players.filter((p) => p.status === "waitlist").length,
     checkedIn: players.filter((p) => p.status === "checked_in").length,
   };
+  // The beginner court is running its own games tonight (four newbies here among enough players).
+  const pools =
+    !coached &&
+    poolsActive({
+      beginnerCourt: session.beginnerCourt,
+      fixedTeams: session.fixedTeams,
+      courts: session.courts,
+      eligible: counts.checkedIn,
+      newbies: players.filter((p) => p.newbie && p.status === "checked_in").length,
+    });
 
   return {
     id: session.id,
@@ -341,13 +398,7 @@ export async function buildDetail(
     beginnerCourtCoached: session.beginnerCourtCoached,
     coachedActive: coached,
     competitiveSitouts: session.competitiveSitouts,
-    poolsActive: !coached && poolsActive({
-      beginnerCourt: session.beginnerCourt,
-      fixedTeams: session.fixedTeams,
-      courts: session.courts,
-      eligible: counts.checkedIn,
-      newbies: players.filter((p) => p.newbie && p.status === "checked_in").length,
-    }),
+    poolsActive: pools,
     inviteCode: session.inviteCode,
     myRole,
     myPlayerId,
@@ -355,14 +406,15 @@ export async function buildDetail(
     players:
       myRole === "organizer"
         ? players
-        : // On a coached court who's with the coach is no secret (they're on that court), so the tag is sent.
-          players.map((p) => ({ ...p, level: p.id === myPlayerId ? p.level : null, newbie: coached && p.newbie, playtomicLevel: null, phone: null })),
+        : // While the beginner court is set aside, who's on it is no secret (they're on that court), so the tag is sent.
+          players.map((p) => ({ ...p, level: p.id === myPlayerId ? p.level : null, newbie: (coached || pools) && p.newbie, playtomicLevel: null, phone: null })),
     rounds: roundRows,
+    beginnerRounds,
     standings,
     teamStandings: session.fixedTeams ? computeTeamStandings(players, roundRows) : undefined,
     beginnerStandings: beginnerTable(coached, tables?.beginner),
-    nudges: myRole === "organizer" && split && !coached ? computeNudges(players, roundRows, beginnerCourt) : undefined,
-    warnings: myRole === "organizer" ? computeWarnings(players, roundRows, session.fixedTeams, parseCourtLabels(session.courtLabels ?? ""), split, coached) : [],
+    nudges: myRole === "organizer" && split && !coached ? computeNudges(players, bothTracks, beginnerCourt) : undefined,
+    warnings: myRole === "organizer" ? computeWarnings(players, roundRows, session.fixedTeams, parseCourtLabels(session.courtLabels ?? ""), false, coached || pools) : [],
     counts,
     createdAt: session.createdAt,
   };

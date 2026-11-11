@@ -29,8 +29,9 @@ async function loadMatchContext(
   const loaded = await loadSession(db, match.sessionId);
   if (!loaded) return null;
   const { session } = loaded;
+  // Admins run every tournament (the same rule as canManage in sessions.ts).
   const isOrganizer =
-    session.createdBy === u.id || (await isGroupOrganizer(db, session.groupId, u.id));
+    u.isAdmin || session.createdBy === u.id || (await isGroupOrganizer(db, session.groupId, u.id));
   const [me] = await db
     .select()
     .from(sessionPlayers)

@@ -108,6 +108,12 @@ export interface RoundRow {
   byes: string[]; // session_player ids
   matches: MatchRow[];
   complete: boolean; // all matches confirmed
+  /**
+   * Which sequence the round belongs to: the tournament's main rounds, or the
+   * beginner court's own games (numbered 1, 2, 3… on their own). Absent or
+   * null on rounds dealt before the two were separate.
+   */
+  track?: "main" | "beginner" | null;
 }
 
 export interface StandingRow {
@@ -166,6 +172,8 @@ export interface SessionDetail {
   myPlayerId: string | null;
   players: PlayerRow[];
   rounds: RoundRow[];
+  /** The beginner court's own games (Games mode), oldest first — a separate sequence that never holds up `rounds`. */
+  beginnerRounds: RoundRow[];
   /** The ladder's table (everyone, or everyone but the newbies when the beginner court is on). */
   standings: StandingRow[];
   /** One row per team when the session keeps teams together. */

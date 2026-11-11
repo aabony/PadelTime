@@ -3,7 +3,7 @@ import type { Env } from "../env";
 // Production D1 can't be migrated from this environment (the deploy token has
 // no D1 permission), so additive migrations are also applied lazily here, on
 // the first API requests of each isolate. Idempotent and cheap: one round trip
-// reads the columns of the three tables; nothing else happens once they're all
+// reads the columns of the tables; nothing else happens once they're all
 // there. Records the migration so wrangler's bookkeeping stays in sync.
 //
 // IMPORTANT: no promise is shared between requests. On Workers a request is
@@ -15,7 +15,7 @@ import type { Env } from "../env";
 // complete; only that boolean is shared.
 let upToDate = false;
 
-const TABLES = ["session_players", "game_sessions", "user"] as const;
+const TABLES = ["session_players", "game_sessions", "user", "rounds"] as const;
 
 interface Column {
   migration: string;
@@ -48,6 +48,7 @@ export const COLUMNS: Column[] = [
   { migration: "0010_player_profiles.sql", table: "user", column: "is_admin", type: NN0 },
   { migration: "0011_beginner_court_no.sql", table: "game_sessions", column: "beginner_court_no", type: "integer NOT NULL DEFAULT 1" },
   { migration: "0012_coached_court.sql", table: "game_sessions", column: "beginner_court_coached", type: NN0 },
+  { migration: "0013_beginner_track.sql", table: "rounds", column: "track", type: "text" },
 ];
 
 export async function ensureSchema(db: Env["DB"]): Promise<void> {

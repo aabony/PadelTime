@@ -45,7 +45,7 @@ async function load() {
 
 /** Every table with every column the app expects. */
 const complete = () => {
-  const tables: Record<string, string[]> = { session_players: ["id"], game_sessions: ["id"], user: ["id"] };
+  const tables: Record<string, string[]> = { session_players: ["id"], game_sessions: ["id"], user: ["id"], rounds: ["id"] };
   for (const c of COLUMNS) tables[c.table].push(c.column);
   return tables;
 };
@@ -108,7 +108,7 @@ describe("ensureSchema", () => {
     const { ensureSchema } = await load();
     const { db, log } = fakeDb(tables, { noBatch: true });
     await ensureSchema(db);
-    expect(log.filter((l) => l.startsWith("PRAGMA"))).toHaveLength(3);
+    expect(log.filter((l) => l.startsWith("PRAGMA"))).toHaveLength(4);
   });
 
   it("a real failure is thrown and retried by the next request", async () => {

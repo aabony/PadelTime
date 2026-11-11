@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { getFormat } from "../../shared/formats/registry";
-import { beginnerCourtOf, coachedActive, planCoached, planWithPools, poolRounds, poolsActive } from "../../shared/formats/pools";
+import { BEGINNER_TRACK_BASE, beginnerCourtOf, coachedActive, planBeginnerGame, planCoached, poolRounds, poolsActive } from "../../shared/formats/pools";
 import { autoPair } from "../../shared/formats/teams";
 import type { EngineContext, PlannedMatch } from "../../shared/formats/types";
 import type { MatchRow, RoundRow } from "../../shared/types";
@@ -9,7 +9,7 @@ import { computeStandings, rankForCourts } from "../../shared/standings";
 import { normalizeLevel } from "../../shared/levels";
 import { matches, playerResults, rounds, sessionPlayers } from "../db/schema";
 import type { DB, SessionRow } from "./detail";
-import { loadRounds } from "./detail";
+import { loadRounds, loadTracks } from "./detail";
 import { newId, now } from "./util";
 
 export interface GenerateResult {
@@ -30,9 +30,12 @@ export async function generateNextRound(
   const players = (await db.select().from(sessionPlayers).where(eq(sessionPlayers.sessionId, session.id))).sort(
     (a, b) => a.joinedAt - b.joinedAt,
   );
-  // Coached court: the players tagged Newbie are with the coach, not in the draw.
-  const coached = coachedActive({ beginnerCourt: session.beginnerCourt, coached: session.beginnerCourtCoached, fixedTeams: session.fixedTeams, courts: session.courts });
-  const eligible = players.filter((p) => p.status === "checked_in" && !(coached && p.newbie)).map((p) => p.id);
+  // Beginner court set aside — coaching, or its own games on its own clock: the
+  // players tagged Newbie aren't in the main draw, and that court isn't dealt here.
+  const { coached, pools, newbies } = beginnerCourtState(session, players);
+  const setAside = coached || pools;
+  const tagged = new Set(newbies);
+  const eligible = players.filter((p) => p.status === "checked_in" && !(setAside && tagged.has(p.id))).map((p) => p.id);
   const levels: Record<string, number> = {};
   const genders: Record<string, "woman" | "man"> = {};
   for (const p of players) {
@@ -60,21 +63,10 @@ export async function generateNextRound(
 
   // Late arrivals are credited for the rounds they missed, so they join the rotation.
   const history = creditAbsences(buildHistory(played), played, eligible);
-  // Beginner court: the newbies play their court among themselves; the ladder is ranked from its own courts only.
-  const newbies = players.filter((p) => p.newbie && p.status === "checked_in").map((p) => p.id);
   const beginnerCourt = beginnerCourtOf(session);
-  const pools =
-    !coached &&
-    poolsActive({
-      beginnerCourt: session.beginnerCourt,
-      fixedTeams: session.fixedTeams,
-      courts: session.courts,
-      eligible: eligible.length,
-      newbies: newbies.length,
-    });
-  // Ranked formats deal courts from points per match played (bye-adjusted).
+  // Ranked formats deal courts from points per match played (bye-adjusted) — the ladder's own games only.
   const ranked = rankForCourts(
-    computeStandings(players.map((p) => ({ id: p.id, name: p.id })), pools || coached ? poolRounds(played, "ladder", beginnerCourt) : played),
+    computeStandings(players.map((p) => ({ id: p.id, name: p.id })), setAside ? poolRounds(played, "ladder", beginnerCourt) : played),
   ).filter((r) => r.played > 0);
 
   const ctx: EngineContext = {
@@ -93,11 +85,8 @@ export async function generateNextRound(
   };
   if (session.fixedTeams) ctx.teams = await fixTeams(db, players, eligible, { ...ctx, levels });
 
-  const plan = coached
-    ? planCoached(ctx, format, [], beginnerCourt) // the newbies are already out of `eligible`
-    : pools
-      ? planWithPools(ctx, format, newbies, beginnerCourt)
-      : format.planRound(ctx);
+  // The newbies are already out of `eligible`; planCoached keeps the draw off the beginner court.
+  const plan = setAside ? planCoached(ctx, format, [], beginnerCourt) : format.planRound(ctx);
   if (plan.matches.length === 0) {
     if (session.fixedTeams) {
       return { error: "Keep teams together needs two full teams checked in — check in both partners, or change the pairings." };
@@ -106,7 +95,7 @@ export async function generateNextRound(
   }
 
   if (latest && finishing.length) {
-    plan.matches = courtsWhenDealtAhead(plan.matches, latest.matches, ctx.courts, pools || coached ? beginnerCourt : 0);
+    plan.matches = courtsWhenDealtAhead(plan.matches, latest.matches, ctx.courts, setAside ? beginnerCourt : 0);
   }
 
   const ts = now();
@@ -116,6 +105,7 @@ export async function generateNextRound(
     sessionId: session.id,
     number: ctx.roundNumber,
     byesJson: JSON.stringify(plan.byes),
+    track: "main",
     createdAt: ts,
   });
   await db.insert(matches).values(
@@ -149,6 +139,12 @@ export async function generateNextRound(
  */
 export async function keepUpNext(db: DB, session: SessionRow): Promise<void> {
   if (session.status !== "active") return;
+  await keepMainUpNext(db, session);
+  // The beginner court runs on its own clock: its next game is dealt as soon as its last one is scored.
+  await keepBeginnerGame(db, session);
+}
+
+async function keepMainUpNext(db: DB, session: SessionRow): Promise<void> {
   const played = await loadRounds(db, session.id);
   const latest = played[played.length - 1];
   const before = played[played.length - 2];
@@ -166,18 +162,115 @@ export async function keepUpNext(db: DB, session: SessionRow): Promise<void> {
   }
 }
 
-/** Whether the beginner court is set aside tonight: coached, or a games court with newbies checked in among enough players. */
+type RosterRow = typeof sessionPlayers.$inferSelect;
+
+/** How the beginner court stands tonight: coached, running its own games (`pools`), or neither — and who's tagged and here. */
+export function beginnerCourtState(session: SessionRow, players: RosterRow[]): { coached: boolean; pools: boolean; newbies: string[] } {
+  const here = players.filter((p) => p.status === "checked_in");
+  const newbies = here.filter((p) => p.newbie).map((p) => p.id);
+  const coached = coachedActive({ beginnerCourt: session.beginnerCourt, coached: session.beginnerCourtCoached, fixedTeams: session.fixedTeams, courts: session.courts });
+  const pools =
+    !coached &&
+    poolsActive({ beginnerCourt: session.beginnerCourt, fixedTeams: session.fixedTeams, courts: session.courts, eligible: here.length, newbies: newbies.length });
+  return { coached, pools, newbies };
+}
+
+/** Whether the beginner court is set aside tonight: coached, or running its own games. */
 export async function beginnerCourtActive(db: DB, session: SessionRow): Promise<boolean> {
   if (!session.beginnerCourt || session.fixedTeams) return false;
-  if (coachedActive({ beginnerCourt: true, coached: session.beginnerCourtCoached, courts: session.courts })) return true;
   const players = await db.select().from(sessionPlayers).where(eq(sessionPlayers.sessionId, session.id));
-  const here = players.filter((p) => p.status === "checked_in");
-  return poolsActive({
-    beginnerCourt: true,
-    courts: session.courts,
-    eligible: here.length,
-    newbies: here.filter((p) => p.newbie).length,
-  });
+  const { coached, pools } = beginnerCourtState(session, players);
+  return coached || pools;
+}
+
+/**
+ * The beginner court's own games. One at a time: when the court has no game
+ * waiting for a score, the next is dealt from the newbies who are here —
+ * Americano rotation over the beginner track's own history. Called after
+ * every score and every main deal, so the court keeps itself going without
+ * ever being part of a main round.
+ *
+ * Nothing is dealt while a main game is still being played on that court, and
+ * a newbie still finishing a main game (just tagged) joins from the next one.
+ */
+export async function keepBeginnerGame(db: DB, session: SessionRow): Promise<void> {
+  if (session.status !== "active") return;
+  const players = (await db.select().from(sessionPlayers).where(eq(sessionPlayers.sessionId, session.id))).sort(
+    (a, b) => a.joinedAt - b.joinedAt,
+  );
+  const { pools, newbies } = beginnerCourtState(session, players);
+  if (!pools) return;
+  const { main, beginner: games } = await loadTracks(db, session.id);
+  const current = games[games.length - 1];
+  if (current && !current.complete) return;
+
+  const court = beginnerCourtOf(session);
+  const unfinished = main.flatMap((r) => r.matches).filter((m) => m.status !== "confirmed");
+  if (unfinished.some((m) => m.court === court)) return;
+  const onMainCourt = new Set(unfinished.flatMap((m) => [...m.a, ...m.b]));
+  const ready = newbies.filter((id) => !onMainCourt.has(id));
+  if (ready.length < 4) return;
+
+  const genders: Record<string, "woman" | "man"> = {};
+  for (const p of players) if (p.gender === "woman" || p.gender === "man") genders[p.id] = p.gender;
+  const number = (current?.number ?? 0) + 1;
+  const plan = planBeginnerGame(
+    {
+      players: ready,
+      courts: 1,
+      roundNumber: number,
+      // Someone who arrived (or was tagged) late is credited for the games they missed, so they join the rotation.
+      ...creditAbsences(buildHistory(games), games, ready),
+      standings: [],
+      groupByLevel: false,
+      genders,
+      mixedPairs: session.mixedPairs,
+      rng: Math.random,
+    },
+    court,
+  );
+  if (plan.matches.length === 0) return;
+
+  const roundId = newId();
+  try {
+    await db.insert(rounds).values({
+      id: roundId,
+      sessionId: session.id,
+      number: BEGINNER_TRACK_BASE + number,
+      byesJson: JSON.stringify(plan.byes),
+      track: "beginner",
+      createdAt: now(),
+    });
+  } catch {
+    return; // two scores landing together both deal the same game number: one wins
+  }
+  await db.insert(matches).values(
+    plan.matches.map((m) => ({
+      id: newId(),
+      sessionId: session.id,
+      roundId,
+      court: m.court,
+      a1: m.a[0],
+      a2: m.a[1],
+      b1: m.b[0],
+      b2: m.b[1],
+      status: "pending" as const,
+    })),
+  );
+}
+
+/**
+ * Drop the beginner court's current game if nothing has been scored on it —
+ * for a reshuffle, or when the court's settings change under it. Returns
+ * whether there's now room for a fresh one.
+ */
+export async function dropUnscoredBeginnerGame(db: DB, sessionId: string): Promise<boolean> {
+  const { beginner: games } = await loadTracks(db, sessionId);
+  const current = games[games.length - 1];
+  if (!current || current.complete) return true;
+  if (current.matches.some((m) => m.scoreA != null)) return false;
+  await db.delete(rounds).where(eq(rounds.id, current.id));
+  return true;
 }
 
 async function recourtUpNext(db: DB, playing: RoundRow, upNext: RoundRow, courts: number, reserved = 0): Promise<void> {
@@ -196,6 +289,8 @@ async function recourtUpNext(db: DB, playing: RoundRow, upNext: RoundRow, courts
 
 /** Finishing the night: rounds dealt at the end that nobody played (no scores) are dropped. */
 export async function dropUnplayedUpNext(db: DB, sessionId: string): Promise<void> {
+  // The beginner court's game in waiting goes too.
+  await dropUnscoredBeginnerGame(db, sessionId);
   const played = await loadRounds(db, sessionId);
   while (played.length > 1 && played[played.length - 1].matches.every((m) => m.scoreA == null)) {
     await db.delete(rounds).where(eq(rounds.id, played.pop()!.id));

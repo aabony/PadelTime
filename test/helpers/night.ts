@@ -27,7 +27,7 @@ export interface NightOptions {
   teams?: [string, string][];
   /** Dealing ahead: every round is dealt while the last court of the round before is still playing. */
   dealAhead?: boolean;
-  /** Beginner court on: these players are the newbie pool (the planner is then expected to use planWithPools). */
+  /** Beginner court on: these players are the newbie pool (kept out of the main rounds by the planner). */
   newbies?: string[];
   /** Competitive sit-outs on. */
   competitive?: boolean;

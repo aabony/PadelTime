@@ -1,7 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { americano } from "../src/shared/formats/americano";
 import { mexicano } from "../src/shared/formats/mexicano";
-import { BEGINNER_COURT, beginnerCourtOf, coachedActive, ladderCourts, planCoached, planWithPools, poolOfCourt, poolRounds, poolsActive } from "../src/shared/formats/pools";
+import {
+  beginnerCourtOf,
+  coachedActive,
+  ladderCourts,
+  planBeginnerGame,
+  planCoached,
+  poolOfCourt,
+  poolOfMatch,
+  poolRounds,
+  poolsActive,
+} from "../src/shared/formats/pools";
 import { COMPETITIVE_FLOOR, pickByes } from "../src/shared/formats/byes";
 import { mulberry32 } from "../src/shared/formats/types";
 import type { EngineContext } from "../src/shared/formats/types";
@@ -24,81 +34,83 @@ const onCourt = (plan: { matches: { court: number; a: [string, string]; b: [stri
 const ladder = (ids: string[]) => ids.map((playerId, i) => ({ playerId, points: 100 - i * 5, played: 2 }));
 
 describe("poolsActive", () => {
-  it("needs the toggle, two courts, a newbie and eight players", () => {
+  it("needs the toggle, two courts, four newbies and eight players", () => {
     expect(poolsActive({ beginnerCourt: true, courts: 3, eligible: 14, newbies: 6 })).toBe(true);
+    expect(poolsActive({ beginnerCourt: true, courts: 2, eligible: 8, newbies: 4 })).toBe(true);
     expect(poolsActive({ beginnerCourt: false, courts: 3, eligible: 14, newbies: 6 })).toBe(false);
     expect(poolsActive({ beginnerCourt: true, courts: 1, eligible: 14, newbies: 6 })).toBe(false);
     expect(poolsActive({ beginnerCourt: true, courts: 3, eligible: 14, newbies: 0 })).toBe(false);
-    expect(poolsActive({ beginnerCourt: true, courts: 2, eligible: 7, newbies: 3 })).toBe(false);
+    // A game takes four: three newbies play the main draw until a fourth arrives.
+    expect(poolsActive({ beginnerCourt: true, courts: 3, eligible: 14, newbies: 3 })).toBe(false);
+    expect(poolsActive({ beginnerCourt: true, courts: 2, eligible: 7, newbies: 4 })).toBe(false);
     expect(poolsActive({ beginnerCourt: true, fixedTeams: true, courts: 3, eligible: 14, newbies: 6 })).toBe(false);
   });
 });
 
-describe("planWithPools", () => {
-  it("puts only newbies on court 1 and nobody tagged on the ladder courts", () => {
+describe("the main rounds with the beginner court set aside", () => {
+  it("deal the ladder on the other courts and never touch the newbies or their court", () => {
     const players = names(14);
     const newbies = ["p9", "p10", "p11", "p12", "p13", "p14"];
     for (let seed = 1; seed <= 20; seed++) {
-      const plan = planWithPools(ctxOf(players, 3, [], ladder(names(8)), seed), mexicano, newbies);
-      expect(plan.matches).toHaveLength(3);
-      const court1 = onCourt(plan, BEGINNER_COURT);
-      expect(court1).toHaveLength(4);
-      expect(court1.every((p) => newbies.includes(p))).toBe(true);
-      for (const c of [2, 3]) expect(onCourt(plan, c).some((p) => newbies.includes(p))).toBe(false);
-      // 14 players on 3 courts: two sit — both newbies (the ladder's 8 fill 2 courts exactly).
-      expect(plan.byes).toHaveLength(2);
-      expect(plan.byes.every((p) => newbies.includes(p))).toBe(true);
+      const plan = planCoached(ctxOf(players, 3, [], ladder(names(8)), seed), mexicano, newbies);
+      // The ladder's 8 fill courts 2 and 3; court 1 is the beginners'.
+      expect(plan.matches.map((m) => m.court).sort()).toEqual([2, 3]);
+      const dealt = plan.matches.flatMap((m) => [...m.a, ...m.b]);
+      expect(dealt.some((id) => newbies.includes(id))).toBe(false);
+      expect(plan.byes).toHaveLength(0);
     }
   });
 
-  it("ladder courts are the format's courts shifted up by one", () => {
-    const players = names(16);
-    const newbies = ["p13", "p14", "p15", "p16"];
-    const plan = planWithPools(ctxOf(players, 4, [], ladder(names(12)), 3), mexicano, newbies);
-    expect(plan.matches.map((m) => m.court).sort()).toEqual([1, 2, 3, 4]);
-    // Mexicano's top four (p1..p4) land on the first ladder court, which is court 2.
+  it("Mexicano's top four land on the first ladder court", () => {
+    const plan = planCoached(ctxOf(names(16), 4, [], ladder(names(12)), 3), mexicano, ["p13", "p14", "p15", "p16"]);
+    expect(plan.matches.map((m) => m.court).sort()).toEqual([2, 3, 4]);
     expect(onCourt(plan, 2).sort()).toEqual(["p1", "p2", "p3", "p4"]);
   });
 
-  it("tops court 1 up from the bottom of the ladder when newbies are short", () => {
-    const players = names(12);
-    const plan = planWithPools(ctxOf(players, 3, [], ladder(names(10)), 5), mexicano, ["p11", "p12"]);
-    const court1 = onCourt(plan, 1);
-    expect(court1).toContain("p11");
-    expect(court1).toContain("p12");
-    // p9 and p10 are the lowest ranked ladder players.
-    expect(court1.sort()).toEqual(["p10", "p11", "p12", "p9"]);
-    expect(onCourt(plan, 2).sort()).toEqual(["p1", "p2", "p3", "p4"]);
-    expect(plan.byes).toHaveLength(0);
-  });
-
-  it("never tops up with a player still finishing a game", () => {
-    const players = names(12);
-    const ctx = { ...ctxOf(players, 3, [], ladder(names(10)), 5), busy: ["p9", "p10"] };
-    const plan = planWithPools(ctx, mexicano, ["p11", "p12"]);
-    expect(onCourt(plan, 1).sort()).toEqual(["p11", "p12", "p7", "p8"]);
-  });
-
-  it("rotates sit-outs fairly inside each pool over a night", () => {
+  it("rotate the ladder's sit-outs fairly over a night", () => {
     const players = names(22);
-    const newbies = names(22).slice(14); // 8 newbies, 14 ladder on 3 courts
-    const night = playNight((ctx) => planWithPools(ctx, mexicano, newbies), { players, courts: 3, rounds: 7, seed: 11, ladderOnly: true });
-    const spread = (ids: string[]) => {
-      const counts = ids.map((id) => night.filter((r) => r.plan.byes.includes(id)).length);
-      return Math.max(...counts) - Math.min(...counts);
-    };
-    expect(spread(newbies)).toBeLessThanOrEqual(1);
-    expect(spread(players.slice(0, 14))).toBeLessThanOrEqual(1);
+    const newbies = players.slice(14); // 14 ladder players on 2 of 3 courts: 6 sit each round
+    const night = playNight((ctx) => planCoached(ctx, mexicano, newbies), { players, courts: 3, rounds: 7, seed: 11, ladderOnly: true });
+    const sat = players.slice(0, 14).map((id) => night.filter((r) => r.plan.byes.includes(id)).length);
+    expect(Math.max(...sat) - Math.min(...sat)).toBeLessThanOrEqual(1);
     for (const r of night) {
-      expect(onCourt(r.plan, 1).every((p) => newbies.includes(p))).toBe(true);
-      for (const c of [2, 3]) expect(onCourt(r.plan, c).some((p) => newbies.includes(p))).toBe(false);
+      expect(r.plan.matches.some((m) => m.court === 1)).toBe(false);
+      expect([...r.plan.byes, ...r.plan.matches.flatMap((m) => [...m.a, ...m.b])].some((id) => newbies.includes(id))).toBe(false);
+    }
+  });
+});
+
+describe("the beginner court's own games", () => {
+  it("deal four newbies onto the beginner court and sit the rest", () => {
+    const newbies = names(6);
+    for (let seed = 1; seed <= 10; seed++) {
+      const plan = planBeginnerGame(ctxOf(newbies, 1, [], [], seed), 3);
+      expect(plan.matches).toHaveLength(1);
+      expect(plan.matches[0].court).toBe(3);
+      expect(new Set([...plan.matches[0].a, ...plan.matches[0].b]).size).toBe(4);
+      expect(plan.byes).toHaveLength(2);
     }
   });
 
-  it("works with Americano as the ladder format too", () => {
-    const plan = planWithPools(ctxOf(names(12), 2, [], [], 2), americano, ["p9", "p10", "p11", "p12"]);
-    expect(plan.matches.map((m) => m.court).sort()).toEqual([1, 2]);
-    expect(onCourt(plan, 1).sort()).toEqual(["p10", "p11", "p12", "p9"]);
+  it("with exactly four, everyone plays every game and partners rotate", () => {
+    const night = playNight((ctx) => planBeginnerGame(ctx), { players: names(4), courts: 1, rounds: 3, seed: 5 });
+    const partners = new Set(night.map((r) => [r.plan.matches[0].a[0], r.plan.matches[0].a[1]].sort().join("+") + "|" + [r.plan.matches[0].b[0], r.plan.matches[0].b[1]].sort().join("+")));
+    expect(night.every((r) => r.plan.byes.length === 0)).toBe(true);
+    expect(partners.size).toBe(3); // the three ways to pair four players, each once
+  });
+
+  it("share the sit-outs fairly over a run of games", () => {
+    const newbies = names(7);
+    const night = playNight((ctx) => planBeginnerGame(ctx), { players: newbies, courts: 1, rounds: 14, seed: 9 });
+    const sat = newbies.map((id) => night.filter((r) => r.plan.byes.includes(id)).length);
+    expect(Math.max(...sat) - Math.min(...sat)).toBeLessThanOrEqual(1);
+  });
+
+  it("ignore the ladder's standings, levels and who's busy on other courts", () => {
+    const ctx = { ...ctxOf(names(5), 1, [], ladder(names(5)), 4), levels: { p1: 4, p2: 4, p3: 2, p4: 2, p5: 2 }, groupByLevel: true, busy: ["p1", "p2"] };
+    const plan = planBeginnerGame(ctx);
+    expect(plan.matches).toHaveLength(1);
+    expect(plan.byes).toHaveLength(1);
   });
 });
 
@@ -129,6 +141,33 @@ describe("poolRounds and per-pool standings", () => {
     expect(beginner[0]).toMatchObject({ playerId: "n1", points: 22, played: 2, ranked: true });
     expect(ladderTable[0]).toMatchObject({ playerId: "l1", points: 17, played: 2 });
     expect(ladderTable.every((r) => r.played === 2)).toBe(true);
+  });
+});
+
+describe("rounds know which sequence they belong to", () => {
+  const m = (court: number) => ({ court });
+  it("a beginner-track game is the beginners' and a main round the ladder's, whatever the court", () => {
+    expect(poolOfMatch({ track: "beginner" }, m(2), 1)).toBe("beginner");
+    expect(poolOfMatch({ track: "main" }, m(1), 1)).toBe("ladder");
+  });
+  it("rounds dealt before the tracks existed are split by court", () => {
+    expect(poolOfMatch({}, m(1), 1)).toBe("beginner");
+    expect(poolOfMatch({ track: null }, m(2), 1)).toBe("ladder");
+    expect(poolOfMatch({}, m(3), 3)).toBe("beginner");
+  });
+  it("poolRounds keeps each track whole", () => {
+    const round = (track: RoundRow["track"], courts: number[]): RoundRow => ({
+      id: `${track}`,
+      number: 1,
+      createdAt: 1,
+      byes: [],
+      complete: true,
+      track,
+      matches: courts.map((court, i) => ({ id: `${track}${i}`, roundId: `${track}`, court, a: ["a", "b"], b: ["c", "d"], scoreA: 9, scoreB: 7, status: "confirmed", submittedBy: null })),
+    });
+    const all = [round("main", [1, 2, 3]), round("beginner", [1])];
+    expect(poolRounds(all, "ladder", 1).map((r) => r.matches.length)).toEqual([3, 0]);
+    expect(poolRounds(all, "beginner", 1).map((r) => r.matches.length)).toEqual([0, 1]);
   });
 });
 
@@ -163,10 +202,10 @@ describe("competitive sit-outs", () => {
     expect(picks.size).toBeGreaterThan(4);
   });
 
-  it("applies inside each pool with the beginner court on", () => {
+  it("applies to the ladder with the beginner court set aside", () => {
     const players = names(12);
     const newbies = ["p9", "p10", "p11", "p12"];
-    const night = playNight((ctx) => planWithPools(ctx, mexicano, newbies), {
+    const night = playNight((ctx) => planCoached(ctx, mexicano, newbies), {
       players,
       courts: 2,
       rounds: 8,
@@ -175,8 +214,8 @@ describe("competitive sit-outs", () => {
       ladderOnly: true,
       levels: Object.fromEntries(players.map((p, i) => [p, i < 4 ? 4 : i < 8 ? 2 : 3])),
     });
-    // Newbies always fill their court exactly (4 of 4), so they never sit.
-    for (const r of night) expect(r.plan.byes.some((p) => newbies.includes(p))).toBe(false);
+    // The newbies are on their own court's clock: never in a main round, playing or sitting.
+    for (const r of night) expect([...r.plan.byes, ...r.plan.matches.flatMap((m) => [...m.a, ...m.b])].some((p) => newbies.includes(p))).toBe(false);
     // Ladder: from round 4 (everyone has 3 games) the four sitting are the bottom four by average; the
     // level-2 players (p5..p8) lose most games to the level-4s, so they sit far more in the later rounds.
     const late = night.slice(3);
@@ -186,16 +225,16 @@ describe("competitive sit-outs", () => {
 });
 
 describe("a beginner court other than court 1", () => {
-  it("planWithPools puts the newbies on the chosen court and deals the ladder across the rest in order", () => {
+  it("the main rounds deal around the chosen court, and the beginners' game lands on it", () => {
     const players = names(16);
     const newbies = ["p13", "p14", "p15", "p16"];
     for (let seed = 1; seed <= 10; seed++) {
-      const plan = planWithPools(ctxOf(players, 4, [], ladder(names(12)), seed), mexicano, newbies, 3);
-      expect(plan.matches.map((m) => m.court).sort()).toEqual([1, 2, 3, 4]);
-      expect(onCourt(plan, 3).every((p) => newbies.includes(p))).toBe(true);
-      for (const c of [1, 2, 4]) expect(onCourt(plan, c).some((p) => newbies.includes(p))).toBe(false);
+      const main = planCoached(ctxOf(players, 4, [], ladder(names(12)), seed), mexicano, newbies, 3);
+      expect(main.matches.map((m) => m.court).sort()).toEqual([1, 2, 4]);
       // Mexicano's top four land on the first ladder court, which is now court 1.
-      expect(onCourt(plan, 1).sort()).toEqual(["p1", "p2", "p3", "p4"]);
+      expect(onCourt(main, 1).sort()).toEqual(["p1", "p2", "p3", "p4"]);
+      const game = planBeginnerGame(ctxOf(newbies, 1, [], [], seed), 3);
+      expect(onCourt(game, 3).sort()).toEqual([...newbies].sort());
     }
   });
 

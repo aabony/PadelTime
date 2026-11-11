@@ -3,8 +3,8 @@ import { and, eq, inArray, isNull, or } from "drizzle-orm";
 import { Hono } from "hono";
 import { gameSessions, matches, rounds, sessionPlayers } from "../db/schema";
 import type { DB, SessionRow } from "../lib/detail";
-import { buildDetail, isGroupMember, isGroupOrganizer, loadRounds, loadSession } from "../lib/detail";
-import { beginnerCourtActive, dropUnplayedUpNext, generateNextRound, keepUpNext } from "../lib/engine";
+import { buildDetail, isGroupMember, isGroupOrganizer, loadRounds, loadSession, loadTracks } from "../lib/detail";
+import { beginnerCourtActive, dropUnplayedUpNext, dropUnscoredBeginnerGame, generateNextRound, keepBeginnerGame, keepUpNext } from "../lib/engine";
 import { getFormat } from "../../shared/formats/registry";
 import { beginnerCourtOf } from "../../shared/formats/pools";
 import { parseGender } from "../../shared/genders";
@@ -115,7 +115,8 @@ sessionRoutes.patch("/sessions/:id", async (c) => {
   const points = asInt(body.pointsPerMatch);
   const teamsChange = typeof body.fixedTeams === "boolean" && body.fixedTeams !== session.fixedTeams;
   if (points != null && points !== session.pointsPerMatch) {
-    const scored = (await loadRounds(db, session.id)).some((r) => r.matches.some((m) => m.scoreA != null));
+    const tracks = await loadTracks(db, session.id);
+    const scored = [...tracks.main, ...tracks.beginner].some((r) => r.matches.some((m) => m.scoreA != null));
     if (scored) return c.json({ error: "Points per game can't change once a score is in — undo those rounds first" }, 400);
     patch.pointsPerMatch = Math.min(Math.max(points, 4), 99);
   }
@@ -127,6 +128,14 @@ sessionRoutes.patch("/sessions/:id", async (c) => {
   await db.update(gameSessions).set(patch).where(eq(gameSessions.id, session.id));
   if (patch.maxPlayers != null && patch.maxPlayers > session.maxPlayers) {
     await promoteWaitlist(db, { ...session, maxPlayers: patch.maxPlayers });
+  }
+  // The beginner court changed under its game in waiting (another court, coaching, switched off, teams):
+  // that game is re-dealt under the new settings, or dropped. A game with a score on it stays.
+  const courtChanged = ["beginnerCourt", "beginnerCourtNo", "beginnerCourtCoached", "courts", "fixedTeams"].some(
+    (k) => k in patch && (patch as Record<string, unknown>)[k] !== (session as Record<string, unknown>)[k],
+  );
+  if (courtChanged && session.status === "active" && (await dropUnscoredBeginnerGame(db, session.id))) {
+    await keepBeginnerGame(db, { ...session, ...patch } as SessionRow);
   }
   return c.json({ ok: true });
 });
@@ -263,6 +272,8 @@ sessionRoutes.post("/sessions/:id/players", async (c) => {
     checkedInAt: playing ? now() : null,
     newbie: body.newbie === true,
   });
+  // A fourth newbie arriving is what the beginner court was waiting for.
+  if (body.newbie === true) await keepBeginnerGame(db, session);
   return c.json({ ok: true });
 });
 
@@ -379,10 +390,22 @@ sessionRoutes.patch("/sessions/:id/players/:pid", async (c) => {
       // The organizer can set or override anyone's level (players set their own via /level).
       await db.update(sessionPlayers).set({ level: parseLevel(body.level) }).where(eq(sessionPlayers.id, player.id));
       break;
-    case "set_newbie":
+    case "set_newbie": {
       // Move down (tag) / move up (untag): takes effect from the next round dealt.
       await db.update(sessionPlayers).set({ newbie: body.newbie === true }).where(eq(sessionPlayers.id, player.id));
+      if (session.status !== "active") break;
+      if (body.newbie !== true) {
+        // Moved up while on court in the beginner court's game in waiting: that game is re-dealt without them
+        // (unless a score is already on it). Anyone else's game is left alone — it may be mid-play.
+        const { beginner } = await loadTracks(db, session.id);
+        const waiting = beginner[beginner.length - 1];
+        const onIt = !!waiting && !waiting.complete && waiting.matches.some((m) => [...m.a, ...m.b].includes(player.id));
+        if (onIt) await dropUnscoredBeginnerGame(db, session.id);
+      }
+      // Tagging can make the fourth newbie the beginner court was waiting for; untagging frees a place.
+      await keepBeginnerGame(db, session);
       break;
+    }
     case "merge": {
       // "Brandon Pourmorady" (account) is the same person as guest "Brandon P":
       // the guest row keeps its history and becomes the account's row.
@@ -537,6 +560,14 @@ sessionRoutes.post("/sessions/:id/rounds", async (c) => {
   if (session.status !== "active") return c.json({ error: "Session isn't live" }, 400);
 
   const body = await c.req.json().catch(() => ({}));
+  // The beginner court's own game: reshuffle the one waiting for a score, or deal one if the court is idle.
+  if (body.beginner === true) {
+    if (!(await dropUnscoredBeginnerGame(db, session.id))) {
+      return c.json({ error: "That game already has a score — enter or correct it instead" }, 400);
+    }
+    await keepBeginnerGame(db, session);
+    return c.json({ ok: true });
+  }
   let force = body.force === true;
 
   if (body.regenerate === true) {
@@ -639,8 +670,11 @@ sessionRoutes.delete("/sessions/:id/rounds/:roundId", async (c) => {
     .from(rounds)
     .where(eq(rounds.sessionId, session.id))
     .orderBy(rounds.number);
-  const latest = roundRows[roundRows.length - 1];
-  if (!latest || latest.id !== c.req.param("roundId")) {
+  // Each sequence undoes from its own end: the latest main round, or the beginner court's latest game.
+  const target = roundRows.find((r) => r.id === c.req.param("roundId"));
+  const sameTrack = roundRows.filter((r) => (r.track === "beginner") === (target?.track === "beginner"));
+  const latest = sameTrack[sameTrack.length - 1];
+  if (!target || !latest || latest.id !== target.id) {
     return c.json({ error: "Only the latest round can be undone" }, 400);
   }
   await db.delete(rounds).where(eq(rounds.id, latest.id));

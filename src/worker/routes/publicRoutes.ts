@@ -5,12 +5,13 @@ import type { ResultsData, JoinInfo, PlayerStatus, SessionStatus } from "../../s
 import { computeStandings, computeTeamStandings } from "../../shared/standings";
 import { groupMembers, sessionPlayers, verification } from "../db/schema";
 import type { DB } from "../lib/detail";
-import { beginnerTable, isCoached, loadPlayers, loadRounds, loadSessionByCode, poolStandings, splitTables } from "../lib/detail";
+import { beginnerTable, isCoached, loadPlayers, loadRounds, loadSessionByCode, loadTracks, poolStandings, splitTables } from "../lib/detail";
 import { parseGender } from "../../shared/genders";
 import type { Gender } from "../../shared/genders";
 import { isNewbie, normalizeLevel, parseLevel } from "../../shared/levels";
 import { isProfileComplete } from "../../shared/profile";
 import { beginnerCourtOf } from "../../shared/formats/pools";
+import { keepBeginnerGame } from "../lib/engine";
 import { newId, now } from "../lib/util";
 import type { ApiCtx } from "./context";
 
@@ -205,6 +206,8 @@ publicRoutes.post("/join/:code", async (c) => {
     // A self-declared Newbie arrives tagged for the beginner court; the organizer can untag them.
     newbie: isNewbie(level),
   });
+  // A fourth newbie arriving is what the beginner court was waiting for.
+  if (isNewbie(level)) await keepBeginnerGame(db, session);
 
   // Joining a session makes you part of its group (recurring-group model, plan §18).
   const [membership] = await db
@@ -231,8 +234,8 @@ publicRoutes.get("/results/:code", async (c) => {
   if (!loaded) return c.json({ error: "Session not found" }, 404);
   const { session, groupName } = loaded;
   const players = await loadPlayers(db, session.id);
-  const rounds = await loadRounds(db, session.id);
-  const tables = splitTables(session, players) ? poolStandings(players, rounds, beginnerCourtOf(session)) : null;
+  const { main: rounds, beginner: beginnerGames } = await loadTracks(db, session.id);
+  const tables = splitTables(session, players) ? poolStandings(players, [...rounds, ...beginnerGames], beginnerCourtOf(session)) : null;
   const onBoard = (s: { playerId: string; played: number }) => {
     const p = players.find((x) => x.id === s.playerId);
     return s.played > 0 || p?.status === "checked_in";

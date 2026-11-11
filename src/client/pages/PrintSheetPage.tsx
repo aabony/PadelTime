@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { BEGINNER_COURT, ladderCourts, planWithPools, poolsActive } from "../../shared/formats/pools";
+import { ladderCourts, poolsActive } from "../../shared/formats/pools";
 import { americano } from "../../shared/formats/americano";
 import { autoPair } from "../../shared/formats/teams";
 import { formatMeta } from "../../shared/formatMeta";
@@ -71,13 +71,9 @@ function planRounds(
   seed: number,
   prior: HistoryRound[],
   extra: Partial<EngineContext> = {},
-  /** Beginner court on: the newbies, who get the beginner court to themselves. */
-  newbies: string[] = [],
-  beginnerCourt = BEGINNER_COURT,
 ): PlannedRound[] {
   const history = [...prior];
   const planned: PlannedRound[] = [];
-  const pools = poolsActive({ beginnerCourt: newbies.length > 0, fixedTeams: !!extra.teams, courts, eligible: ids.length, newbies: newbies.length });
   const rng = mulberry32(seed || 1);
   for (let r = prior.length + 1; r <= totalRounds; r++) {
     const ctx: EngineContext = {
@@ -89,7 +85,7 @@ function planRounds(
       ...extra,
       rng,
     };
-    const plan = pools ? planWithPools(ctx, americano, newbies, beginnerCourt) : americano.planRound(ctx);
+    const plan = americano.planRound(ctx);
     const round: PlannedRound = {
       number: r,
       byes: plan.byes,
@@ -199,8 +195,11 @@ function sessionSheet(d: SessionDetail, roundsWanted: number, seed: number): She
     byes: r.byes,
     matches: r.matches.map((m) => ({ a: m.a, b: m.b })),
   }));
-  // Coached court: the newbies train with the coach, so the sheet plans the tournament on the other courts.
-  const coached = d.coachedActive;
+  // Beginner court set aside (coaching, or its own games on its own clock): the sheet plans the tournament on the other courts.
+  const stillIn = roster.filter((p) => p.status !== "dropped");
+  const coached =
+    d.coachedActive ||
+    poolsActive({ beginnerCourt: d.beginnerCourt, fixedTeams: d.fixedTeams, courts: d.courts, eligible: stillIn.length, newbies: stillIn.filter((p) => p.newbie).length });
   const sheetCourts = coached ? d.courts - 1 : d.courts;
   const courtOnSheet = (court: number) => (coached ? (ladderCourts(d.courts, d.beginnerCourtNo)[court - 1] ?? court) : court);
   const activeIds = roster.filter((p) => p.status !== "dropped" && !(coached && p.newbie)).map((p) => p.id);
@@ -214,7 +213,7 @@ function sessionSheet(d: SessionDetail, roundsWanted: number, seed: number): She
             ...r,
             matches: r.matches.map((m) => ({ ...m, court: courtOnSheet(m.court) })),
           }))
-        : planRounds(activeIds, sheetCourts, totalRounds, seed, prior, extra, d.beginnerCourt && !coached ? roster.filter((p) => p.newbie).map((p) => p.id) : [], d.beginnerCourtNo).map((r) => ({
+        : planRounds(activeIds, sheetCourts, totalRounds, seed, prior, extra).map((r) => ({
           number: r.number,
           byes: byNumber(r.byes),
           matches: r.matches.map((m) => ({

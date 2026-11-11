@@ -6,7 +6,7 @@ import { computeTeamStandings, minGamesToRank, pointsPerGame } from "../../share
 import type { GroupRole, MeResponse, SessionStatus, SessionSummary, UserInfo } from "../../shared/types";
 import { displayName, isProfileComplete, validateProfile } from "../../shared/profile";
 import { beginnerCourtOf } from "../../shared/formats/pools";
-import { gameSessions, groupMembers, groups, matches, playerResults, sessionPlayers, user } from "../db/schema";
+import { gameSessions, groupMembers, groups, matches, playerResults, rounds, sessionPlayers, user } from "../db/schema";
 import type { DB } from "../lib/detail";
 import { isGroupOrganizer, loadPlayersFor, loadRoundsFor } from "../lib/detail";
 import { asInt, inviteCode, newId, now, trimmed } from "../lib/util";
@@ -53,14 +53,17 @@ async function winnersFor(
         sessionId: playerResults.sessionId,
         playerId: playerResults.playerId,
         court: matches.court,
+        track: rounds.track,
         pts: sql<number>`sum(${playerResults.pointsFor})`,
         games: sql<number>`count(*)`,
       })
       .from(playerResults)
       .innerJoin(matches, eq(playerResults.matchId, matches.id))
+      .innerJoin(rounds, eq(matches.roundId, rounds.id))
       .where(inArray(playerResults.sessionId, solo))
-      .groupBy(playerResults.sessionId, playerResults.playerId, matches.court)
-  ).filter((r) => r.court !== beginnerCourtOfSession.get(r.sessionId));
+      .groupBy(playerResults.sessionId, playerResults.playerId, matches.court, rounds.track)
+    // The beginner court's own games never count; a main round always does; older rounds held both, split by court.
+  ).filter((r) => (r.track === "beginner" ? false : r.track === "main" ? true : r.court !== beginnerCourtOfSession.get(r.sessionId)));
   // Same rule as the standings: most points among players with at least half
   // as many games as the busiest player.
   const bySession = new Map<string, { playerId: string; points: number; played: number }[]>();
