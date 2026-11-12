@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Api, usePoll } from "../lib/api";
 import { fmtTimeRange, fromLocalInputValue, toLocalInputValue } from "../lib/format";
@@ -2491,13 +2491,22 @@ function AddPlayerForm({ d, run, busyKey, pools, placeholder }: { d: SessionDeta
       live = false;
     };
   }, []);
+  // The list of registered players opens when the box is tapped and stays open while names are
+  // being added one after another; a tap anywhere else (or Escape) puts it away.
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: PointerEvent) => {
+      if (box.current && !box.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("pointerdown", away);
+    return () => document.removeEventListener("pointerdown", away);
+  }, [open]);
   const onRoster = d.players.filter((p) => p.status !== "dropped");
-  const suggestions = playerSuggestions({
-    query: name,
-    members,
-    rosterUserIds: onRoster.flatMap((p) => (p.userId ? [p.userId] : [])),
-    rosterGuestNames: onRoster.filter((p) => p.isGuest).map((p) => p.name),
-  });
+  const suggestions = open
+    ? playerSuggestions({ query: name, members, rosterUserIds: onRoster.flatMap((p) => (p.userId ? [p.userId] : [])) })
+    : [];
   const done = () => {
     setName("");
     setNewbie(false);
@@ -2517,7 +2526,7 @@ function AddPlayerForm({ d, run, busyKey, pools, placeholder }: { d: SessionDeta
     });
   };
   return (
-    <div className="mt-3 border-t border-line pt-3">
+    <div className="mt-3 border-t border-line pt-3" ref={box}>
       <form
         className="flex gap-2"
         onSubmit={(e) => {
@@ -2526,20 +2535,34 @@ function AddPlayerForm({ d, run, busyKey, pools, placeholder }: { d: SessionDeta
           add("guest", () => Api.addGuest(d.id, name.trim(), pools && newbie));
         }}
       >
-        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={placeholder} aria-label={placeholder} autoComplete="off" />
+        <Input
+          value={name}
+          onChange={(e) => {
+            setName(e.target.value);
+            setOpen(true);
+          }}
+          onFocus={() => setOpen(true)}
+          onClick={() => setOpen(true)}
+          onKeyDown={(e) => e.key === "Escape" && setOpen(false)}
+          placeholder={placeholder}
+          aria-label={placeholder}
+          autoComplete="off"
+        />
         {pools && <NewbieToggle checked={newbie} onChange={setNewbie} label="New player is a newbie" />}
         <Button variant="secondary" busy={busyKey === "guest"} type="submit">
           Add
         </Button>
       </form>
       {suggestions.length > 0 && (
-        <ul className="mt-2 divide-y divide-line overflow-hidden rounded-2xl border border-line-strong bg-white" data-testid="player-suggestions">
-          {suggestions.map((sug) => {
-            const isMember = sug.kind === "member";
-            const label = isMember ? sug.member.name.trim() || sug.member.email : sug.player.name;
-            const level = levelMeta(isMember ? sug.member.level : sug.player.level);
-            const gender = genderMeta(isMember ? sug.member.gender : sug.player.gender);
-            const key = isMember ? `m-${sug.member.id}` : `t-${sug.player.name}`;
+        <ul
+          className="mt-2 max-h-72 divide-y divide-line overflow-y-auto overscroll-contain rounded-2xl border border-line-strong bg-white"
+          data-testid="player-suggestions"
+        >
+          {suggestions.map((m) => {
+            const label = m.name.trim() || m.email;
+            const level = levelMeta(m.level);
+            const gender = genderMeta(m.gender);
+            const key = `m-${m.id}`;
             return (
               <li key={key}>
                 <button
@@ -2547,16 +2570,11 @@ function AddPlayerForm({ d, run, busyKey, pools, placeholder }: { d: SessionDeta
                   disabled={busyKey === key}
                   aria-label={`Add ${label}`}
                   className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-royal-soft/60 disabled:opacity-50"
-                  onClick={() =>
-                    add(key, () => (isMember ? Api.addMember(d.id, sug.member.id, pools && newbie) : Api.addTestPlayer(d.id, sug.player.name)))
-                  }
+                  onClick={() => add(key, () => Api.addMember(d.id, m.id, pools && newbie))}
                 >
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-bold text-navy">
-                      {!isMember && "🧪 "}
-                      {label}
-                    </span>
-                    <span className="block truncate text-xs text-muted">{isMember ? sug.member.email : "Test player"}</span>
+                    <span className="block truncate text-sm font-bold text-navy">{label}</span>
+                    <span className="block truncate text-xs text-muted">{m.email}</span>
                   </span>
                   <span className="shrink-0 text-xs font-semibold text-muted">
                     {gender?.emoji} {level ? `${level.emoji} ${level.short}` : ""}
@@ -2570,7 +2588,7 @@ function AddPlayerForm({ d, run, busyKey, pools, placeholder }: { d: SessionDeta
       )}
       <p className="mt-1.5 text-xs text-muted">
         {members.length > 0
-          ? "Start typing: registered players appear underneath to tap. A name that matches nobody is added as a guest."
+          ? "Tap the box to see every registered player, and type to narrow the list. A name that matches nobody is added as a guest."
           : "Adds a guest by name — no account needed."}
       </p>
     </div>

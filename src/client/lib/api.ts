@@ -104,8 +104,6 @@ export const Api = {
   addTestPlayers: (id: string) => req<{ ok: true; added: number }>(`/sessions/${id}/test-players`, post({})),
   /** Put a registered member on the roster (their own account, with their profile's level and gender). */
   addMember: (id: string, userId: string, newbie = false) => req(`/sessions/${id}/players`, post({ userId, newbie })),
-  /** Add one named stand-in test player. */
-  addTestPlayer: (id: string, name: string) => req<{ ok: true; added: number }>(`/sessions/${id}/test-players`, post({ name })),
   addGuest: (id: string, guestName: string, newbie = false) => req(`/sessions/${id}/players`, post({ guestName, newbie })),
   playerAction: (id: string, playerId: string, action: string, extra: Record<string, unknown> = {}) =>
     req(`/sessions/${id}/players/${playerId}`, patch({ action, ...extra })),

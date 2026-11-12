@@ -1059,32 +1059,51 @@ await reloadDrop();
 if (dropNight.competitiveAfterRound !== 5) fail("the new drop round should be saved");
 log("the drop: counts down to the organizer's round, then the lowest points per game sit; losers tagged below the cut; the round can be moved in Settings");
 
-// --- Adding players: typing a name suggests registered members and the stand-ins ----
+// --- Adding players: the box lists every registered member; typing narrows it; no stand-ins ----
 const pick = await api("POST", "/sessions", { name: "Pick Players", format: "americano", courts: 2, maxPlayers: 16 });
 await org.goto(`${BASE}/app/sessions/${pick.id}`);
 const addBox = org.getByPlaceholder("Add player by name");
 const suggested = org.getByTestId("player-suggestions");
 const pickRoster = (n) => org.waitForFunction(async ([id, want]) => (await (await fetch(`/api/sessions/${id}`)).json()).players.length === want, [pick.id, n], { timeout: 10000 });
+if ((await suggested.count()) !== 0) fail("the list of registered players should stay closed until the box is tapped");
+// One tap, nothing typed: everyone registered is listed, Nia among them, and no test stand-ins.
+await addBox.click();
+await suggested.waitFor({ timeout: 10000 });
+const niaEmail = `nia${run}@`;
+const listedAll = await suggested.getByRole("button").count();
+if (listedAll < 2) fail(`tapping the box should list every registered player, got ${listedAll}`);
+if ((await suggested.getByText(niaEmail).count()) !== 1) fail("the full list should include Nia before anything is typed");
+if ((await suggested.getByText("Test-", { exact: false }).count()) !== 0) fail("the stand-in test players must not be in the list");
+await shot(org, "24-add-players-list");
+// Typing narrows it to her.
 await addBox.fill(`nia${run}`);
+await org.waitForFunction(() => document.querySelectorAll('[data-testid="player-suggestions"] button').length === 1, null, { timeout: 10000 });
 await suggested.getByRole("button", { name: "Add Nia Test" }).click();
 await pickRoster(1);
 let picked = await api("GET", `/sessions/${pick.id}`);
 const niaOnRoster = picked.players[0];
-if (niaOnRoster.name !== "Nia Test" || niaOnRoster.isGuest || !niaOnRoster.userId || niaOnRoster.level !== 1 || !niaOnRoster.newbie || niaOnRoster.gender !== "man") fail(`a member picked from the suggestions should go on with her own account, level and gender — got ${JSON.stringify(niaOnRoster)}`);
+if (niaOnRoster.name !== "Nia Test" || niaOnRoster.isGuest || !niaOnRoster.userId || niaOnRoster.level !== 1 || !niaOnRoster.newbie || niaOnRoster.gender !== "man") fail(`a member picked from the list should go on with her own account, level and gender — got ${JSON.stringify(niaOnRoster)}`);
 if ((await addBox.inputValue()) !== "") fail("the box should clear after adding");
-// She's on the roster now, so she's no longer offered; a stand-in is, by name.
-await addBox.fill(`nia${run}`);
-await org.waitForTimeout(800);
-if ((await suggested.count()) !== 0) fail("someone already on the roster must not be suggested again");
+// The list stays open for the next name, back to everyone — minus Nia, who's on the roster now.
+await org.waitForFunction((email) => {
+  const list = document.querySelector('[data-testid="player-suggestions"]');
+  return !!list && list.querySelectorAll("button").length > 1 && !list.textContent.includes(email);
+}, niaEmail, { timeout: 10000 });
+// Typing "test" doesn't bring up the stand-ins any more: they have their own button.
 await addBox.fill("test-jes");
-await suggested.getByRole("button", { name: "Add Test-Jessica" }).click();
-await pickRoster(2);
+await org.waitForTimeout(600);
+if ((await org.getByRole("button", { name: "Add Test-Jessica" }).count()) !== 0) fail("typing a stand-in's name must not suggest it");
+// A tap elsewhere puts the list away.
+await addBox.fill("");
+await suggested.waitFor({ timeout: 10000 });
+await org.getByRole("heading", { name: "Pick Players" }).click();
+await suggested.waitFor({ state: "detached", timeout: 10000 });
 // A name that matches nobody is still a guest, with the Add button.
 await addBox.fill("Zed Nobody");
 await org.getByRole("button", { name: "Add", exact: true }).click();
-await pickRoster(3);
+await pickRoster(2);
 picked = await api("GET", `/sessions/${pick.id}`);
-if (!picked.players.some((p) => p.name === "Test-Jessica" && p.isGuest && p.gender === "woman" && p.level === 3) || !picked.players.some((p) => p.name === "Zed Nobody" && p.isGuest)) fail("the stand-in and the guest should both be on the roster");
+if (!picked.players.some((p) => p.name === "Zed Nobody" && p.isGuest) || picked.players.some((p) => p.name.startsWith("Test-"))) fail("the guest should be on the roster, and no stand-in");
 await shot(org, "24-add-players");
 // It lands on her home screen like any tournament she joined, and only an admin can put a member on a roster.
 const niaHome = await (await nia.request.get(`${BASE}/api/me`)).json();
@@ -1093,7 +1112,7 @@ const notAdmin = await paula.request.post(`${BASE}/api/sessions/${pick.id}/playe
 if (notAdmin.status() !== 403) fail(`a player must not add members to a roster, got ${notAdmin.status()}`);
 const twice = await org.request.post(`${BASE}/api/sessions/${pick.id}/players`, { data: { userId: niaOnRoster.userId } });
 if (twice.status() !== 400) fail("adding a member who's already on the roster should be refused");
-log("adding players: typing a name suggests registered members and test players; a tap adds them with level and gender; unknown names are guests");
+log("adding players: tapping the box lists every registered member, typing narrows it, a tap adds them with level and gender; no test stand-ins; unknown names are guests");
 
 // --- Test players: a dry run's roster in one tap -------------------------------
 const dry = await api("POST", "/sessions", { name: "Dry Run", format: "americano", courts: 4, maxPlayers: 24, pointsPerMatch: 16, beginnerCourt: true, beginnerCourtNo: 4, beginnerCourtCoached: true });
