@@ -60,6 +60,8 @@ const patch = (body: unknown): RequestInit => ({ method: "PATCH", body: JSON.str
 export const Api = {
   me: () => req<MeResponse>("/me"),
   members: () => req<MembersResponse>("/admin/members"),
+  updateMember: (id: string, body: Record<string, unknown>) =>
+    req<{ ok: true; name: string; profileComplete: boolean }>(`/admin/members/${id}`, { method: "PUT", body: JSON.stringify(body) }),
   deleteMember: (id: string) => req<{ ok: true; name: string }>(`/admin/members/${id}`, { method: "DELETE" }),
   saveProfile: (body: Record<string, unknown>) =>
     req<{ user: UserInfo }>("/me/profile", { method: "PUT", body: JSON.stringify(body) }),

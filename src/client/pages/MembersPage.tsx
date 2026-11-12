@@ -1,12 +1,15 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Api, useLoad } from "../lib/api";
-import { Badge, Button, Card, EmptyState, ErrorNote, Input, Modal, PageSpinner, cls } from "../components/ui";
+import { Badge, Button, Card, EmptyState, ErrorNote, Field, FieldGroup, Input, Modal, PageSpinner, cls } from "../components/ui";
+import { GenderToggle } from "../components/GenderSelect";
+import { LevelToggle } from "../components/LevelSelect";
+import type { Gender } from "../../shared/genders";
 import { genderMeta } from "../../shared/genders";
 import { LEVELS, levelMeta } from "../../shared/levels";
 import { MEMBER_SORTS, filterMembers, membersCsv, pointsPerGame, record, sortMembers, winRate } from "../../shared/members";
 import type { MemberRow, MemberSort } from "../../shared/members";
-import { ageAt, missingProfileFields, namesFromLegacy } from "../../shared/profile";
+import { PLAYTOMIC_MAX, PLAYTOMIC_MIN, ageAt, missingProfileFields, namesFromLegacy, validateProfilePatch } from "../../shared/profile";
 
 // Admin only: everyone who has registered — who they are, how to reach them,
 // their level, and what they've played. The server refuses anyone else.
@@ -45,6 +48,7 @@ export function MembersPage() {
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [editing, setEditing] = useState<MemberRow | null>(null);
   const confirmDelete = async () => {
     if (!deleting) return;
     setDeleteBusy(true);
@@ -141,7 +145,18 @@ export function MembersPage() {
         <ul className="space-y-3" data-testid="members">
           {shown.map((m) => (
             <li key={m.id}>
-              <MemberCard m={m} onDelete={() => { setDeleteError(null); setNotice(null); setDeleting(m); }} />
+              <MemberCard
+                m={m}
+                onEdit={() => {
+                  setNotice(null);
+                  setEditing(m);
+                }}
+                onDelete={() => {
+                  setDeleteError(null);
+                  setNotice(null);
+                  setDeleting(m);
+                }}
+              />
             </li>
           ))}
         </ul>
@@ -151,6 +166,21 @@ export function MembersPage() {
           Showing {shown.length} of {all.length}. Export CSV saves the ones shown.
         </p>
       )}
+
+      <Modal open={!!editing} onClose={() => setEditing(null)} title="Edit member">
+        {editing && (
+          <MemberEditForm
+            key={editing.id}
+            m={editing}
+            onCancel={() => setEditing(null)}
+            onSaved={(name, complete) => {
+              setNotice(complete ? `Saved ${name}.` : `Saved ${name}. They'll still be asked for what's missing when they next sign in.`);
+              setEditing(null);
+              reload();
+            }}
+          />
+        )}
+      </Modal>
 
       <Modal open={!!deleting} onClose={() => !deleteBusy && setDeleting(null)} title="Delete member">
         {deleting && (
@@ -198,7 +228,7 @@ function stillMissing(m: MemberRow): string[] {
   return missingProfileFields({ ...m, firstName: m.firstName ?? (known.firstName || null), lastName: m.lastName ?? (known.lastName || null) });
 }
 
-function MemberCard({ m, onDelete }: { m: MemberRow; onDelete: () => void }) {
+function MemberCard({ m, onEdit, onDelete }: { m: MemberRow; onEdit: () => void; onDelete: () => void }) {
   const level = levelMeta(m.level);
   const gender = genderMeta(m.gender);
   const dob = fmtDob(m.dob);
@@ -255,18 +285,120 @@ function MemberCard({ m, onDelete }: { m: MemberRow; onDelete: () => void }) {
           Registered {fmtDate(m.registeredAt)}
           {m.stats.lastPlayedAt ? ` · last played ${fmtDate(m.stats.lastPlayedAt)}` : " · no games yet"}
         </p>
-        {/* Your own account, other admins and anyone who set up tournaments can't be deleted from here. */}
-        {m.deleteBlockedBy == null && (
+        <div className="flex shrink-0 items-center gap-1">
           <button
             type="button"
-            onClick={onDelete}
-            aria-label={`Delete ${m.name.trim() || m.email}`}
-            className="shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold text-rose-dark hover:bg-rose-soft"
+            onClick={onEdit}
+            aria-label={`Edit ${m.name.trim() || m.email}`}
+            className="rounded-full px-2.5 py-1 text-xs font-semibold text-royal hover:bg-royal-soft"
           >
-            🗑 Delete
+            ✏️ Edit
           </button>
-        )}
+          {/* Your own account, other admins and anyone who set up tournaments can't be deleted from here. */}
+          {m.deleteBlockedBy == null && (
+            <button
+              type="button"
+              onClick={onDelete}
+              aria-label={`Delete ${m.name.trim() || m.email}`}
+              className="rounded-full px-2.5 py-1 text-xs font-semibold text-rose-dark hover:bg-rose-soft"
+            >
+              🗑 Delete
+            </button>
+          )}
+        </div>
       </div>
     </Card>
+  );
+}
+
+/**
+ * The admin's edit of a member: the same details as the player's own form,
+ * but nothing is required — fill in what you know. The email is how they sign
+ * in, so it's shown and not edited.
+ */
+function MemberEditForm({ m, onCancel, onSaved }: { m: MemberRow; onCancel: () => void; onSaved: (name: string, complete: boolean) => void }) {
+  // An account from before the profile form has a display name only: start from it.
+  const known = namesFromLegacy(m.name, m.email);
+  const [form, setForm] = useState({
+    firstName: m.firstName ?? known.firstName,
+    lastName: m.lastName ?? known.lastName,
+    phone: m.phone ?? "",
+    dob: m.dob ?? "",
+    gender: m.gender as Gender | null,
+    level: m.level,
+    playtomicLevel: m.playtomicLevel == null ? "" : String(m.playtomicLevel),
+  });
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) => {
+    setError(null);
+    setForm((f) => ({ ...f, [key]: value }));
+  };
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const check = validateProfilePatch(form);
+    if (!check.ok) {
+      setError(check.error);
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await Api.updateMember(m.id, form);
+      onSaved(res.name, res.profileComplete);
+    } catch (e2) {
+      setError((e2 as Error).message);
+      setBusy(false);
+    }
+  };
+  return (
+    <form className="space-y-4" onSubmit={submit} noValidate>
+      <p className="text-sm text-muted">
+        Fill in what you know — nothing here is required. Anything left empty, {m.name.trim().split(" ")[0] || "they"} will be asked for at their next sign-in.
+      </p>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="First name">
+          <Input value={form.firstName} onChange={(e) => set("firstName", e.target.value)} autoFocus />
+        </Field>
+        <Field label="Last name">
+          <Input value={form.lastName} onChange={(e) => set("lastName", e.target.value)} />
+        </Field>
+      </div>
+      <Field label="Email" hint="How they sign in — it can't be changed here.">
+        <Input value={m.email} readOnly className="bg-canvas text-muted" />
+      </Field>
+      <Field label="Phone">
+        <Input type="tel" inputMode="tel" value={form.phone} onChange={(e) => set("phone", e.target.value)} placeholder="+34 600 000 000" />
+      </Field>
+      <Field label="Date of birth">
+        <Input type="date" value={form.dob} onChange={(e) => set("dob", e.target.value)} max={new Date().toISOString().slice(0, 10)} />
+      </Field>
+      <FieldGroup label="Gender" hint="Tap the selected one again to clear it.">
+        <GenderToggle value={form.gender} onChange={(gender) => set("gender", gender)} />
+      </FieldGroup>
+      <FieldGroup label="Level" hint="Their profile level. A level you set in a tournament's roster for one night isn't changed.">
+        <LevelToggle value={form.level} onChange={(level) => set("level", level)} />
+      </FieldGroup>
+      <Field label="Playtomic level" hint={`${PLAYTOMIC_MIN} to ${PLAYTOMIC_MAX}, if they have one.`}>
+        <Input
+          type="number"
+          inputMode="decimal"
+          step="0.1"
+          min={PLAYTOMIC_MIN}
+          max={PLAYTOMIC_MAX}
+          value={form.playtomicLevel}
+          onChange={(e) => set("playtomicLevel", e.target.value)}
+          placeholder="e.g. 3.5"
+        />
+      </Field>
+      <ErrorNote message={error} />
+      <div className="flex gap-2">
+        <Button type="button" variant="ghost" className="flex-1" disabled={busy} onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button type="submit" className="flex-1" busy={busy}>
+          Save
+        </Button>
+      </div>
+    </form>
   );
 }

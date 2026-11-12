@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  validateProfilePatch,
   missingProfileFields,
   namesFromLegacy,
   ageAt,
@@ -121,5 +122,41 @@ describe("helpers", () => {
     expect(isProfileComplete(full)).toBe(true);
     expect(isProfileComplete({ ...full, phone: null })).toBe(false);
     expect(isProfileComplete({ ...full, level: null })).toBe(false);
+  });
+});
+
+describe("validateProfilePatch (an admin editing a member)", () => {
+  const today = new Date(Date.UTC(2026, 10, 12));
+  it("accepts just the details the organizer knows and leaves the rest empty", () => {
+    const r = validateProfilePatch({ firstName: " David ", phone: "+1 (305) 555-0100", level: "3" }, today);
+    expect(r).toEqual({
+      ok: true,
+      profile: { firstName: "David", lastName: null, phone: "+13055550100", dob: null, gender: null, level: 3, playtomicLevel: null },
+    });
+  });
+  it("an entirely empty form is fine: every field cleared", () => {
+    const r = validateProfilePatch({ firstName: "", lastName: "", phone: "", dob: "", gender: null, level: null, playtomicLevel: "" }, today);
+    expect(r.ok && Object.values(r.profile).every((v) => v === null)).toBe(true);
+  });
+  it("accepts a complete profile exactly as the player's own form would", () => {
+    const full = { firstName: "Paula", lastName: "García", phone: "+34 600 123 456", dob: "1990-05-04", gender: "woman", level: 1, playtomicLevel: "2.5" };
+    const r = validateProfilePatch(full, today);
+    expect(r.ok && r.profile).toEqual({ firstName: "Paula", lastName: "García", phone: "+34600123456", dob: "1990-05-04", gender: "woman", level: 1, playtomicLevel: 2.5 });
+  });
+  it("still refuses a value that's given but wrong", () => {
+    const cases: [Record<string, unknown>, RegExp][] = [
+      [{ phone: "12345" }, /phone/i],
+      [{ phone: "call me" }, /phone/i],
+      [{ dob: "1990-02-30" }, /date of birth/i],
+      [{ dob: "2030-01-01" }, /date of birth/i],
+      [{ gender: "other" }, /woman or man/i],
+      [{ level: 9 }, /level/i],
+      [{ playtomicLevel: "9" }, /playtomic/i],
+    ];
+    for (const [input, msg] of cases) {
+      const r = validateProfilePatch(input, today);
+      expect(r.ok, JSON.stringify(input)).toBe(false);
+      if (!r.ok) expect(r.error).toMatch(msg);
+    }
   });
 });

@@ -106,6 +106,36 @@ export function validateProfile(input: Record<string, unknown>, today = new Date
   return { ok: true, profile: { firstName, lastName, phone, dob, gender, level, playtomicLevel } };
 }
 
+export type ProfilePatchResult = { ok: true; profile: StoredProfile } | { ok: false; error: string };
+
+const blank = (v: unknown) => v == null || (typeof v === "string" && v.trim() === "");
+
+/**
+ * An admin's edit of someone else's profile. Unlike the player's own form,
+ * any field may be left empty — the organizer often knows a phone and a level
+ * but not a date of birth, and the player is still asked for what's missing
+ * the next time they sign in. What is given has to be valid, by the same
+ * rules as validateProfile.
+ */
+export function validateProfilePatch(input: Record<string, unknown>, today = new Date()): ProfilePatchResult {
+  const firstName = str(input.firstName, 40) || null;
+  const lastName = str(input.lastName, 40) || null;
+  const phone = normalizePhone(input.phone) || null;
+  if (phone && !isValidPhone(phone)) return { ok: false, error: "That phone number doesn't look right" };
+  if (!phone && !blank(input.phone)) return { ok: false, error: "That phone number doesn't look right" };
+  const dob = str(input.dob, 10) || null;
+  if (dob && !isValidDob(dob, today)) return { ok: false, error: "That date of birth doesn't look right" };
+  const gender = blank(input.gender) ? null : parseGender(input.gender);
+  if (!gender && !blank(input.gender)) return { ok: false, error: "Pick woman or man" };
+  const level = blank(input.level) ? null : parseLevel(input.level);
+  if (level == null && !blank(input.level)) return { ok: false, error: "That isn't one of the playing levels" };
+  const playtomicLevel = parsePlaytomicLevel(input.playtomicLevel);
+  if (playtomicLevel === "invalid") {
+    return { ok: false, error: `Playtomic level is a number between ${PLAYTOMIC_MIN} and ${PLAYTOMIC_MAX}` };
+  }
+  return { ok: true, profile: { firstName, lastName, phone, dob, gender, level, playtomicLevel } };
+}
+
 /** True once every required field is on the account. */
 export function isProfileComplete(p: StoredProfile): boolean {
   return !!(p.firstName && p.lastName && p.phone && p.dob && p.gender && p.level != null);

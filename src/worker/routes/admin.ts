@@ -5,7 +5,7 @@ import { parseGender } from "../../shared/genders";
 import { normalizeLevel } from "../../shared/levels";
 import { NO_STATS, deleteBlock, deleteBlockReason, guestNameFor } from "../../shared/members";
 import type { MemberRow, MemberStats, MembersResponse } from "../../shared/members";
-import { isProfileComplete } from "../../shared/profile";
+import { isProfileComplete, validateProfilePatch } from "../../shared/profile";
 import { gameSessions, groups, playerResults, sessionPlayers, user } from "../db/schema";
 import { isAdminEmail } from "./admins";
 import type { ApiCtx } from "./context";
@@ -141,4 +141,28 @@ adminRoutes.delete("/admin/members/:id", async (c) => {
     db.delete(user).where(eq(user.id, target.id)),
   ]);
   return c.json({ ok: true, name });
+});
+
+// Edit a member's profile: the details the organizer knows (a phone, a level)
+// without waiting for the player. Anything left empty stays empty and the
+// player is still asked for it on their next sign-in. The email is the sign-in
+// identity and isn't edited here.
+adminRoutes.put("/admin/members/:id", async (c) => {
+  const u = c.get("user");
+  if (!u) return c.json({ error: "Sign in required" }, 401);
+  if (!u.isAdmin) return c.json({ error: "Admins only" }, 403);
+  const db = c.get("db");
+  const [target] = await db.select().from(user).where(eq(user.id, c.req.param("id"))).limit(1);
+  if (!target) return c.json({ error: "That member no longer exists" }, 404);
+
+  const result = validateProfilePatch(await c.req.json().catch(() => ({})));
+  if (!result.ok) return c.json({ error: result.error }, 400);
+  const p = result.profile;
+  // The name shown on court follows the first and last name; with neither given, the one already there stays.
+  const name = [p.firstName, p.lastName].filter(Boolean).join(" ") || target.name;
+  await db
+    .update(user)
+    .set({ ...p, name, updatedAt: new Date() })
+    .where(eq(user.id, target.id));
+  return c.json({ ok: true, name, profileComplete: isProfileComplete(p) });
 });
