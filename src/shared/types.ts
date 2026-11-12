@@ -165,6 +165,8 @@ export interface SessionDetail {
   coachedActive: boolean;
   /** Competitive sit-outs: after the floor, the bottom of each pool sits. */
   competitiveSitouts: boolean;
+  /** Finals are on: each round goes to the top of the table and everyone else sits. */
+  finals: boolean;
   /** The beginner court is running tonight (toggle on, newbies checked in, enough players). */
   poolsActive: boolean;
   inviteCode: string;

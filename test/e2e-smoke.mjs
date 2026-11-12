@@ -938,6 +938,52 @@ if (vCourts !== "1,2" || vPoints !== "16" || vMax !== "11")
   fail(`signed-out hand-off expected courts 2 / points 16 / max 11 after sign-in, got ${vCourts} / ${vPoints} / ${vMax}`);
 log("signed-out planner → sign in → lands on the prefilled form (2 courts · 16 points · 11 max)");
 
+// --- Finals: for the last part of the night the top of the table plays, the rest are done ----
+const finalsSession = await api("POST", "/sessions", { name: "Finals Night", format: "americano", courts: 2, pointsPerMatch: 16, maxPlayers: 24 });
+for (let i = 1; i <= 20; i++) await api("POST", `/sessions/${finalsSession.id}/players`, { guestName: `F${i}` });
+await api("POST", `/sessions/${finalsSession.id}/status`, { action: "start" });
+let finalsNight = await api("GET", `/sessions/${finalsSession.id}`);
+const reloadFinals = async () => (finalsNight = await api("GET", `/sessions/${finalsSession.id}`));
+if (finalsNight.finals) fail("finals should be off until the organizer calls them");
+// Two rounds scored 10–6: eight winners, eight losers, four who haven't played yet (they're in round 3).
+const finalsWinners = new Set();
+for (const n of [0, 1]) {
+  for (const m of finalsNight.rounds[n].matches) {
+    await api("POST", `/matches/${m.id}/score`, { scoreA: 10, scoreB: 6 });
+    for (const id of m.a) finalsWinners.add(id);
+  }
+  await reloadFinals();
+}
+if (finalsWinners.size !== 8 || finalsNight.rounds.length !== 4) fail(`expected 8 winners and round 4 on deck, got ${finalsWinners.size} / ${finalsNight.rounds.length}`);
+const fairDeck = finalsNight.rounds[3];
+await org.goto(`${BASE}/app/sessions/${finalsSession.id}`);
+await org.getByRole("button", { name: /Start finals · top 8/ }).click(); // the confirmation is accepted
+await org.getByTestId("finals-banner").waitFor({ timeout: 10000 });
+await org.getByText("🏆 Finals", { exact: true }).first().waitFor();
+await reloadFinals();
+if (!finalsNight.finals) fail("the session should be in finals");
+const finalsDeck = finalsNight.rounds[finalsNight.rounds.length - 1];
+if (finalsDeck.number !== 4 || finalsDeck.id === fairDeck.id) fail("the round on deck should be dealt again when finals start");
+const inFinals = finalsDeck.matches.flatMap((m) => [...m.a, ...m.b]);
+if (inFinals.length !== 8 || !inFinals.every((id) => finalsWinners.has(id))) fail("the finals round should be exactly the eight at the top of the table");
+if (finalsDeck.byes.length !== 12) fail(`the other 12 should sit, got ${finalsDeck.byes.length}`);
+if (finalsNight.rounds[2].matches.some((m) => m.scoreA != null) || finalsNight.rounds[2].id !== (await api("GET", `/sessions/${finalsSession.id}`)).rounds[2].id) fail("the round being played must not be touched");
+if (finalsNight.warnings.some((w) => /sat out/.test(w))) fail("uneven sit-outs are the point of finals and shouldn't raise a warning");
+await shot(org, "23-finals");
+// Finals keep going round after round, then the organizer can call them off.
+for (const m of finalsNight.rounds[2].matches) await api("POST", `/matches/${m.id}/score`, { scoreA: 10, scoreB: 6 });
+await reloadFinals();
+if (finalsNight.rounds.length !== 5 || finalsNight.rounds[4].byes.length !== 12) fail("the next round should be dealt under finals too: 8 play, 12 sit");
+await org.reload();
+await org.getByRole("button", { name: "End finals" }).click();
+await org.getByTestId("finals-banner").waitFor({ state: "detached", timeout: 10000 });
+const deckInFinals = finalsNight.rounds[4].id;
+await reloadFinals();
+if (finalsNight.finals || finalsNight.rounds[finalsNight.rounds.length - 1].id === deckInFinals) fail("ending the finals should deal the round on deck again, back in rotation");
+const finalsPlayerView = await paula.request.post(`${BASE}/api/sessions/${finalsSession.id}/status`, { data: { action: "finals_on" } });
+if (finalsPlayerView.status() !== 403) fail("only the organizer can call finals");
+log("finals: one tap sends the round on deck to the top 8 of the table, the other 12 sit; it holds round after round and can be ended");
+
 // --- Test players: a dry run's roster in one tap -------------------------------
 const dry = await api("POST", "/sessions", { name: "Dry Run", format: "americano", courts: 4, maxPlayers: 24, pointsPerMatch: 16, beginnerCourt: true, beginnerCourtNo: 4, beginnerCourtCoached: true });
 await org.goto(`${BASE}/app/sessions/${dry.id}`);

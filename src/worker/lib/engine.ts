@@ -81,6 +81,7 @@ export async function generateNextRound(
     mixedPairs: session.mixedPairs,
     busy: finishing.length ? finishing.flatMap((m) => [...m.a, ...m.b]) : undefined,
     competitive: session.competitiveSitouts,
+    finals: session.finals,
     rng: Math.random,
   };
   if (session.fixedTeams) ctx.teams = await fixTeams(db, players, eligible, { ...ctx, levels });

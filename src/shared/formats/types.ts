@@ -52,6 +52,8 @@ export interface EngineContext {
    * the bottom of the standings sits out instead of the fair rotation.
    */
   competitive?: boolean;
+  /** Finals: the organizer has called them — the lowest on the table sit, whatever anyone has played so far. */
+  finals?: boolean;
   /** Random source, injectable for deterministic tests. */
   rng: () => number;
 }

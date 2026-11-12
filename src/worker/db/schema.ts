@@ -138,6 +138,8 @@ export const gameSessions = sqliteTable(
     beginnerCourtCoached: integer("beginner_court_coached", { mode: "boolean" }).notNull().default(false),
     /** Competitive sit-outs: once everyone in a pool has played the floor, the bottom of that pool sits. */
     competitiveSitouts: integer("competitive_sitouts", { mode: "boolean" }).notNull().default(false),
+    /** Finals: called by the organizer mid-session — each round goes to the top of the table, the rest sit. */
+    finals: integer("finals", { mode: "boolean" }).notNull().default(false),
     status: text("status").notNull().default("draft"),
     inviteCode: text("invite_code").notNull().unique(),
     createdBy: text("created_by")

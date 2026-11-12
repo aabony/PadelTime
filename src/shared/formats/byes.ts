@@ -12,6 +12,10 @@ export const COMPETITIVE_FLOOR = 3;
  * Competitive sit-outs (session toggle): once every player here has played the
  * floor, the bottom of the table sits instead — lowest points per game first,
  * fairness breaking ties — so the night's later rounds go to whoever is winning.
+ *
+ * Finals (the organizer's button, for the last part of the night): the same
+ * benching, straight away — no floor to reach. With 3 courts the top 12 play
+ * and everyone else is done; someone who hasn't a result yet sits first.
  */
 export function pickByes(ctx: EngineContext, byeCount: number): string[] {
   if (byeCount <= 0) return [];
@@ -32,8 +36,9 @@ export function pickByes(ctx: EngineContext, byeCount: number): string[] {
   return candidates.slice(0, byeCount);
 }
 
-/** Competitive sit-outs are on and everyone here has reached the floor. */
+/** The table decides who sits: finals are on, or competitive sit-outs are on and everyone here has reached the floor. */
 export function competitiveBenching(ctx: EngineContext): boolean {
+  if (ctx.finals) return ctx.players.length > 0;
   return !!ctx.competitive && ctx.players.length > 0 && ctx.players.every((p) => (ctx.playedCounts[p] ?? 0) >= COMPETITIVE_FLOOR);
 }
 

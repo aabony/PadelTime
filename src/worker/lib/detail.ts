@@ -240,6 +240,8 @@ export function computeWarnings(
   pools = false,
   /** Coached court: the newbies are with the coach, not in the rotation, so their sit-outs aren't compared. */
   coached = false,
+  /** Finals: the table decides who sits, so uneven sit-outs are the point, not a problem. */
+  finals = false,
 ): string[] {
   // Things to act on first; partner repeats (often unavoidable) fill whatever room is left.
   const warnings: string[] = [];
@@ -297,8 +299,10 @@ export function computeWarnings(
   const rotating = activeIds.filter((id) => !benched.has(id));
   // Beginner court: each pool rotates on its own, so fairness is judged within the pool.
   const newbie = new Set(players.filter((p) => p.newbie).map((p) => p.id));
-  const groups = coached
-    ? [rotating.filter((id) => !newbie.has(id))]
+  const groups = finals
+    ? []
+    : coached
+      ? [rotating.filter((id) => !newbie.has(id))]
     : pools
       ? [rotating.filter((id) => newbie.has(id)), rotating.filter((id) => !newbie.has(id))]
       : [rotating];
@@ -398,6 +402,7 @@ export async function buildDetail(
     beginnerCourtCoached: session.beginnerCourtCoached,
     coachedActive: coached,
     competitiveSitouts: session.competitiveSitouts,
+    finals: session.finals,
     poolsActive: pools,
     inviteCode: session.inviteCode,
     myRole,
@@ -414,7 +419,7 @@ export async function buildDetail(
     teamStandings: session.fixedTeams ? computeTeamStandings(players, roundRows) : undefined,
     beginnerStandings: beginnerTable(coached, tables?.beginner),
     nudges: myRole === "organizer" && split && !coached ? computeNudges(players, bothTracks, beginnerCourt) : undefined,
-    warnings: myRole === "organizer" ? computeWarnings(players, roundRows, session.fixedTeams, parseCourtLabels(session.courtLabels ?? ""), false, coached || pools) : [],
+    warnings: myRole === "organizer" ? computeWarnings(players, roundRows, session.fixedTeams, parseCourtLabels(session.courtLabels ?? ""), false, coached || pools, session.finals) : [],
     counts,
     createdAt: session.createdAt,
   };

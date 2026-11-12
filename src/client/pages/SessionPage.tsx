@@ -240,6 +240,7 @@ function Hero({ d, isOrganizer, onSettings }: { d: SessionDetail; isOrganizer: b
             </Badge>
           )}
           {d.competitiveSitouts && <Badge tone="zinc">🏁 Competitive sit-outs</Badge>}
+          {d.finals && <Badge tone="lime">🏆 Finals</Badge>}
         </div>
         <h1 className="mt-2 text-2xl font-black leading-tight tracking-tight text-navy">{d.name}</h1>
         {d.startsAt != null && <p className="mt-1 text-sm text-muted">{fmtTimeRange(d.startsAt, d.durationMin)}</p>}
@@ -1105,6 +1106,9 @@ function useNameOf(d: SessionDetail) {
 function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
   const nameOf = useNameOf(d);
   const me = d.players.find((p) => p.id === d.myPlayerId);
+  // Finals: how many play (every tournament court, four each) and how many that leaves out.
+  const finalsCap = roundCapacity(d, checkedIn(d));
+  const finalsSpots = finalsCap.courts * 4;
   // The beginner court's game waiting for a score, if it's running its own games.
   const lastBeginnerGame = d.beginnerRounds[d.beginnerRounds.length - 1];
   const beginnerGame = lastBeginnerGame && !lastBeginnerGame.complete ? lastBeginnerGame : undefined;
@@ -1172,6 +1176,15 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
           {d.warnings.map((w, i) => (
             <p key={i}>⚠ {w}</p>
           ))}
+        </div>
+      )}
+
+      {d.finals && (
+        <div className="rounded-2xl bg-navy px-4 py-3 text-white" data-testid="finals-banner">
+          <p className="text-sm font-black uppercase tracking-wider text-lime">🏆 Finals</p>
+          <p className="mt-0.5 text-sm">
+            The top {finalsSpots} on the table play the remaining rounds. If you're not in the next round, that's your night — thanks for playing.
+          </p>
         </div>
       )}
 
@@ -1358,6 +1371,22 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
             >
               Undo round {last.number}
             </Button>
+            {!d.fixedTeams && (d.finals || finalsCap.sitting > 0) && (
+              <Button
+                variant={d.finals ? "ghost" : "secondary"}
+                size="sm"
+                busy={busyKey === "finals"}
+                title={d.finals ? "Bring everyone back into the rotation" : "For the last part of the night: only the top of the table plays"}
+                onClick={() => {
+                  const ask = d.finals
+                    ? "End the finals? Everyone goes back into the rotation from the next round."
+                    : `Start the finals? From the next round only the top ${finalsSpots} on the table play. The other ${finalsCap.sitting} are finished for the night. You can end the finals to bring everyone back.`;
+                  if (window.confirm(ask)) run("finals", () => Api.sessionAction(d.id, d.finals ? "finals_off" : "finals_on"));
+                }}
+              >
+                {d.finals ? "End finals" : `🏆 Start finals · top ${finalsSpots}`}
+              </Button>
+            )}
             <Button
               variant="ghost"
               size="sm"

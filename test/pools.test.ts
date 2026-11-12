@@ -224,6 +224,53 @@ describe("competitive sit-outs", () => {
   });
 });
 
+describe("finals", () => {
+  // 20 players, 8 of them have won their one game, 8 lost it, 4 haven't played.
+  const players = names(20);
+  const standings = [
+    ...players.slice(0, 8).map((playerId) => ({ playerId, points: 10, played: 1 })),
+    ...players.slice(8, 16).map((playerId) => ({ playerId, points: 6, played: 1 })),
+  ];
+  const sorted = (ids: string[]) => [...ids].sort();
+
+  it("sits the bottom of the table straight away — no three-game wait", () => {
+    for (let seed = 1; seed <= 20; seed++) {
+      const ctx = { ...ctxOf(players, 2, [], standings, seed), finals: true };
+      const sitting = pickByes(ctx, 12);
+      // The 4 without a result and the 8 who lost sit; the 8 winners play.
+      expect(sorted(sitting)).toEqual(sorted(players.slice(8)));
+    }
+  });
+
+  it("someone with no result yet sits before anyone on the table", () => {
+    const ctx = { ...ctxOf(players, 2, [], standings, 3), finals: true };
+    expect(sorted(pickByes(ctx, 4))).toEqual(sorted(players.slice(16)));
+  });
+
+  it("off: sit-outs go back to taking turns, whatever the table says", () => {
+    const picks = new Set<string>();
+    for (let seed = 1; seed <= 30; seed++) for (const p of pickByes(ctxOf(players, 2, [], standings, seed), 12)) picks.add(p);
+    // Fair rotation spreads over everyone, winners included.
+    expect(players.slice(0, 8).some((p) => picks.has(p))).toBe(true);
+  });
+
+  it("both formats deal the finals to the top of the table", () => {
+    for (const format of [americano, mexicano]) {
+      const plan = format.planRound({ ...ctxOf(players, 2, [], standings, 6), finals: true });
+      expect(sorted(plan.matches.flatMap((m) => [...m.a, ...m.b]))).toEqual(sorted(players.slice(0, 8)));
+      expect(plan.byes).toHaveLength(12);
+    }
+  });
+
+  it("works with the beginner court set aside: the top of the ladder plays, the newbies stay out of it", () => {
+    const newbies = players.slice(16);
+    const plan = planCoached({ ...ctxOf(players, 3, [], standings, 2), finals: true }, americano, newbies, 3);
+    expect(sorted(plan.matches.flatMap((m) => [...m.a, ...m.b]))).toEqual(sorted(players.slice(0, 8)));
+    expect(plan.matches.some((m) => m.court === 3)).toBe(false);
+    expect(plan.byes.some((id) => newbies.includes(id))).toBe(false);
+  });
+});
+
 describe("a beginner court other than court 1", () => {
   it("the main rounds deal around the chosen court, and the beginners' game lands on it", () => {
     const players = names(16);

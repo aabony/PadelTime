@@ -193,6 +193,24 @@ sessionRoutes.post("/sessions/:id/status", async (c) => {
         );
       return c.json({ ok: true });
     }
+    // Finals: for the last part of the night the top of the table plays and the rest sit.
+    // The round on deck was dealt under the other rule, so it's dealt again (unless a score is on it).
+    case "finals_on":
+    case "finals_off": {
+      if (session.status !== "active") return c.json({ error: "Session isn't live" }, 400);
+      if (session.fixedTeams) return c.json({ error: "Finals aren't available with Keep teams together" }, 400);
+      const finals = action === "finals_on";
+      if (finals === session.finals) return c.json({ ok: true });
+      await db.update(gameSessions).set({ finals, updatedAt: now() }).where(eq(gameSessions.id, session.id));
+      const dealt = await loadRounds(db, session.id);
+      const onDeck = dealt[dealt.length - 1];
+      const inPlay = dealt[dealt.length - 2];
+      if (onDeck && inPlay && !inPlay.complete && onDeck.matches.every((m) => m.scoreA == null && m.status === "pending")) {
+        await db.delete(rounds).where(eq(rounds.id, onDeck.id));
+      }
+      await keepUpNext(db, { ...session, finals });
+      return c.json({ ok: true });
+    }
     case "start": {
       if (!["draft", "open", "checkin"].includes(session.status)) {
         return c.json({ error: "Session has already started" }, 400);
