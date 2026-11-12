@@ -73,7 +73,7 @@ function claimableGuest<T extends { userId: string | null; guestName: string | n
   userName: string | null | undefined,
 ): T | null {
   if (!userName) return null;
-  // Stand-ins from a dry run ("Ana (test)") are never somebody's entry.
+  // Stand-ins from a dry run ("Test-Jessica") are never somebody's entry.
   const guests = players.filter((p) => !p.userId && p.guestName && p.status !== "dropped" && !isTestPlayerName(p.guestName));
   const exact = guests.filter((p) => norm(p.guestName!) === norm(userName));
   if (exact.length === 1) return exact[0];

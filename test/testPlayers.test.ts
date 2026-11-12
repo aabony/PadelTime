@@ -32,16 +32,22 @@ describe("test players", () => {
   });
 
   it("someone removed from the roster can be added again; real names don't count", () => {
-    const roster = ["Ana (test)", "ben (TEST)", "Carla", null, undefined];
+    const roster = ["Test-Jessica", "test-ADAM", "Sarah", null, undefined];
     const next = nextTestPlayers(roster, 3).map((p) => p.name);
-    expect(next).toEqual(["Carla (test)", "Dan (test)", "Elena (test)"]);
+    expect(next).toEqual(["Test-Sarah", "Test-Mike", "Test-Emily"]);
+  });
+
+  it("they're named Test-Name, with everyday American first names", () => {
+    expect(TEST_PLAYERS.slice(0, 4).map((p) => p.name)).toEqual(["Test-Jessica", "Test-Adam", "Test-Sarah", "Test-Mike"]);
+    expect(TEST_PLAYERS.every((p) => /^Test-[A-Z][a-z]+$/.test(p.name))).toBe(true);
   });
 
   it("only names carrying the marker are stand-ins", () => {
-    expect(isTestPlayerName("Ana (test)")).toBe(true);
-    expect(isTestPlayerName("Ana (Test) ")).toBe(true);
-    expect(isTestPlayerName("Ana")).toBe(false);
-    expect(isTestPlayerName("Tester Ana")).toBe(false);
+    expect(isTestPlayerName("Test-Jessica")).toBe(true);
+    expect(isTestPlayerName(" test-jessica")).toBe(true);
+    expect(isTestPlayerName("Jessica")).toBe(false);
+    expect(isTestPlayerName("Jessica Test")).toBe(false);
+    expect(isTestPlayerName("Tester Jessica")).toBe(false);
     expect(isTestPlayerName(null)).toBe(false);
   });
 });

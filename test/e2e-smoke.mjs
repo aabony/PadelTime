@@ -946,7 +946,8 @@ const dryRosterSize = (n) => org.waitForFunction(async ([id, want]) => (await (a
 await dryRosterSize(12);
 let dryRun = await api("GET", `/sessions/${dry.id}`);
 const dryTally = (f) => dryRun.players.filter(f).length;
-if (!dryRun.players.every((p) => p.isGuest && p.name.endsWith("(test)"))) fail("test players should be roster guests marked (test)");
+if (!dryRun.players.every((p) => p.isGuest && p.name.startsWith("Test-"))) fail("test players should be roster guests named Test-Name");
+if (dryRun.players[0].name !== "Test-Jessica") fail(`the first test player should be Test-Jessica, got ${dryRun.players[0].name}`);
 if (dryTally((p) => p.gender === "woman") !== 6 || dryTally((p) => p.gender === "man") !== 6) fail("12 test players should be 6 women and 6 men");
 for (const lvl of [1, 2, 3, 4]) if (dryTally((p) => p.level === lvl) !== 3) fail(`12 test players should have 3 at level ${lvl}`);
 if (dryTally((p) => p.newbie) !== 3 || !dryRun.players.every((p) => p.newbie === (p.level === 1))) fail("the Newbie-level test players should be the ones tagged for the beginner court");
@@ -964,12 +965,12 @@ const realAna = await (await newContext({ ...contextOpts, viewport: { width: 390
 await realAna.goto(`${BASE}/join/${dryRun.inviteCode}`);
 await realAna.getByRole("button", { name: "Register to join →" }).click();
 await realAna.waitForURL("**/register**");
-await otpSignIn(realAna, "Ana", `realAna${run}@test.com`);
+await otpSignIn(realAna, "Jessica", `jessica${run}@test.com`);
 await realAna.waitForURL("**/join/**", { timeout: 15000 });
 await realAna.getByRole("button", { name: /Join session/ }).click({ timeout: 15000 });
 await realAna.getByText(/You're in ✓/).waitFor({ timeout: 10000 });
 dryRun = await api("GET", `/sessions/${dry.id}`);
-if (dryRun.players.length !== 17 || !dryRun.players.some((p) => p.name === "Ana (test)" && p.isGuest) || !dryRun.players.some((p) => p.name === "Ana Test" && !p.isGuest)) fail("a real Ana should join alongside the stand-in, not take it over");
+if (dryRun.players.length !== 17 || !dryRun.players.some((p) => p.name === "Test-Jessica" && p.isGuest) || !dryRun.players.some((p) => p.name === "Jessica Test" && !p.isGuest)) fail("a real Jessica should join alongside the stand-in, not take it over");
 // And it plays: 13 in the tournament on courts 1–3, the 4 newbies with the coach.
 await api("POST", `/sessions/${dry.id}/status`, { action: "start" });
 dryRun = await api("GET", `/sessions/${dry.id}`);
@@ -1001,7 +1002,7 @@ if (!/^padeltime-members-\d{4}-\d{2}-\d{2}\.csv$/.test(dl.suggestedFilename())) 
 // Editing a member: the admin fills in what they know; nothing is required, but what's given must be valid.
 const niaMember = membersList.members.find((m) => m.email === `nia${run}@test.com`);
 if (niaMember.phone !== "+15129923681") fail(`a plain 10-digit number should be stored as a US number, got ${niaMember.phone}`);
-if (membersList.members.some((m) => m.name.includes("(test)"))) fail("test players are roster stand-ins and must never appear as members");
+if (membersList.members.some((m) => m.name.startsWith("Test-"))) fail("test players are roster stand-ins and must never appear as members");
 const put = (page, id, data) => page.request.put(`${BASE}/api/admin/members/${id}`, { data });
 if ((await put(paula, niaMember.id, { level: 4 })).status() !== 403) fail("a player must not edit members");
 if ((await put(org, niaMember.id, { phone: "12" })).status() !== 400) fail("a bad phone number should be refused");

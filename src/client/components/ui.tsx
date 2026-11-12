@@ -360,8 +360,8 @@ export function CopyButton({ text, label = "Copy link", variant = "outline" }: {
 
 /** Initials in a navy circle — no photos needed. */
 export function Avatar({ name, size = "md", className, ring = false }: { name: string; size?: "sm" | "md" | "lg"; className?: string; ring?: boolean }) {
-  // Words that start with a letter or digit: "(test)" after a stand-in's name isn't an initial.
-  const parts = name.trim().split(/\s+/).filter((w) => /^[\p{L}\p{N}]/u.test(w));
+  // Hyphens separate words too, so "Test-Jessica" is TJ rather than every stand-in reading TE.
+  const parts = name.trim().split(/[\s-]+/).filter((w) => /^[\p{L}\p{N}]/u.test(w));
   const initials = parts.length >= 2 ? `${parts[0][0]}${parts[parts.length - 1][0]}` : (parts[0]?.slice(0, 2) ?? "?");
   const sizes = { sm: "size-8 text-[11px]", md: "size-11 text-sm", lg: "size-14 text-base" };
   return (

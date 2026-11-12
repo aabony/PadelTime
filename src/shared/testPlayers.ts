@@ -10,14 +10,14 @@ export interface TestPlayer {
   level: number;
 }
 
-/** Marks a roster name as a stand-in; a real player joining is never matched to one. */
-export const TEST_SUFFIX = " (test)";
+/** Marks a roster name as a stand-in ("Test-Jessica"); a real player joining is never matched to one. */
+export const TEST_PREFIX = "Test-";
 
 export function isTestPlayerName(name: string | null | undefined): boolean {
-  return !!name && name.trim().toLowerCase().endsWith(TEST_SUFFIX.trim());
+  return !!name && name.trim().toLowerCase().startsWith(TEST_PREFIX.toLowerCase());
 }
 
-const p = (name: string, gender: TestPlayer["gender"], level: number): TestPlayer => ({ name: name + TEST_SUFFIX, gender, level });
+const p = (name: string, gender: TestPlayer["gender"], level: number): TestPlayer => ({ name: TEST_PREFIX + name, gender, level });
 
 /**
  * Sixteen, ordered so any first N are balanced: women and men alternate, and
@@ -25,22 +25,22 @@ const p = (name: string, gender: TestPlayer["gender"], level: number): TestPlaye
  * newbies, 3 beginners, 3 intermediate and 3 advanced.
  */
 export const TEST_PLAYERS: TestPlayer[] = [
-  p("Ana", "woman", 3),
-  p("Ben", "man", 4),
-  p("Carla", "woman", 2),
-  p("Dan", "man", 1),
-  p("Elena", "woman", 4),
-  p("Felix", "man", 3),
-  p("Gina", "woman", 1),
-  p("Hugo", "man", 2),
-  p("Ines", "woman", 3),
-  p("Javi", "man", 4),
-  p("Kira", "woman", 2),
-  p("Leo", "man", 1),
-  p("Maya", "woman", 4),
-  p("Nico", "man", 3),
-  p("Olga", "woman", 1),
-  p("Pablo", "man", 2),
+  p("Jessica", "woman", 3),
+  p("Adam", "man", 4),
+  p("Sarah", "woman", 2),
+  p("Mike", "man", 1),
+  p("Emily", "woman", 4),
+  p("Chris", "man", 3),
+  p("Ashley", "woman", 1),
+  p("Josh", "man", 2),
+  p("Megan", "woman", 3),
+  p("Ryan", "man", 4),
+  p("Lauren", "woman", 2),
+  p("Matt", "man", 1),
+  p("Rachel", "woman", 4),
+  p("Kevin", "man", 3),
+  p("Amanda", "woman", 1),
+  p("Brian", "man", 2),
 ];
 
 /** How many one tap adds. */
