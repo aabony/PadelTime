@@ -8,6 +8,7 @@ import {
   filterMembers,
   guestNameFor,
   membersCsv,
+  playerSuggestions,
   pointsPerGame,
   record,
   sortMembers,
@@ -123,5 +124,47 @@ describe("deleting a member", () => {
     expect(guestNameFor("", "dave@example.com")).toBe("dave");
     expect(guestNameFor(null, "dave@example.com")).toBe("dave");
     expect(guestNameFor("x".repeat(60), "dave@example.com")).toHaveLength(40);
+  });
+});
+
+describe("playerSuggestions (typing a name into a roster's add box)", () => {
+  const base = { members: all, rosterUserIds: [] as string[], rosterGuestNames: [] as string[] };
+  const labels = (q: string, o: Partial<typeof base> = {}) =>
+    playerSuggestions({ ...base, ...o, query: q }).map((x) => (x.kind === "member" ? x.member.name || x.member.email : x.player.name));
+
+  it("nothing until something is typed", () => {
+    expect(labels("")).toEqual([]);
+    expect(labels("   ")).toEqual([]);
+  });
+  it("finds registered members by first name, last name or email", () => {
+    expect(labels("an")).toEqual(["Ana Ruiz", "Dee Lang"]); // Ana starts with it; Dee's surname contains it
+    expect(labels("ort")).toEqual(["Ben Ortiz"]);
+    expect(labels("cy@")).toEqual(["cy@example.com"]); // no name yet: found, and shown, by email
+    expect(labels("zzz")).toEqual([]);
+  });
+  it("a name that starts with what was typed comes first", () => {
+    expect(labels("de")[0]).toBe("Dee Lang");
+  });
+  it("leaves out anyone already on the roster", () => {
+    expect(labels("an", { rosterUserIds: ["a"] })).toEqual(["Dee Lang"]);
+  });
+  it("offers the stand-in test players too, after any members", () => {
+    expect(labels("test-jes")).toEqual(["Test-Jessica"]);
+    expect(labels("test").length).toBe(8);
+    expect(labels("test").every((n) => n.startsWith("Test-"))).toBe(true);
+    expect(labels("test-jes", { rosterGuestNames: ["Test-Jessica"] })).toEqual([]);
+    // They only come up for "test…": a real search isn't cluttered with stand-ins whose names share letters.
+    expect(labels("ad")).toEqual([]);
+    expect(labels("jes")).toEqual([]);
+    expect(playerSuggestions({ ...base, query: "be" }).map((x) => x.kind)).toEqual(["member"]);
+    // With a member whose name starts the same way, the member leads.
+    const tess = { ...all[0], id: "t", name: "Tess Moreno", email: "tess@example.com" };
+    const mixed = playerSuggestions({ ...base, members: [...all, tess], query: "te" });
+    expect(mixed[0]).toMatchObject({ kind: "member" });
+    expect(mixed.slice(1).every((x) => x.kind === "test")).toBe(true);
+  });
+  it("never offers more than the limit", () => {
+    expect(playerSuggestions({ ...base, query: "test", limit: 3 })).toHaveLength(3);
+    expect(playerSuggestions({ ...base, query: "e", limit: 1 })).toHaveLength(1);
   });
 });

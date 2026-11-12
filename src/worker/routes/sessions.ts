@@ -1,15 +1,15 @@
 import { fitCourtLabels, parseCourtLabels } from "../../shared/courts";
 import { and, eq, inArray, isNull, or } from "drizzle-orm";
 import { Hono } from "hono";
-import { gameSessions, matches, rounds, sessionPlayers } from "../db/schema";
+import { gameSessions, groupMembers, matches, rounds, sessionPlayers, user } from "../db/schema";
 import type { DB, SessionRow } from "../lib/detail";
 import { buildDetail, isGroupMember, isGroupOrganizer, loadRounds, loadSession, loadTracks } from "../lib/detail";
 import { beginnerCourtActive, dropUnplayedUpNext, dropUnscoredBeginnerGame, generateNextRound, keepBeginnerGame, keepUpNext } from "../lib/engine";
 import { getFormat } from "../../shared/formats/registry";
 import { beginnerCourtOf } from "../../shared/formats/pools";
 import { parseGender } from "../../shared/genders";
-import { isNewbie, parseLevel } from "../../shared/levels";
-import { TEST_BATCH, nextTestPlayers } from "../../shared/testPlayers";
+import { isNewbie, normalizeLevel, parseLevel } from "../../shared/levels";
+import { TEST_BATCH, TEST_PLAYERS, nextTestPlayers } from "../../shared/testPlayers";
 import { swapInRound, swapTeamsInRound } from "../../shared/swap";
 import { asInt, newId, now, trimmed } from "../lib/util";
 import type { ApiCtx, AuthedUser } from "./context";
@@ -278,9 +278,54 @@ sessionRoutes.post("/sessions/:id/players", async (c) => {
     return c.json({ error: "This session is over" }, 400);
   }
   const body = await c.req.json().catch(() => ({}));
+  const playing = ["checkin", "active"].includes(session.status);
+
+  // A registered member, picked from the suggestions as the organizer typed: their own account goes on the
+  // roster with the level and gender from their profile — the same entry they'd get by joining from the link.
+  if (typeof body.userId === "string") {
+    if (!u.isAdmin) return c.json({ error: "Admins only" }, 403);
+    const [member] = await db.select().from(user).where(eq(user.id, body.userId)).limit(1);
+    if (!member) return c.json({ error: "That member no longer exists" }, 404);
+    const level = normalizeLevel(member.level);
+    const [existing] = await db
+      .select()
+      .from(sessionPlayers)
+      .where(and(eq(sessionPlayers.sessionId, session.id), eq(sessionPlayers.userId, member.id)))
+      .limit(1);
+    if (existing && existing.status !== "dropped") return c.json({ error: `${member.name || member.email} is already on the roster` }, 400);
+    const status = playing ? "checked_in" : "confirmed";
+    const newbie = body.newbie === true || isNewbie(level);
+    if (existing) {
+      await db.update(sessionPlayers).set({ status, joinedAt: now(), checkedInAt: playing ? now() : null }).where(eq(sessionPlayers.id, existing.id));
+    } else {
+      await db.insert(sessionPlayers).values({
+        id: newId(),
+        sessionId: session.id,
+        userId: member.id,
+        guestName: null,
+        status,
+        joinedAt: now(),
+        checkedInAt: playing ? now() : null,
+        gender: parseGender(member.gender),
+        level,
+        newbie,
+      });
+    }
+    // On the roster means part of its crew, exactly as joining from the link does: the tournament shows on their home screen.
+    const [membership] = await db
+      .select()
+      .from(groupMembers)
+      .where(and(eq(groupMembers.groupId, session.groupId), eq(groupMembers.userId, member.id)))
+      .limit(1);
+    if (!membership) {
+      await db.insert(groupMembers).values({ id: newId(), groupId: session.groupId, userId: member.id, role: "member", createdAt: now() });
+    }
+    if (newbie) await keepBeginnerGame(db, session);
+    return c.json({ ok: true });
+  }
+
   const guestName = trimmed(body.guestName, 40);
   if (!guestName) return c.json({ error: "Player name is required" }, 400);
-  const playing = ["checkin", "active"].includes(session.status);
   await db.insert(sessionPlayers).values({
     id: newId(),
     sessionId: session.id,
@@ -313,8 +358,13 @@ sessionRoutes.post("/sessions/:id/test-players", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const roster = await db.select().from(sessionPlayers).where(eq(sessionPlayers.sessionId, session.id));
   const live = roster.filter((p) => p.status !== "dropped");
-  const add = nextTestPlayers(live.map((p) => p.guestName), asInt(body.count) ?? TEST_BATCH);
-  if (add.length === 0) return c.json({ error: "All the test players are already on the roster" }, 400);
+  // One named stand-in (picked from the suggestions), or the next batch.
+  const wanted = typeof body.name === "string" ? body.name.trim().toLowerCase() : null;
+  const available = nextTestPlayers(live.map((p) => p.guestName), TEST_PLAYERS.length);
+  const add = wanted ? available.filter((t) => t.name.toLowerCase() === wanted) : available.slice(0, asInt(body.count) ?? TEST_BATCH);
+  if (add.length === 0) {
+    return c.json({ error: wanted ? "That test player is already on the roster" : "All the test players are already on the roster" }, 400);
+  }
 
   const playing = ["checkin", "active"].includes(session.status);
   const ts = now();
@@ -648,8 +698,9 @@ sessionRoutes.post("/sessions/:id/rounds", async (c) => {
   return c.json({ ok: true, roundNumber: result.roundNumber });
 });
 
-// Swap one player for another in the round on court (a game without a score
-// yet): someone sitting out, someone on another court, or a late arrival.
+// Swap one player for another in a game without a score yet — in the round
+// being played or the one dealt up next: someone sitting out, someone on
+// another court, or a late arrival.
 sessionRoutes.post("/sessions/:id/rounds/:roundId/swap", async (c) => {
   const u = c.get("user");
   if (!u) return c.json({ error: "Sign in required" }, 401);
@@ -664,9 +715,13 @@ sessionRoutes.post("/sessions/:id/rounds/:roundId/swap", async (c) => {
   const out = typeof body.out === "string" ? body.out : "";
   const inn = typeof body.in === "string" ? body.in : "";
   const played = await loadRounds(db, session.id);
-  const latest = played[played.length - 1];
-  if (!latest || latest.id !== c.req.param("roundId")) {
-    return c.json({ error: "Only the round on court can change" }, 400);
+  // Either of the two live rounds can change: the one up next, or the one still being played before it.
+  const newest = played[played.length - 1];
+  const inPlay = played[played.length - 2];
+  const roundId = c.req.param("roundId");
+  const latest = newest?.id === roundId ? newest : inPlay && !inPlay.complete && inPlay.id === roundId ? inPlay : null;
+  if (!latest) {
+    return c.json({ error: "Only the round being played or the one up next can change" }, 400);
   }
   const roster = await db.select().from(sessionPlayers).where(eq(sessionPlayers.sessionId, session.id));
   const inRound = (id: string) => latest.byes.includes(id) || latest.matches.some((m) => [...m.a, ...m.b].includes(id));

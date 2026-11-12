@@ -352,7 +352,7 @@ const sitter = r2.byes[0];
 const court3 = r2.matches.find((m) => m.court === 1);
 const goingOff = court3.a[0];
 const nameIn = (id) => lateView.players.find((p) => p.id === id).name;
-await org.getByRole("button", { name: "Swap a player, Court 3" }).click();
+await org.getByTestId("up-next").getByRole("button", { name: "Swap a player, Court 3" }).click();
 // The sheet shows who's partnered with whom: Team 1 / Team 2 bands.
 for (const t of ["Team 1", "Team 2"]) await org.locator(".fixed").getByText(t, { exact: true }).waitFor({ timeout: 5000 });
 await org.locator(".fixed").getByRole("button", { name: nameIn(goingOff), exact: true }).click();
@@ -618,7 +618,7 @@ await org.getByRole("button", { name: "Close" }).click();
 // Keep teams together: the sitting team comes on as a team.
 const tm = td.rounds[1].matches[0];
 const tnName = (id) => td.players.find((p) => p.id === id).name;
-await org.getByRole("button", { name: "Swap a team, Court 1" }).click();
+await org.getByTestId("up-next").getByRole("button", { name: "Swap a team, Court 1" }).click();
 await org.locator(".fixed").getByRole("button", { name: `${tnName(tm.a[0])} + ${tnName(tm.a[1])}`, exact: true }).click();
 await shot(org, "16c-team-swap");
 await org.locator(".fixed").getByRole("button", { name: /sitting out/ }).click();
@@ -984,6 +984,42 @@ const finalsPlayerView = await paula.request.post(`${BASE}/api/sessions/${finals
 if (finalsPlayerView.status() !== 403) fail("only the organizer can call finals");
 log("finals: one tap sends the round on deck to the top 8 of the table, the other 12 sit; it holds round after round and can be ended");
 
+// --- Adding players: typing a name suggests registered members and the stand-ins ----
+const pick = await api("POST", "/sessions", { name: "Pick Players", format: "americano", courts: 2, maxPlayers: 16 });
+await org.goto(`${BASE}/app/sessions/${pick.id}`);
+const addBox = org.getByPlaceholder("Add player by name");
+const suggested = org.getByTestId("player-suggestions");
+const pickRoster = (n) => org.waitForFunction(async ([id, want]) => (await (await fetch(`/api/sessions/${id}`)).json()).players.length === want, [pick.id, n], { timeout: 10000 });
+await addBox.fill(`nia${run}`);
+await suggested.getByRole("button", { name: "Add Nia Test" }).click();
+await pickRoster(1);
+let picked = await api("GET", `/sessions/${pick.id}`);
+const niaOnRoster = picked.players[0];
+if (niaOnRoster.name !== "Nia Test" || niaOnRoster.isGuest || !niaOnRoster.userId || niaOnRoster.level !== 1 || !niaOnRoster.newbie || niaOnRoster.gender !== "man") fail(`a member picked from the suggestions should go on with her own account, level and gender — got ${JSON.stringify(niaOnRoster)}`);
+if ((await addBox.inputValue()) !== "") fail("the box should clear after adding");
+// She's on the roster now, so she's no longer offered; a stand-in is, by name.
+await addBox.fill(`nia${run}`);
+await org.waitForTimeout(800);
+if ((await suggested.count()) !== 0) fail("someone already on the roster must not be suggested again");
+await addBox.fill("test-jes");
+await suggested.getByRole("button", { name: "Add Test-Jessica" }).click();
+await pickRoster(2);
+// A name that matches nobody is still a guest, with the Add button.
+await addBox.fill("Zed Nobody");
+await org.getByRole("button", { name: "Add", exact: true }).click();
+await pickRoster(3);
+picked = await api("GET", `/sessions/${pick.id}`);
+if (!picked.players.some((p) => p.name === "Test-Jessica" && p.isGuest && p.gender === "woman" && p.level === 3) || !picked.players.some((p) => p.name === "Zed Nobody" && p.isGuest)) fail("the stand-in and the guest should both be on the roster");
+await shot(org, "24-add-players");
+// It lands on her home screen like any tournament she joined, and only an admin can put a member on a roster.
+const niaHome = await (await nia.request.get(`${BASE}/api/me`)).json();
+if (!niaHome.sessions.some((x) => x.id === pick.id)) fail("a member added by the admin should see the tournament on her home screen");
+const notAdmin = await paula.request.post(`${BASE}/api/sessions/${pick.id}/players`, { data: { userId: niaOnRoster.userId } });
+if (notAdmin.status() !== 403) fail(`a player must not add members to a roster, got ${notAdmin.status()}`);
+const twice = await org.request.post(`${BASE}/api/sessions/${pick.id}/players`, { data: { userId: niaOnRoster.userId } });
+if (twice.status() !== 400) fail("adding a member who's already on the roster should be refused");
+log("adding players: typing a name suggests registered members and test players; a tap adds them with level and gender; unknown names are guests");
+
 // --- Test players: a dry run's roster in one tap -------------------------------
 const dry = await api("POST", "/sessions", { name: "Dry Run", format: "americano", courts: 4, maxPlayers: 24, pointsPerMatch: 16, beginnerCourt: true, beginnerCourtNo: 4, beginnerCourtCoached: true });
 await org.goto(`${BASE}/app/sessions/${dry.id}`);
@@ -1022,6 +1058,36 @@ await api("POST", `/sessions/${dry.id}/status`, { action: "start" });
 dryRun = await api("GET", `/sessions/${dry.id}`);
 if (!dryRun.coachedActive || dryRun.rounds[0].matches.length !== 3 || dryRun.rounds[0].matches.some((m) => m.court === 4) || dryRun.rounds[0].byes.length !== 1) fail("the dry run should deal 3 courts with one sitting and leave Court 4 to the coach");
 log("test players: one tap adds 12 (6 women, 6 men, 3 per level), another adds 4 more; Newbies tagged; a real player never takes a stand-in's entry");
+// --- Swap in the game being played: the player sitting comes on now, not next round ----
+const liveRound = dryRun.rounds[0];
+const liveCourt = liveRound.matches.find((m) => m.court === 1);
+const comingOff = liveCourt.a[0];
+const comingOn = liveRound.byes[0];
+const dryName = (id) => dryRun.players.find((p) => p.id === id).name;
+await org.goto(`${BASE}/app/sessions/${dry.id}`);
+await org.getByTestId("now-playing").getByRole("button", { name: "Swap a player, Court 1" }).click();
+await org.locator(".fixed").getByRole("button", { name: dryName(comingOff), exact: true }).click();
+await org.locator(".fixed").getByRole("button", { name: new RegExp(`^${dryName(comingOn)}\\s*sitting out`) }).click();
+await org.locator(".fixed").waitFor({ state: "detached", timeout: 10000 });
+const afterSwap = await api("GET", `/sessions/${dry.id}`);
+const liveAfter = afterSwap.rounds[0];
+const court1After = liveAfter.matches.find((m) => m.id === liveCourt.id);
+if (!court1After.a.includes(comingOn) || court1After.a.includes(comingOff)) fail(`the swap should put ${dryName(comingOn)} on Court 1 for ${dryName(comingOff)} in the round being played`);
+if (!liveAfter.byes.includes(comingOff) || liveAfter.byes.includes(comingOn)) fail("the player coming off should be the one sitting the round being played");
+if (JSON.stringify(afterSwap.rounds[1]) !== JSON.stringify(dryRun.rounds[1])) fail("swapping in the round being played must leave the round up next as it was");
+// A game with a score on it can't be changed any more, and a finished round can't either.
+for (const m of liveAfter.matches) await api("POST", `/matches/${m.id}/score`, { scoreA: 10, scoreB: 6 });
+const tooLate = await org.request.post(`${BASE}/api/sessions/${dry.id}/rounds/${liveRound.id}/swap`, { data: { out: comingOn, in: comingOff } });
+if (tooLate.ok()) fail("a round that's been played can't have players swapped");
+log("swap in the game being played: the sitter comes on for someone on Court 1 now; the round up next is untouched; a scored round is locked");
+// The same button is there once a tournament is live: late stand-ins are checked in and dealt from the next round.
+await org.goto(`${BASE}/app/sessions/${finalsSession.id}`);
+await org.getByTestId("now-playing").waitFor({ timeout: 10000 });
+await org.getByRole("button", { name: /Add 12 test players/ }).click();
+await org.waitForFunction(async (id) => (await (await fetch(`/api/sessions/${id}`)).json()).players.filter((p) => p.name.startsWith("Test-")).length === 12, finalsSession.id, { timeout: 10000 });
+const liveWithTests = await api("GET", `/sessions/${finalsSession.id}`);
+if (!liveWithTests.players.filter((p) => p.name.startsWith("Test-")).every((p) => p.status === "checked_in")) fail("test players added to a live tournament should be checked in");
+log("test players: the button is also on the live roster, and late stand-ins are checked in");
 
 // --- Admin: the members list ---------------------------------------------------
 const membersRefused = await paula.request.get(`${BASE}/api/admin/members`);

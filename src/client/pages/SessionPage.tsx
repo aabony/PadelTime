@@ -40,6 +40,10 @@ import { CourtNumbersField } from "../components/CourtNumbersField";
 import { courtLabel, fitCourtLabels, parseCourtLabels } from "../../shared/courts";
 import { ladderCourts } from "../../shared/formats/pools";
 import { formatPhone, normalizePhone } from "../../shared/phone";
+import { playerSuggestions } from "../../shared/members";
+import type { MemberRow } from "../../shared/members";
+import { genderMeta } from "../../shared/genders";
+import { levelMeta } from "../../shared/levels";
 import { TEST_BATCH, nextTestPlayers } from "../../shared/testPlayers";
 import { NightSummary } from "../components/NightSummary";
 import { formatMeta } from "../../shared/formatMeta";
@@ -711,15 +715,11 @@ function playerStatusBadge(p: PlayerRow) {
 }
 
 function PlayersCard({ d, isOrganizer, run, busyKey }: ViewProps) {
-  const [guestName, setGuestName] = useState("");
-  const [guestNewbie, setGuestNewbie] = useState(false);
   const pools = d.beginnerCourt && !d.fixedTeams && d.courts >= 2;
   const visible = d.players.filter((p) => p.status !== "dropped");
   const dropped = d.players.filter((p) => p.status === "dropped");
   const inCount = d.counts.confirmed + d.counts.checkedIn;
   const { courts } = roundCapacity(d, signedUp(d));
-  // Stand-in players for a dry run that aren't on the roster yet.
-  const testPlayersLeft = nextTestPlayers(visible.filter((p) => p.isGuest).map((p) => p.name), 99).length;
   return (
     <Card>
       <SectionHeader
@@ -833,39 +833,8 @@ function PlayersCard({ d, isOrganizer, run, busyKey }: ViewProps) {
           ))}
         </div>
       )}
-      {isOrganizer && (
-        <form
-          className="mt-3 flex gap-2 border-t border-line pt-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (!guestName.trim()) return;
-            run("guest", async () => {
-              await Api.addGuest(d.id, guestName.trim(), pools && guestNewbie);
-              setGuestName("");
-            });
-          }}
-        >
-          <Input value={guestName} onChange={(e) => setGuestName(e.target.value)} placeholder="Add player by name (no account needed)" />
-          {pools && <NewbieToggle checked={guestNewbie} onChange={setGuestNewbie} label="New player is a newbie" />}
-          <Button variant="secondary" busy={busyKey === "guest"} type="submit">
-            Add
-          </Button>
-        </form>
-      )}
-      {isOrganizer && testPlayersLeft > 0 && (
-        <p className="mt-3 text-xs text-muted">
-          Trying things out?{" "}
-          <button
-            type="button"
-            className="font-semibold text-royal hover:text-royal-dark disabled:opacity-50"
-            disabled={busyKey === "testp"}
-            onClick={() => run("testp", () => Api.addTestPlayers(d.id))}
-          >
-            🧪 Add {Math.min(TEST_BATCH, testPlayersLeft)} test players
-          </button>{" "}
-          — women and men at every level. Stand-ins for a dry run: no accounts, nobody is notified.
-        </p>
-      )}
+      {isOrganizer && <AddPlayerForm d={d} run={run} busyKey={busyKey} pools={pools} placeholder="Add player by name" />}
+      {isOrganizer && <TestPlayersButton d={d} run={run} busyKey={busyKey} />}
       {isOrganizer && pools && visible.length > 0 && <NewbieHint d={d} players={visible} />}
     </Card>
   );
@@ -1260,7 +1229,7 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
                 key={m.id}
                 d={d}
                 m={m}
-                round={upNext ? undefined : playing}
+                round={playing}
                 nameOf={nameOf}
                 isOrganizer={isOrganizer}
                 run={run}
@@ -1484,8 +1453,6 @@ function NudgesCard({ d, nameOf, run, busyKey }: { d: SessionDetail; nameOf: (id
 
 // One list for the live session: the leaderboard IS the roster.
 function LiveRosterCard({ d, isOrganizer, run, busyKey }: ViewProps) {
-  const [guestName, setGuestName] = useState("");
-  const [guestNewbie, setGuestNewbie] = useState(false);
   const byId = new Map(d.players.map((p) => [p.id, p]));
   // Optimistic removal: the row fades the moment ✕ is tapped and stays that way
   // until the server confirms it (or comes back if the request fails).
@@ -1710,25 +1677,8 @@ function LiveRosterCard({ d, isOrganizer, run, busyKey }: ViewProps) {
         </div>
       )}
 
-      {isOrganizer && (
-        <form
-          className="mt-3 flex gap-2 border-t border-line pt-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (!guestName.trim()) return;
-            run("guest", async () => {
-              await Api.addGuest(d.id, guestName.trim(), pools && guestNewbie);
-              setGuestName("");
-            });
-          }}
-        >
-          <Input value={guestName} onChange={(e) => setGuestName(e.target.value)} placeholder="Add a late arrival by name" />
-          {pools && <NewbieToggle checked={guestNewbie} onChange={setGuestNewbie} label="New player is a newbie" />}
-          <Button variant="secondary" busy={busyKey === "guest"} type="submit">
-            Add
-          </Button>
-        </form>
-      )}
+      {isOrganizer && <AddPlayerForm d={d} run={run} busyKey={busyKey} pools={pools} placeholder="Add a late arrival by name" />}
+      {isOrganizer && <TestPlayersButton d={d} run={run} busyKey={busyKey} />}
       {isOrganizer && (
         <p className="mt-2 text-xs text-muted">Player changes apply to rounds not dealt yet — 🔀 Reshuffle the round up next to include them now.</p>
       )}
@@ -2464,6 +2414,135 @@ function BeginnerGamesCard({ d, nameOf, isOrganizer, run, busyKey }: ViewProps &
           </div>
         )}
       </Card>
+    </div>
+  );
+}
+
+/**
+ * "Add test players": a full-width button under the add-a-player box, in the
+ * roster before the tournament starts and during it. Each tap adds the next
+ * stand-ins (women and men at every level) until all sixteen are on.
+ */
+function TestPlayersButton({ d, run, busyKey }: { d: SessionDetail; run: Run; busyKey: string | null }) {
+  const onRoster = d.players.filter((p) => p.status !== "dropped" && p.isGuest).map((p) => p.name);
+  const left = nextTestPlayers(onRoster, 99).length;
+  if (left === 0) return null;
+  const adding = Math.min(TEST_BATCH, left);
+  return (
+    <div className="mt-3">
+      <Button variant="outline" className="w-full" busy={busyKey === "testp"} onClick={() => run("testp", () => Api.addTestPlayers(d.id))}>
+        🧪 Add {adding} test players
+      </Button>
+      <p className="mt-1.5 text-center text-xs text-muted">
+        Test-Jessica, Test-Adam and so on: women and men at every level, for a dry run. No accounts, nobody is notified.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * The roster's add-a-player box. As the organizer types, registered members
+ * (and the stand-in test players) matching the name appear underneath: tapping
+ * one puts that person on the roster — a member with their own account and the
+ * level and gender from their profile. Pressing Add with a name nobody matches
+ * adds a guest, as before.
+ */
+function AddPlayerForm({ d, run, busyKey, pools, placeholder }: { d: SessionDetail; run: Run; busyKey: string | null; pools: boolean; placeholder: string }) {
+  const [name, setName] = useState("");
+  const [newbie, setNewbie] = useState(false);
+  // The members list is the admin's; anyone else just gets the guest box.
+  const [members, setMembers] = useState<MemberRow[]>([]);
+  useEffect(() => {
+    let live = true;
+    Api.members()
+      .then((r) => live && setMembers(r.members))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, []);
+  const onRoster = d.players.filter((p) => p.status !== "dropped");
+  const suggestions = playerSuggestions({
+    query: name,
+    members,
+    rosterUserIds: onRoster.flatMap((p) => (p.userId ? [p.userId] : [])),
+    rosterGuestNames: onRoster.filter((p) => p.isGuest).map((p) => p.name),
+  });
+  const done = () => {
+    setName("");
+    setNewbie(false);
+  };
+  // The box clears the moment a name is sent, so the next one can be typed while this one saves
+  // (clearing afterwards wiped whatever had been typed in the meantime). If saving fails, the name comes back.
+  const add = (key: string, work: () => Promise<unknown>) => {
+    const typed = name;
+    done();
+    return run(key, async () => {
+      try {
+        await work();
+      } catch (e) {
+        setName((now) => now || typed);
+        throw e;
+      }
+    });
+  };
+  return (
+    <div className="mt-3 border-t border-line pt-3">
+      <form
+        className="flex gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!name.trim()) return;
+          add("guest", () => Api.addGuest(d.id, name.trim(), pools && newbie));
+        }}
+      >
+        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={placeholder} aria-label={placeholder} autoComplete="off" />
+        {pools && <NewbieToggle checked={newbie} onChange={setNewbie} label="New player is a newbie" />}
+        <Button variant="secondary" busy={busyKey === "guest"} type="submit">
+          Add
+        </Button>
+      </form>
+      {suggestions.length > 0 && (
+        <ul className="mt-2 divide-y divide-line overflow-hidden rounded-2xl border border-line-strong bg-white" data-testid="player-suggestions">
+          {suggestions.map((sug) => {
+            const isMember = sug.kind === "member";
+            const label = isMember ? sug.member.name.trim() || sug.member.email : sug.player.name;
+            const level = levelMeta(isMember ? sug.member.level : sug.player.level);
+            const gender = genderMeta(isMember ? sug.member.gender : sug.player.gender);
+            const key = isMember ? `m-${sug.member.id}` : `t-${sug.player.name}`;
+            return (
+              <li key={key}>
+                <button
+                  type="button"
+                  disabled={busyKey === key}
+                  aria-label={`Add ${label}`}
+                  className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-royal-soft/60 disabled:opacity-50"
+                  onClick={() =>
+                    add(key, () => (isMember ? Api.addMember(d.id, sug.member.id, pools && newbie) : Api.addTestPlayer(d.id, sug.player.name)))
+                  }
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-bold text-navy">
+                      {!isMember && "🧪 "}
+                      {label}
+                    </span>
+                    <span className="block truncate text-xs text-muted">{isMember ? sug.member.email : "Test player"}</span>
+                  </span>
+                  <span className="shrink-0 text-xs font-semibold text-muted">
+                    {gender?.emoji} {level ? `${level.emoji} ${level.short}` : ""}
+                  </span>
+                  <span className="shrink-0 text-xs font-black text-royal">+ Add</span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <p className="mt-1.5 text-xs text-muted">
+        {members.length > 0
+          ? "Start typing: registered players appear underneath to tap. A name that matches nobody is added as a guest."
+          : "Adds a guest by name — no account needed."}
+      </p>
     </div>
   );
 }

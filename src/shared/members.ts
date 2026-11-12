@@ -5,6 +5,8 @@ import { genderMeta } from "./genders";
 import { levelMeta } from "./levels";
 import { normalizePhone } from "./phone";
 import { ageAt } from "./profile";
+import { TEST_PLAYERS, TEST_PREFIX, nextTestPlayers } from "./testPlayers";
+import type { TestPlayer } from "./testPlayers";
 import type { StoredProfile } from "./profile";
 
 export interface MemberStats {
@@ -63,6 +65,49 @@ export function guestNameFor(name: string | null | undefined, email: string): st
 
 export interface MembersResponse {
   members: MemberRow[];
+}
+
+export type PlayerSuggestion = { kind: "member"; member: MemberRow } | { kind: "test"; player: TestPlayer };
+
+/**
+ * What to offer as the organizer types a name into a roster's add-a-player
+ * box: registered members first (best match first), then — when what's typed
+ * begins "test" — the stand-in test players. Anyone already on the roster is
+ * left out.
+ */
+export function playerSuggestions(o: {
+  query: string;
+  members: MemberRow[];
+  /** Account ids already on the roster (not counting dropped). */
+  rosterUserIds: Iterable<string>;
+  /** Guest names already on the roster (not counting dropped). */
+  rosterGuestNames: (string | null | undefined)[];
+  limit?: number;
+}): PlayerSuggestion[] {
+  const q = o.query.trim().toLowerCase();
+  if (!q) return [];
+  const limit = o.limit ?? 8;
+  const taken = new Set(o.rosterUserIds);
+  const rank = (m: MemberRow): number => {
+    const name = m.name.trim().toLowerCase();
+    if (name.startsWith(q)) return 0;
+    if (name.split(/\s+/).some((w) => w.startsWith(q))) return 1;
+    if (name.includes(q)) return 2;
+    return m.email.toLowerCase().startsWith(q) ? 3 : -1;
+  };
+  const members = o.members
+    .filter((m) => !taken.has(m.id))
+    .map((m) => ({ m, r: rank(m) }))
+    .filter((x) => x.r >= 0)
+    .sort((a, b) => a.r - b.r || a.m.name.localeCompare(b.m.name, undefined, { sensitivity: "base" }))
+    .slice(0, limit)
+    .map((x): PlayerSuggestion => ({ kind: "member", member: x.m }));
+  const tests = nextTestPlayers(o.rosterGuestNames, TEST_PLAYERS.length)
+    // Only when the organizer is typing "test…": a real night's search for "An…" shouldn't list Test-Amanda.
+    .filter((t) => t.name.toLowerCase().startsWith(q) || TEST_PREFIX.toLowerCase().startsWith(q))
+    .slice(0, Math.max(0, limit - members.length))
+    .map((player): PlayerSuggestion => ({ kind: "test", player }));
+  return [...members, ...tests];
 }
 
 export const NO_STATS: MemberStats = { tournaments: 0, games: 0, wins: 0, losses: 0, ties: 0, pointsFor: 0, pointsAgainst: 0, lastPlayedAt: null };
