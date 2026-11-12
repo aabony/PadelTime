@@ -36,7 +36,7 @@ const contextOpts = { ignoreHTTPSErrors: !!(process.env.HTTPS_PROXY || process.e
 // Passwordless sign-in: request a code, read it from the DEV_MODE-only
 // endpoint (stands in for the inbox), verify, then fill in the profile the
 // first time (first/last name, phone, DOB, gender, level — Playtomic optional).
-async function otpSignIn(page, name, email, level = "Intermediate") {
+async function otpSignIn(page, name, email, level = "Intermediate", phone = "+34 600 123 456") {
   await page.getByPlaceholder("you@example.com").fill(email);
   await page.getByRole("button", { name: "Email me a code" }).click();
   await page.getByPlaceholder("••••••").waitFor({ timeout: 10000 });
@@ -51,7 +51,10 @@ async function otpSignIn(page, name, email, level = "Intermediate") {
     await page.getByRole("heading", { name: "Finish signing up" }).waitFor();
     await firstName.fill(name);
     await page.getByLabel("Last name").fill("Test");
-    await page.getByLabel("Phone").fill("+34 600 123 456");
+    // The phone field starts on the USA; a number typed with its own country code moves the code over.
+    if ((await page.getByLabel("Country code").inputValue()) !== "1") fail("the phone field should start on +1 (USA)");
+    await page.getByLabel("Phone").fill(phone);
+    if (phone.startsWith("+34") && (await page.getByLabel("Country code").inputValue()) !== "34") fail("typing a +34 number should switch the country to Spain");
     await page.getByLabel("Date of birth").fill("1990-05-04");
     await page.getByRole("group", { name: "Gender" }).getByRole("button", { name: /Man/ }).click();
     await page.getByRole("group", { name: "Your level" }).getByRole("button", { name: new RegExp(level) }).click();
@@ -752,7 +755,7 @@ const nia = await niaCtx.newPage();
 await nia.goto(`${BASE}/join/${bd.inviteCode}`);
 await nia.getByRole("button", { name: "Register to join →" }).click();
 await nia.waitForURL("**/register**");
-await otpSignIn(nia, "Nia", `nia${run}@test.com`, "Newbie");
+await otpSignIn(nia, "Nia", `nia${run}@test.com`, "Newbie", "(512) 992-3681");
 await nia.waitForURL("**/join/**", { timeout: 15000 });
 if ((await nia.getByRole("group", { name: "Your level" }).getByRole("button", { name: /Newbie/ }).getAttribute("aria-pressed")) !== "true") fail("the join page should preselect the profile's Newbie level");
 await nia.getByRole("button", { name: /Join — deal me in/ }).click({ timeout: 15000 });
@@ -935,6 +938,44 @@ if (vCourts !== "1,2" || vPoints !== "16" || vMax !== "11")
   fail(`signed-out hand-off expected courts 2 / points 16 / max 11 after sign-in, got ${vCourts} / ${vPoints} / ${vMax}`);
 log("signed-out planner → sign in → lands on the prefilled form (2 courts · 16 points · 11 max)");
 
+// --- Test players: a dry run's roster in one tap -------------------------------
+const dry = await api("POST", "/sessions", { name: "Dry Run", format: "americano", courts: 4, maxPlayers: 24, pointsPerMatch: 16, beginnerCourt: true, beginnerCourtNo: 4, beginnerCourtCoached: true });
+await org.goto(`${BASE}/app/sessions/${dry.id}`);
+await org.getByRole("button", { name: /Add 12 test players/ }).click();
+const dryRosterSize = (n) => org.waitForFunction(async ([id, want]) => (await (await fetch(`/api/sessions/${id}`)).json()).players.length === want, [dry.id, n], { timeout: 10000 });
+await dryRosterSize(12);
+let dryRun = await api("GET", `/sessions/${dry.id}`);
+const dryTally = (f) => dryRun.players.filter(f).length;
+if (!dryRun.players.every((p) => p.isGuest && p.name.endsWith("(test)"))) fail("test players should be roster guests marked (test)");
+if (dryTally((p) => p.gender === "woman") !== 6 || dryTally((p) => p.gender === "man") !== 6) fail("12 test players should be 6 women and 6 men");
+for (const lvl of [1, 2, 3, 4]) if (dryTally((p) => p.level === lvl) !== 3) fail(`12 test players should have 3 at level ${lvl}`);
+if (dryTally((p) => p.newbie) !== 3 || !dryRun.players.every((p) => p.newbie === (p.level === 1))) fail("the Newbie-level test players should be the ones tagged for the beginner court");
+await shot(org, "22-test-players");
+await org.getByRole("button", { name: /Add 4 test players/ }).click();
+await dryRosterSize(16);
+// With all 16 on the roster there's nothing left to add: the button goes once the screen refreshes.
+await org.getByRole("button", { name: /test players/ }).waitFor({ state: "detached", timeout: 10000 });
+const noMoreTestPlayers = await org.request.post(`${BASE}/api/sessions/${dry.id}/test-players`, { data: {} });
+if (noMoreTestPlayers.status() !== 400) fail("adding test players a third time should be refused");
+// A real player with the same first name joins: she gets her own entry, not a stand-in's.
+await api("POST", `/sessions/${dry.id}/status`, { action: "open" });
+dryRun = await api("GET", `/sessions/${dry.id}`);
+const realAna = await (await newContext({ ...contextOpts, viewport: { width: 390, height: 844 } })).newPage();
+await realAna.goto(`${BASE}/join/${dryRun.inviteCode}`);
+await realAna.getByRole("button", { name: "Register to join →" }).click();
+await realAna.waitForURL("**/register**");
+await otpSignIn(realAna, "Ana", `realAna${run}@test.com`);
+await realAna.waitForURL("**/join/**", { timeout: 15000 });
+await realAna.getByRole("button", { name: /Join session/ }).click({ timeout: 15000 });
+await realAna.getByText(/You're in ✓/).waitFor({ timeout: 10000 });
+dryRun = await api("GET", `/sessions/${dry.id}`);
+if (dryRun.players.length !== 17 || !dryRun.players.some((p) => p.name === "Ana (test)" && p.isGuest) || !dryRun.players.some((p) => p.name === "Ana Test" && !p.isGuest)) fail("a real Ana should join alongside the stand-in, not take it over");
+// And it plays: 13 in the tournament on courts 1–3, the 4 newbies with the coach.
+await api("POST", `/sessions/${dry.id}/status`, { action: "start" });
+dryRun = await api("GET", `/sessions/${dry.id}`);
+if (!dryRun.coachedActive || dryRun.rounds[0].matches.length !== 3 || dryRun.rounds[0].matches.some((m) => m.court === 4) || dryRun.rounds[0].byes.length !== 1) fail("the dry run should deal 3 courts with one sitting and leave Court 4 to the coach");
+log("test players: one tap adds 12 (6 women, 6 men, 3 per level), another adds 4 more; Newbies tagged; a real player never takes a stand-in's entry");
+
 // --- Admin: the members list ---------------------------------------------------
 const membersRefused = await paula.request.get(`${BASE}/api/admin/members`);
 if (membersRefused.status() !== 403) fail(`a player must not read the members list, got ${membersRefused.status()}`);
@@ -959,14 +1000,18 @@ const [dl] = await Promise.all([org.waitForEvent("download"), org.getByRole("but
 if (!/^padeltime-members-\d{4}-\d{2}-\d{2}\.csv$/.test(dl.suggestedFilename())) fail(`unexpected export name ${dl.suggestedFilename()}`);
 // Editing a member: the admin fills in what they know; nothing is required, but what's given must be valid.
 const niaMember = membersList.members.find((m) => m.email === `nia${run}@test.com`);
+if (niaMember.phone !== "+15129923681") fail(`a plain 10-digit number should be stored as a US number, got ${niaMember.phone}`);
+if (membersList.members.some((m) => m.name.includes("(test)"))) fail("test players are roster stand-ins and must never appear as members");
 const put = (page, id, data) => page.request.put(`${BASE}/api/admin/members/${id}`, { data });
 if ((await put(paula, niaMember.id, { level: 4 })).status() !== 403) fail("a player must not edit members");
 if ((await put(org, niaMember.id, { phone: "12" })).status() !== 400) fail("a bad phone number should be refused");
 await org.getByRole("searchbox", { name: "Search members" }).fill(`nia${run}`);
+await org.getByTestId("members").locator("li").first().getByRole("link", { name: "+1 (512) 992-3681" }).waitFor({ timeout: 10000 });
 await org.getByRole("button", { name: "Edit Nia Test" }).click();
 await org.getByRole("heading", { name: "Edit member" }).waitFor();
 const editForm = org.locator("form", { hasText: "Fill in what you know" });
 if ((await editForm.getByLabel("First name").inputValue()) !== "Nia") fail("the edit form should start from the member's details");
+if ((await editForm.getByLabel("Country code").inputValue()) !== "1" || (await editForm.getByLabel("Phone").inputValue()) !== "5129923681") fail("the edit form should show a US number as +1 and its 10 digits");
 await editForm.getByLabel("Last name").fill("Navarro");
 await editForm.getByLabel("Phone").fill("+34 699 888 777");
 await editForm.getByLabel("Date of birth").fill("");

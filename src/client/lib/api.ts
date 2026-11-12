@@ -99,6 +99,8 @@ export const Api = {
   deleteSession: (id: string) => req(`/sessions/${id}`, { method: "DELETE" }),
   sessionAction: (id: string, action: string) => req(`/sessions/${id}/status`, post({ action })),
 
+  /** A dry run's roster: adds the next stand-in players (mixed genders and levels) not on the roster yet. */
+  addTestPlayers: (id: string) => req<{ ok: true; added: number }>(`/sessions/${id}/test-players`, post({})),
   addGuest: (id: string, guestName: string, newbie = false) => req(`/sessions/${id}/players`, post({ guestName, newbie })),
   playerAction: (id: string, playerId: string, action: string, extra: Record<string, unknown> = {}) =>
     req(`/sessions/${id}/players/${playerId}`, patch({ action, ...extra })),

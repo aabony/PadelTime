@@ -39,6 +39,8 @@ import { PartnerSelect } from "../components/PartnerSelect";
 import { CourtNumbersField } from "../components/CourtNumbersField";
 import { courtLabel, fitCourtLabels, parseCourtLabels } from "../../shared/courts";
 import { ladderCourts } from "../../shared/formats/pools";
+import { formatPhone, normalizePhone } from "../../shared/phone";
+import { TEST_BATCH, nextTestPlayers } from "../../shared/testPlayers";
 import { NightSummary } from "../components/NightSummary";
 import { formatMeta } from "../../shared/formatMeta";
 
@@ -715,6 +717,8 @@ function PlayersCard({ d, isOrganizer, run, busyKey }: ViewProps) {
   const dropped = d.players.filter((p) => p.status === "dropped");
   const inCount = d.counts.confirmed + d.counts.checkedIn;
   const { courts } = roundCapacity(d, signedUp(d));
+  // Stand-in players for a dry run that aren't on the roster yet.
+  const testPlayersLeft = nextTestPlayers(visible.filter((p) => p.isGuest).map((p) => p.name), 99).length;
   return (
     <Card>
       <SectionHeader
@@ -846,6 +850,20 @@ function PlayersCard({ d, isOrganizer, run, busyKey }: ViewProps) {
             Add
           </Button>
         </form>
+      )}
+      {isOrganizer && testPlayersLeft > 0 && (
+        <p className="mt-3 text-xs text-muted">
+          Trying things out?{" "}
+          <button
+            type="button"
+            className="font-semibold text-royal hover:text-royal-dark disabled:opacity-50"
+            disabled={busyKey === "testp"}
+            onClick={() => run("testp", () => Api.addTestPlayers(d.id))}
+          >
+            🧪 Add {Math.min(TEST_BATCH, testPlayersLeft)} test players
+          </button>{" "}
+          — women and men at every level. Stand-ins for a dry run: no accounts, nobody is notified.
+        </p>
       )}
       {isOrganizer && pools && visible.length > 0 && <NewbieHint d={d} players={visible} />}
     </Card>
@@ -2315,9 +2333,9 @@ function ProfileBadges({ p }: { p: PlayerRow }) {
       )}
       {p.phone && (
         <a
-          href={`tel:${p.phone}`}
+          href={`tel:${normalizePhone(p.phone)}`}
           className="h-7 rounded-full border border-line bg-canvas px-2 text-xs font-bold leading-7 text-royal"
-          title={p.phone}
+          title={formatPhone(p.phone)}
           aria-label={`Call ${p.name}`}
         >
           📞

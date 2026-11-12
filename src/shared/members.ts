@@ -3,6 +3,7 @@
 // page and the tests agree.
 import { genderMeta } from "./genders";
 import { levelMeta } from "./levels";
+import { normalizePhone } from "./phone";
 import { ageAt } from "./profile";
 import type { StoredProfile } from "./profile";
 
@@ -165,7 +166,7 @@ export function membersCsv(members: MemberRow[], today = new Date()): string {
     m.firstName ?? "",
     m.lastName ?? (m.firstName ? "" : m.name),
     m.email,
-    m.phone ?? "",
+    normalizePhone(m.phone ?? ""),
     m.dob ?? "",
     ageAt(m.dob, today) ?? "",
     genderMeta(m.gender)?.label ?? "",

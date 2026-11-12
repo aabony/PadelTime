@@ -4,6 +4,7 @@ import { authClient } from "../lib/auth";
 import { Api, useLoad } from "../lib/api";
 import { Button, Card, ErrorNote, Field, FieldGroup, Input, PageSpinner } from "../components/ui";
 import { GenderToggle } from "../components/GenderSelect";
+import { PhoneField } from "../components/PhoneField";
 import { LevelToggle } from "../components/LevelSelect";
 import { Logo } from "../App";
 import { PLAYTOMIC_MAX, PLAYTOMIC_MIN, namesFromLegacy, validateProfile } from "../../shared/profile";
@@ -123,9 +124,9 @@ export function ProfileForm({ user, next }: { user: UserInfo; next: string | nul
         <Field label="Email">
           <Input value={user.email} readOnly className="bg-canvas text-muted" />
         </Field>
-        <Field label="Phone" hint="So the organizer can reach you on the night.">
-          <Input type="tel" inputMode="tel" value={form.phone} onChange={(e) => set("phone", e.target.value)} placeholder="+34 600 000 000" autoComplete="tel" required />
-        </Field>
+        <FieldGroup label="Phone" hint="So the organizer can reach you on the night.">
+          <PhoneField value={form.phone} onChange={(phone) => set("phone", phone)} autoComplete="tel-national" required />
+        </FieldGroup>
         <Field label="Date of birth">
           <Input type="date" value={form.dob} onChange={(e) => set("dob", e.target.value)} autoComplete="bday" required max={new Date().toISOString().slice(0, 10)} />
         </Field>

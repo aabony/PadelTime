@@ -10,6 +10,7 @@ import { parseGender } from "../../shared/genders";
 import type { Gender } from "../../shared/genders";
 import { isNewbie, normalizeLevel, parseLevel } from "../../shared/levels";
 import { isProfileComplete } from "../../shared/profile";
+import { isTestPlayerName } from "../../shared/testPlayers";
 import { beginnerCourtOf } from "../../shared/formats/pools";
 import { keepBeginnerGame } from "../lib/engine";
 import { newId, now } from "../lib/util";
@@ -72,7 +73,8 @@ function claimableGuest<T extends { userId: string | null; guestName: string | n
   userName: string | null | undefined,
 ): T | null {
   if (!userName) return null;
-  const guests = players.filter((p) => !p.userId && p.guestName && p.status !== "dropped");
+  // Stand-ins from a dry run ("Ana (test)") are never somebody's entry.
+  const guests = players.filter((p) => !p.userId && p.guestName && p.status !== "dropped" && !isTestPlayerName(p.guestName));
   const exact = guests.filter((p) => norm(p.guestName!) === norm(userName));
   if (exact.length === 1) return exact[0];
   const byFirst = guests.filter((p) => firstName(p.guestName!) === firstName(userName));

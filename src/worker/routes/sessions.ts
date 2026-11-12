@@ -8,7 +8,8 @@ import { beginnerCourtActive, dropUnplayedUpNext, dropUnscoredBeginnerGame, gene
 import { getFormat } from "../../shared/formats/registry";
 import { beginnerCourtOf } from "../../shared/formats/pools";
 import { parseGender } from "../../shared/genders";
-import { parseLevel } from "../../shared/levels";
+import { isNewbie, parseLevel } from "../../shared/levels";
+import { TEST_BATCH, nextTestPlayers } from "../../shared/testPlayers";
 import { swapInRound, swapTeamsInRound } from "../../shared/swap";
 import { asInt, newId, now, trimmed } from "../lib/util";
 import type { ApiCtx, AuthedUser } from "./context";
@@ -275,6 +276,48 @@ sessionRoutes.post("/sessions/:id/players", async (c) => {
   // A fourth newbie arriving is what the beginner court was waiting for.
   if (body.newbie === true) await keepBeginnerGame(db, session);
   return c.json({ ok: true });
+});
+
+// A dry run's roster in one tap: stand-in players with a mix of genders and
+// levels (src/shared/testPlayers.ts). Roster guests only — no accounts, no
+// emails. A stand-in at Newbie level is tagged for the beginner court, as a
+// real Newbie joining would be. Each call adds the next ones not on the roster.
+sessionRoutes.post("/sessions/:id/test-players", async (c) => {
+  const u = c.get("user");
+  if (!u) return c.json({ error: "Sign in required" }, 401);
+  const db = c.get("db");
+  const loaded = await loadSession(db, c.req.param("id"));
+  if (!loaded) return c.json({ error: "Session not found" }, 404);
+  const { session } = loaded;
+  if (!(await canManage(db, session, u))) return c.json({ error: "Organizers only" }, 403);
+  if (["complete", "cancelled"].includes(session.status)) return c.json({ error: "This session is over" }, 400);
+
+  const body = await c.req.json().catch(() => ({}));
+  const roster = await db.select().from(sessionPlayers).where(eq(sessionPlayers.sessionId, session.id));
+  const live = roster.filter((p) => p.status !== "dropped");
+  const add = nextTestPlayers(live.map((p) => p.guestName), asInt(body.count) ?? TEST_BATCH);
+  if (add.length === 0) return c.json({ error: "All the test players are already on the roster" }, 400);
+
+  const playing = ["checkin", "active"].includes(session.status);
+  const ts = now();
+  const rows = add.map((t, i) => ({
+    id: newId(),
+    sessionId: session.id,
+    userId: null,
+    guestName: t.name,
+    status: playing ? "checked_in" : "confirmed",
+    joinedAt: ts + i,
+    checkedInAt: playing ? ts : null,
+    gender: t.gender,
+    level: t.level,
+    newbie: isNewbie(t.level),
+  }));
+  // D1 caps a statement at 100 bound parameters: a few rows per insert, batched so it's all or nothing.
+  const inserts = [];
+  for (let i = 0; i < rows.length; i += 8) inserts.push(db.insert(sessionPlayers).values(rows.slice(i, i + 8)));
+  await db.batch(inserts as [(typeof inserts)[number], ...(typeof inserts)[number][]]);
+  if (rows.some((r) => r.newbie)) await keepBeginnerGame(db, session);
+  return c.json({ ok: true, added: rows.length });
 });
 
 /** Clears the fixed-partner links of these players, on both sides. */

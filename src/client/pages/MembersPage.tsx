@@ -3,6 +3,8 @@ import { Link } from "react-router-dom";
 import { Api, useLoad } from "../lib/api";
 import { Badge, Button, Card, EmptyState, ErrorNote, Field, FieldGroup, Input, Modal, PageSpinner, cls } from "../components/ui";
 import { GenderToggle } from "../components/GenderSelect";
+import { PhoneField } from "../components/PhoneField";
+import { formatPhone, normalizePhone } from "../../shared/phone";
 import { LevelToggle } from "../components/LevelSelect";
 import type { Gender } from "../../shared/genders";
 import { genderMeta } from "../../shared/genders";
@@ -258,8 +260,8 @@ function MemberCard({ m, onEdit, onDelete }: { m: MemberRow; onEdit: () => void;
           {m.email}
         </a>
         {m.phone && (
-          <a href={`tel:${m.phone}`} className="font-semibold text-royal hover:text-royal-dark">
-            {m.phone}
+          <a href={`tel:${normalizePhone(m.phone)}`} className="font-semibold text-royal hover:text-royal-dark">
+            {formatPhone(m.phone)}
           </a>
         )}
         {dob && <span className="text-muted">🎂 {dob}</span>}
@@ -366,9 +368,9 @@ function MemberEditForm({ m, onCancel, onSaved }: { m: MemberRow; onCancel: () =
       <Field label="Email" hint="How they sign in — it can't be changed here.">
         <Input value={m.email} readOnly className="bg-canvas text-muted" />
       </Field>
-      <Field label="Phone">
-        <Input type="tel" inputMode="tel" value={form.phone} onChange={(e) => set("phone", e.target.value)} placeholder="+34 600 000 000" />
-      </Field>
+      <FieldGroup label="Phone">
+        <PhoneField value={form.phone} onChange={(phone) => set("phone", phone)} />
+      </FieldGroup>
       <Field label="Date of birth">
         <Input type="date" value={form.dob} onChange={(e) => set("dob", e.target.value)} max={new Date().toISOString().slice(0, 10)} />
       </Field>

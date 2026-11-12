@@ -4,6 +4,9 @@
 import { parseGender } from "./genders";
 import type { Gender } from "./genders";
 import { parseLevel } from "./levels";
+import { isValidPhone, normalizePhone, phoneProblem } from "./phone";
+
+export { isValidPhone, normalizePhone };
 
 export interface PlayerProfile {
   firstName: string;
@@ -39,19 +42,6 @@ const MIN_AGE = 5;
 const MAX_AGE = 110;
 
 const str = (v: unknown, max: number): string => (typeof v === "string" ? v.trim().replace(/\s+/g, " ").slice(0, max) : "");
-
-/** Keep the leading + and the digits; drop spaces, dashes and brackets. */
-export function normalizePhone(v: unknown): string {
-  if (typeof v !== "string") return "";
-  const s = v.trim();
-  const plus = s.startsWith("+") ? "+" : "";
-  return plus + s.replace(/\D/g, "");
-}
-
-export function isValidPhone(phone: string): boolean {
-  const digits = phone.replace(/\D/g, "");
-  return digits.length >= 7 && digits.length <= 15;
-}
 
 /** A real calendar date, and an age that makes sense for a padel player. */
 export function isValidDob(dob: string, today = new Date()): boolean {
@@ -91,7 +81,8 @@ export function validateProfile(input: Record<string, unknown>, today = new Date
   if (!lastName) return { ok: false, error: "Last name is required" };
   const phone = normalizePhone(input.phone);
   if (!phone) return { ok: false, error: "Phone number is required" };
-  if (!isValidPhone(phone)) return { ok: false, error: "That phone number doesn't look right" };
+  const badPhone = phoneProblem(phone);
+  if (badPhone) return { ok: false, error: badPhone };
   const dob = str(input.dob, 10);
   if (!dob) return { ok: false, error: "Date of birth is required" };
   if (!isValidDob(dob, today)) return { ok: false, error: "That date of birth doesn't look right" };
@@ -121,7 +112,8 @@ export function validateProfilePatch(input: Record<string, unknown>, today = new
   const firstName = str(input.firstName, 40) || null;
   const lastName = str(input.lastName, 40) || null;
   const phone = normalizePhone(input.phone) || null;
-  if (phone && !isValidPhone(phone)) return { ok: false, error: "That phone number doesn't look right" };
+  const badPhone = phone ? phoneProblem(phone) : null;
+  if (badPhone) return { ok: false, error: badPhone };
   if (!phone && !blank(input.phone)) return { ok: false, error: "That phone number doesn't look right" };
   const dob = str(input.dob, 10) || null;
   if (dob && !isValidDob(dob, today)) return { ok: false, error: "That date of birth doesn't look right" };
