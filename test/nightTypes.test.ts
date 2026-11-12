@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { NIGHT_TYPE_KEYS, flagsOf, nightTypeOf } from "../src/shared/nightTypes";
+import { NIGHT_TYPE_KEYS, flagsOf, nightTypeOf, NIGHT_TYPES } from "../src/shared/nightTypes";
 
 describe("night types", () => {
   it("every type round-trips through its switches", () => {
@@ -13,5 +13,14 @@ describe("night types", () => {
     expect(flagsOf("open")).toEqual({ format: "mexicano", beginnerCourt: true, competitiveSitouts: false });
     expect(flagsOf("tournament")).toEqual({ format: "mexicano", beginnerCourt: true, competitiveSitouts: true });
     expect(flagsOf("social")).toEqual({ format: "americano", beginnerCourt: false, competitiveSitouts: false });
+  });
+});
+
+describe("night type names", () => {
+  it("lead with the padel format each one runs on", () => {
+    expect(NIGHT_TYPES.social.name).toBe("Americano / Social");
+    expect(NIGHT_TYPES.open.name).toBe("Mexicano / Open night");
+    expect(NIGHT_TYPES.tournament.name).toBe("Mexicano / Tournament");
+    for (const t of Object.values(NIGHT_TYPES)) expect(t.name.toLowerCase().startsWith(t.format)).toBe(true);
   });
 });

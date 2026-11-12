@@ -6,6 +6,8 @@ import type { FormatKey } from "./types";
 // instead of six. The switches stay available under "Fine-tune"; a session
 // whose switches match no type reads as "Custom".
 
+// Each name leads with the padel format it runs on, so the organizer sees
+// "Americano" or "Mexicano" without opening Fine-tune.
 export type NightTypeKey = "social" | "open" | "tournament";
 
 export interface NightTypeFlags {
@@ -28,7 +30,7 @@ export interface NightType extends NightTypeFlags {
 export const NIGHT_TYPES: Record<NightTypeKey, NightType> = {
   social: {
     key: "social",
-    name: "Social",
+    name: "Americano / Social",
     emoji: "🎉",
     tagline: "Everyone mixes",
     blurb: "New partner every round, courts drawn for variety, equal games for all. For a room that's roughly even.",
@@ -39,7 +41,7 @@ export const NIGHT_TYPES: Record<NightTypeKey, NightType> = {
   },
   open: {
     key: "open",
-    name: "Open night",
+    name: "Mexicano / Open night",
     emoji: "🌱",
     tagline: "Mixed room, beginner court",
     blurb: "Winners play winners on the ladder; the newbies you tag get the first court to themselves. For a few strong players and a lot of beginners.",
@@ -50,7 +52,7 @@ export const NIGHT_TYPES: Record<NightTypeKey, NightType> = {
   },
   tournament: {
     key: "tournament",
-    name: "Tournament",
+    name: "Mexicano / Tournament",
     emoji: "🏁",
     tagline: "Earn your court time",
     blurb: "The ladder deals the courts and, after three games each, the bottom of the table sits out. Beginner court too if newbies show.",
