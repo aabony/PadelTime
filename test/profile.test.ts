@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  missingProfileFields,
+  namesFromLegacy,
   ageAt,
   displayName,
   isProfileComplete,
@@ -95,6 +97,23 @@ describe("helpers", () => {
     expect(parsePlaytomicLevel(2)).toBe(2);
     expect(parsePlaytomicLevel(0.4)).toBe("invalid");
     expect(parsePlaytomicLevel(null)).toBeNull();
+  });
+
+  it("missingProfileFields names what an older account still lacks", () => {
+    const legacy = { firstName: null, lastName: null, phone: null, dob: null, gender: null, level: null, playtomicLevel: null };
+    expect(missingProfileFields(legacy)).toEqual(["first name", "last name", "phone", "date of birth", "gender", "level"]);
+    expect(missingProfileFields({ ...legacy, firstName: "David", lastName: "Gordon", level: 3 })).toEqual(["phone", "date of birth", "gender"]);
+    expect(missingProfileFields({ firstName: "A", lastName: "B", phone: "+1234567", dob: "1990-01-01", gender: "man", level: 2, playtomicLevel: null })).toEqual([]);
+  });
+
+  it("namesFromLegacy starts the form from an older account's display name", () => {
+    expect(namesFromLegacy("David", "daveg@example.com")).toEqual({ firstName: "David", lastName: "" });
+    expect(namesFromLegacy("  David   Ian Gordon ", "daveg@example.com")).toEqual({ firstName: "David", lastName: "Ian Gordon" });
+    // The stand-ins a brand-new account gets aren't names.
+    expect(namesFromLegacy("", "daveg@example.com")).toEqual({ firstName: "", lastName: "" });
+    expect(namesFromLegacy("DaveG", "daveg@example.com")).toEqual({ firstName: "", lastName: "" });
+    expect(namesFromLegacy("daveg@example.com", "daveg@example.com")).toEqual({ firstName: "", lastName: "" });
+    expect(namesFromLegacy(null, "daveg@example.com")).toEqual({ firstName: "", lastName: "" });
   });
 
   it("isProfileComplete needs every required field but not Playtomic", () => {

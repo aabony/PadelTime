@@ -111,6 +111,31 @@ export function isProfileComplete(p: StoredProfile): boolean {
   return !!(p.firstName && p.lastName && p.phone && p.dob && p.gender && p.level != null);
 }
 
+/** The required details an account still lacks, in the words the form uses — empty when the profile is complete. */
+export function missingProfileFields(p: StoredProfile): string[] {
+  const missing: string[] = [];
+  if (!p.firstName) missing.push("first name");
+  if (!p.lastName) missing.push("last name");
+  if (!p.phone) missing.push("phone");
+  if (!p.dob) missing.push("date of birth");
+  if (!p.gender) missing.push("gender");
+  if (p.level == null) missing.push("level");
+  return missing;
+}
+
+/**
+ * Accounts from before the profile form have just a display name ("David" or
+ * "David Gordon"). Split it so the form starts with what we already know —
+ * unless it's only the stand-in the sign-in gives a brand-new account (empty,
+ * the email, or the part before the @).
+ */
+export function namesFromLegacy(name: string | null | undefined, email: string): { firstName: string; lastName: string } {
+  const n = (name ?? "").trim().replace(/\s+/g, " ");
+  if (!n || n.includes("@") || n.toLowerCase() === email.split("@")[0].toLowerCase()) return { firstName: "", lastName: "" };
+  const [first, ...rest] = n.split(" ");
+  return { firstName: first.slice(0, 40), lastName: rest.join(" ").slice(0, 40) };
+}
+
 /** "First Last" — what the rest of the app shows on court. */
 export function displayName(p: { firstName: string; lastName: string }): string {
   return `${p.firstName} ${p.lastName}`.trim();

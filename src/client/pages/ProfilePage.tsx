@@ -6,7 +6,7 @@ import { Button, Card, ErrorNote, Field, FieldGroup, Input, PageSpinner } from "
 import { GenderToggle } from "../components/GenderSelect";
 import { LevelToggle } from "../components/LevelSelect";
 import { Logo } from "../App";
-import { PLAYTOMIC_MAX, PLAYTOMIC_MIN, validateProfile } from "../../shared/profile";
+import { PLAYTOMIC_MAX, PLAYTOMIC_MIN, namesFromLegacy, validateProfile } from "../../shared/profile";
 import type { Gender } from "../../shared/genders";
 import { levelMeta } from "../../shared/levels";
 import type { UserInfo } from "../../shared/types";
@@ -50,9 +50,11 @@ function ProfileScreen({ next }: { next: string | null }) {
 
 export function ProfileForm({ user, next }: { user: UserInfo; next: string | null }) {
   const firstTime = !user.profileComplete;
+  // An account from before this form has a display name only: start from it rather than a blank.
+  const known = namesFromLegacy(user.name, user.email);
   const [form, setForm] = useState({
-    firstName: user.firstName ?? "",
-    lastName: user.lastName ?? "",
+    firstName: user.firstName ?? known.firstName,
+    lastName: user.lastName ?? known.lastName,
     phone: user.phone ?? "",
     dob: user.dob ?? "",
     gender: user.gender as Gender | null,

@@ -6,7 +6,7 @@ import { genderMeta } from "../../shared/genders";
 import { LEVELS, levelMeta } from "../../shared/levels";
 import { MEMBER_SORTS, filterMembers, membersCsv, pointsPerGame, record, sortMembers, winRate } from "../../shared/members";
 import type { MemberRow, MemberSort } from "../../shared/members";
-import { ageAt } from "../../shared/profile";
+import { ageAt, missingProfileFields, namesFromLegacy } from "../../shared/profile";
 
 // Admin only: everyone who has registered — who they are, how to reach them,
 // their level, and what they've played. The server refuses anyone else.
@@ -71,7 +71,7 @@ export function MembersPage() {
           </Link>
           <h1 className="text-2xl font-black tracking-tight text-navy">Members</h1>
           <p className="text-sm text-muted">
-            {all.length} registered · {played} have played{unfinished > 0 && ` · ${unfinished} haven't finished signing up`}
+            {all.length} registered · {played} have played{unfinished > 0 && ` · ${unfinished} with an incomplete profile`}
           </p>
         </div>
         <Button
@@ -142,6 +142,12 @@ function Stat({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
+/** What an incomplete profile lacks — not counting a name we already have from before the profile form. */
+function stillMissing(m: MemberRow): string[] {
+  const known = namesFromLegacy(m.name, m.email);
+  return missingProfileFields({ ...m, firstName: m.firstName ?? (known.firstName || null), lastName: m.lastName ?? (known.lastName || null) });
+}
+
 function MemberCard({ m }: { m: MemberRow }) {
   const level = levelMeta(m.level);
   const gender = genderMeta(m.gender);
@@ -164,7 +170,7 @@ function MemberCard({ m }: { m: MemberRow }) {
         )}
         {m.playtomicLevel != null && <Badge tone="zinc">Playtomic {m.playtomicLevel.toFixed(1)}</Badge>}
         {m.isAdmin && <Badge tone="lime">Admin</Badge>}
-        {!m.profileComplete && <Badge tone="amber">Signup not finished</Badge>}
+        {!m.profileComplete && <Badge tone="amber">Profile incomplete</Badge>}
       </div>
 
       <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-sm">
@@ -178,6 +184,12 @@ function MemberCard({ m }: { m: MemberRow }) {
         )}
         {dob && <span className="text-muted">🎂 {dob}</span>}
       </div>
+
+      {!m.profileComplete && (
+        <p className="mt-1.5 text-xs text-amber-dark">
+          Missing {stillMissing(m).join(", ")}. They're asked for it the next time they sign in or open a tournament link.
+        </p>
+      )}
 
       <div className={cls("mt-3 grid grid-cols-3 gap-x-3 gap-y-2 border-t border-line pt-3 sm:grid-cols-6", m.stats.games === 0 && "opacity-70")}>
         <Stat label="Tournaments" value={m.stats.tournaments} />
