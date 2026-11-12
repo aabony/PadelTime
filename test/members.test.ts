@@ -1,5 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { CSV_HEADER, NO_STATS, csvCell, filterMembers, membersCsv, pointsPerGame, record, sortMembers, winRate } from "../src/shared/members";
+import {
+  CSV_HEADER,
+  NO_STATS,
+  csvCell,
+  deleteBlock,
+  deleteBlockReason,
+  filterMembers,
+  guestNameFor,
+  membersCsv,
+  pointsPerGame,
+  record,
+  sortMembers,
+  winRate,
+} from "../src/shared/members";
 import type { MemberRow } from "../src/shared/members";
 
 const member = (over: Partial<MemberRow> & { id: string }): MemberRow => ({
@@ -16,6 +29,7 @@ const member = (over: Partial<MemberRow> & { id: string }): MemberRow => ({
   level: 3,
   playtomicLevel: 3.5,
   stats: { ...NO_STATS },
+  deleteBlockedBy: null,
   ...over,
 });
 
@@ -88,5 +102,26 @@ describe("membersCsv", () => {
     expect(csvCell("+34 600 111 222")).toBe('"+34 600 111 222"');
     expect(csvCell(null)).toBe('""');
     expect(csvCell(12)).toBe('"12"');
+  });
+});
+
+describe("deleting a member", () => {
+  it("is refused for yourself, another admin, and someone who set up tournaments — in that order", () => {
+    expect(deleteBlock({ isSelf: false, isAdmin: false, organized: 0 })).toBeNull();
+    expect(deleteBlock({ isSelf: true, isAdmin: true, organized: 3 })).toBe("self");
+    expect(deleteBlock({ isSelf: false, isAdmin: true, organized: 3 })).toBe("admin");
+    expect(deleteBlock({ isSelf: false, isAdmin: false, organized: 1 })).toBe("organizer");
+  });
+  it("says why, by name", () => {
+    expect(deleteBlockReason("self", "Andrew")).toMatch(/your own account/);
+    expect(deleteBlockReason("admin", "Vic")).toBe("Vic is an admin — take their email off the admin list first.");
+    expect(deleteBlockReason("organizer", "Dee", 1)).toBe("Dee set up 1 tournament — delete it first.");
+    expect(deleteBlockReason("organizer", "Dee", 4)).toBe("Dee set up 4 tournaments — delete those first.");
+  });
+  it("past results stay under the member's name, or the email's first part when there isn't one", () => {
+    expect(guestNameFor("  David Gordon ", "dave@example.com")).toBe("David Gordon");
+    expect(guestNameFor("", "dave@example.com")).toBe("dave");
+    expect(guestNameFor(null, "dave@example.com")).toBe("dave");
+    expect(guestNameFor("x".repeat(60), "dave@example.com")).toHaveLength(40);
   });
 });

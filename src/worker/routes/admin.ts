@@ -1,11 +1,12 @@
 import { desc, eq, isNotNull, ne, and, sql } from "drizzle-orm";
+import type { DB } from "../lib/detail";
 import { Hono } from "hono";
 import { parseGender } from "../../shared/genders";
 import { normalizeLevel } from "../../shared/levels";
-import { NO_STATS } from "../../shared/members";
+import { NO_STATS, deleteBlock, deleteBlockReason, guestNameFor } from "../../shared/members";
 import type { MemberRow, MemberStats, MembersResponse } from "../../shared/members";
 import { isProfileComplete } from "../../shared/profile";
-import { playerResults, sessionPlayers, user } from "../db/schema";
+import { gameSessions, groups, playerResults, sessionPlayers, user } from "../db/schema";
 import { isAdminEmail } from "./admins";
 import type { ApiCtx } from "./context";
 
@@ -61,6 +62,8 @@ adminRoutes.get("/admin/members", async (c) => {
     });
   }
 
+  const organized = await organizedCounts(db);
+
   const members: MemberRow[] = users.map((row) => {
     const profile = {
       firstName: row.firstName,
@@ -71,11 +74,13 @@ adminRoutes.get("/admin/members", async (c) => {
       level: normalizeLevel(row.level),
       playtomicLevel: row.playtomicLevel,
     };
+    const isAdmin = row.isAdmin || isAdminEmail(c.env.ADMIN_EMAILS, row.email);
     return {
       id: row.id,
       name: row.name,
       email: row.email,
-      isAdmin: row.isAdmin || isAdminEmail(c.env.ADMIN_EMAILS, row.email),
+      isAdmin,
+      deleteBlockedBy: deleteBlock({ isSelf: row.id === u.id, isAdmin, organized: organized.get(row.id) ?? 0 }),
       profileComplete: isProfileComplete(profile),
       registeredAt: row.createdAt.getTime(),
       stats: stats.get(row.id) ?? { ...NO_STATS },
@@ -84,4 +89,56 @@ adminRoutes.get("/admin/members", async (c) => {
   });
   const res: MembersResponse = { members };
   return c.json(res);
+});
+
+/** Tournaments each account set up, or that live in a crew it owns — what a delete would leave without an owner. */
+async function organizedCounts(db: DB, userId?: string): Promise<Map<string, number>> {
+  const created = await db
+    .select({ userId: gameSessions.createdBy, n: sql<number>`count(*)` })
+    .from(gameSessions)
+    .where(userId ? eq(gameSessions.createdBy, userId) : undefined)
+    .groupBy(gameSessions.createdBy);
+  const inOwnedCrews = await db
+    .select({ userId: groups.ownerId, n: sql<number>`count(*)` })
+    .from(groups)
+    .innerJoin(gameSessions, eq(gameSessions.groupId, groups.id))
+    .where(userId ? eq(groups.ownerId, userId) : undefined)
+    .groupBy(groups.ownerId);
+  const out = new Map<string, number>();
+  for (const r of [...created, ...inOwnedCrews]) out.set(r.userId, Math.max(out.get(r.userId) ?? 0, Number(r.n)));
+  return out;
+}
+
+// Delete a member's account: their profile, sign-in and crew memberships go.
+// Their results don't — the roster entries they played under become guest
+// entries in their name, so past tournaments read exactly as they did.
+// Refused for your own account, another admin, and anyone who set up
+// tournaments (those would be left without an owner).
+adminRoutes.delete("/admin/members/:id", async (c) => {
+  const u = c.get("user");
+  if (!u) return c.json({ error: "Sign in required" }, 401);
+  if (!u.isAdmin) return c.json({ error: "Admins only" }, 403);
+  const db = c.get("db");
+  const [target] = await db.select().from(user).where(eq(user.id, c.req.param("id"))).limit(1);
+  if (!target) return c.json({ error: "That member no longer exists" }, 404);
+
+  const name = guestNameFor(target.name, target.email);
+  const organized = (await organizedCounts(db, target.id)).get(target.id) ?? 0;
+  const block = deleteBlock({
+    isSelf: target.id === u.id,
+    isAdmin: target.isAdmin || isAdminEmail(c.env.ADMIN_EMAILS, target.email),
+    organized,
+  });
+  if (block) return c.json({ error: deleteBlockReason(block, name, organized) }, 400);
+
+  // All or nothing: a D1 batch is one transaction.
+  await db.batch([
+    // Results stay under their name, no longer tied to an account.
+    db.update(sessionPlayers).set({ guestName: name, userId: null }).where(eq(sessionPlayers.userId, target.id)),
+    // An empty crew they owned (no tournaments in it — checked above) goes with them.
+    db.delete(groups).where(eq(groups.ownerId, target.id)),
+    // The account itself; its sign-in sessions and crew memberships cascade.
+    db.delete(user).where(eq(user.id, target.id)),
+  ]);
+  return c.json({ ok: true, name });
 });

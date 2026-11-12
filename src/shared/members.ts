@@ -30,6 +30,34 @@ export interface MemberRow extends StoredProfile {
   /** When the account was created (epoch ms). */
   registeredAt: number;
   stats: MemberStats;
+  /** Why this account can't be deleted from the list, or null when it can. */
+  deleteBlockedBy: DeleteBlock | null;
+}
+
+/** Accounts the members list won't delete: your own, another admin's, and one that set up tournaments. */
+export type DeleteBlock = "self" | "admin" | "organizer";
+
+export function deleteBlock(o: { isSelf: boolean; isAdmin: boolean; organized: number }): DeleteBlock | null {
+  if (o.isSelf) return "self";
+  if (o.isAdmin) return "admin";
+  return o.organized > 0 ? "organizer" : null;
+}
+
+/** What to tell the admin, by name, when a delete is refused. */
+export function deleteBlockReason(block: DeleteBlock, name: string, organized = 0): string {
+  switch (block) {
+    case "self":
+      return "You can't delete your own account.";
+    case "admin":
+      return `${name} is an admin — take their email off the admin list first.`;
+    default:
+      return `${name} set up ${organized || "some"} tournament${organized === 1 ? "" : "s"} — delete ${organized === 1 ? "it" : "those"} first.`;
+  }
+}
+
+/** The name a deleted member's results stay under in past tournaments. */
+export function guestNameFor(name: string | null | undefined, email: string): string {
+  return ((name ?? "").trim() || email.split("@")[0] || "Player").slice(0, 40);
 }
 
 export interface MembersResponse {

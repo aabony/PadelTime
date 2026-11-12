@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Api, useLoad } from "../lib/api";
-import { Badge, Button, Card, EmptyState, ErrorNote, Input, PageSpinner, cls } from "../components/ui";
+import { Badge, Button, Card, EmptyState, ErrorNote, Input, Modal, PageSpinner, cls } from "../components/ui";
 import { genderMeta } from "../../shared/genders";
 import { LEVELS, levelMeta } from "../../shared/levels";
 import { MEMBER_SORTS, filterMembers, membersCsv, pointsPerGame, record, sortMembers, winRate } from "../../shared/members";
@@ -39,7 +39,27 @@ function download(filename: string, text: string) {
 }
 
 export function MembersPage() {
-  const { data, error, loading } = useLoad(() => Api.members(), []);
+  const { data, error, loading, reload } = useLoad(() => Api.members(), []);
+  // Deleting is two taps: the button on a card, then a confirmation that names the person.
+  const [deleting, setDeleting] = useState<MemberRow | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const confirmDelete = async () => {
+    if (!deleting) return;
+    setDeleteBusy(true);
+    setDeleteError(null);
+    try {
+      const res = await Api.deleteMember(deleting.id);
+      setNotice(`${res.name} was deleted. Their past results stay in the tournaments they played.`);
+      setDeleting(null);
+      reload();
+    } catch (e) {
+      setDeleteError((e as Error).message);
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
   const [query, setQuery] = useState("");
   const [level, setLevel] = useState<number | null>(null);
   const [sort, setSort] = useState<MemberSort>("newest");
@@ -84,6 +104,8 @@ export function MembersPage() {
         </Button>
       </div>
 
+      {notice && <p className="rounded-2xl bg-mint-soft px-4 py-3 text-sm font-semibold text-mint-dark">{notice}</p>}
+
       <div className="flex flex-wrap items-center gap-2">
         <Input
           type="search"
@@ -119,7 +141,7 @@ export function MembersPage() {
         <ul className="space-y-3" data-testid="members">
           {shown.map((m) => (
             <li key={m.id}>
-              <MemberCard m={m} />
+              <MemberCard m={m} onDelete={() => { setDeleteError(null); setNotice(null); setDeleting(m); }} />
             </li>
           ))}
         </ul>
@@ -129,6 +151,34 @@ export function MembersPage() {
           Showing {shown.length} of {all.length}. Export CSV saves the ones shown.
         </p>
       )}
+
+      <Modal open={!!deleting} onClose={() => !deleteBusy && setDeleting(null)} title="Delete member">
+        {deleting && (
+          <div className="space-y-4">
+            <p className="text-sm text-ink">
+              Delete <b className="text-navy">{deleting.name.trim() || deleting.email}</b> ({deleting.email})?
+            </p>
+            <ul className="list-disc space-y-1 pl-5 text-sm text-muted">
+              <li>Their account, profile and sign-in are removed. They'd have to register again.</li>
+              <li>
+                {deleting.stats.games > 0
+                  ? `Their ${deleting.stats.games} game${deleting.stats.games === 1 ? " stays" : "s stay"} in past tournaments under their name, but no longer count${deleting.stats.games === 1 ? "s" : ""} as a member's.`
+                  : "They haven't played any games, so nothing else changes."}
+              </li>
+              <li>This can't be undone.</li>
+            </ul>
+            <ErrorNote message={deleteError} />
+            <div className="flex gap-2">
+              <Button variant="ghost" className="flex-1" disabled={deleteBusy} onClick={() => setDeleting(null)}>
+                Cancel
+              </Button>
+              <Button variant="danger" className="flex-1" busy={deleteBusy} onClick={() => void confirmDelete()}>
+                Delete {(deleting.name.trim() || deleting.email).split(" ")[0]}
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }
@@ -148,7 +198,7 @@ function stillMissing(m: MemberRow): string[] {
   return missingProfileFields({ ...m, firstName: m.firstName ?? (known.firstName || null), lastName: m.lastName ?? (known.lastName || null) });
 }
 
-function MemberCard({ m }: { m: MemberRow }) {
+function MemberCard({ m, onDelete }: { m: MemberRow; onDelete: () => void }) {
   const level = levelMeta(m.level);
   const gender = genderMeta(m.gender);
   const dob = fmtDob(m.dob);
@@ -200,10 +250,23 @@ function MemberCard({ m }: { m: MemberRow }) {
         <Stat label="Pts / game" value={ppg ?? "—"} />
       </div>
 
-      <p className="mt-2 text-xs text-faint">
-        Registered {fmtDate(m.registeredAt)}
-        {m.stats.lastPlayedAt ? ` · last played ${fmtDate(m.stats.lastPlayedAt)}` : " · no games yet"}
-      </p>
+      <div className="mt-2 flex items-center justify-between gap-3">
+        <p className="text-xs text-faint">
+          Registered {fmtDate(m.registeredAt)}
+          {m.stats.lastPlayedAt ? ` · last played ${fmtDate(m.stats.lastPlayedAt)}` : " · no games yet"}
+        </p>
+        {/* Your own account, other admins and anyone who set up tournaments can't be deleted from here. */}
+        {m.deleteBlockedBy == null && (
+          <button
+            type="button"
+            onClick={onDelete}
+            aria-label={`Delete ${m.name.trim() || m.email}`}
+            className="shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold text-rose-dark hover:bg-rose-soft"
+          >
+            🗑 Delete
+          </button>
+        )}
+      </div>
     </Card>
   );
 }
