@@ -14,7 +14,7 @@ export interface LevelMeta {
   label: string;
   short: string;
   emoji: string;
-  /** One line a player reads to pick the right one. */
+  /** What a player at this level would say about themselves — shown beside the level so they pick the right one. */
   blurb: string;
 }
 
@@ -23,10 +23,10 @@ export const BEGINNER = 2;
 export const ADVANCED = 4;
 
 export const LEVELS: LevelMeta[] = [
-  { value: NEWBIE, label: "Newbie", short: "New", emoji: "🐣", blurb: "New to padel — never played, or just a couple of times." },
-  { value: BEGINNER, label: "Beginner", short: "Beg", emoji: "🌱", blurb: "Know the rules and can keep a rally going." },
-  { value: 3, label: "Intermediate", short: "Int", emoji: "💪", blurb: "Play regularly; comfortable with the walls and at the net." },
-  { value: ADVANCED, label: "Advanced", short: "Adv", emoji: "🔥", blurb: "Compete, or have played for years." },
+  { value: NEWBIE, label: "Newbie", short: "New", emoji: "🐣", blurb: "New to padel. I've never played, or played 5 times or fewer." },
+  { value: BEGINNER, label: "Beginner", short: "Beg", emoji: "🌱", blurb: "I've played more than 5 times, know the rules and can play off the glass." },
+  { value: 3, label: "Intermediate", short: "Int", emoji: "💪", blurb: "I'm 1.5 or higher on Playtomic, have played competitive games and taken lessons." },
+  { value: ADVANCED, label: "Advanced", short: "Adv", emoji: "🔥", blurb: "I compete regularly and play at a high level." },
 ];
 
 /** Level used in calculations when a player hasn't been given one: Intermediate. */

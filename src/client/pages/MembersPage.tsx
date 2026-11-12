@@ -376,7 +376,7 @@ function MemberEditForm({ m, onCancel, onSaved }: { m: MemberRow; onCancel: () =
         <GenderToggle value={form.gender} onChange={(gender) => set("gender", gender)} />
       </FieldGroup>
       <FieldGroup label="Level" hint="Their profile level. A level you set in a tournament's roster for one night isn't changed.">
-        <LevelToggle value={form.level} onChange={(level) => set("level", level)} />
+        <LevelToggle layout="grid" value={form.level} onChange={(level) => set("level", level)} />
       </FieldGroup>
       <Field label="Playtomic level" hint={`${PLAYTOMIC_MIN} to ${PLAYTOMIC_MAX}, if they have one.`}>
         <Input

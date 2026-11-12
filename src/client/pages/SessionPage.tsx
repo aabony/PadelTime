@@ -907,7 +907,7 @@ function MyStatusCard({ d, run, busyKey }: { d: SessionDetail; run: Run; busyKey
       <div className="mt-3 border-t border-line/60 pt-3">
         <p className="text-sm font-semibold text-navy">Your level</p>
         <p className="mb-2 text-xs text-muted">Only you and the organizer see it.</p>
-        <LevelToggle value={me.level} busy={busyKey === "mylevel"} onChange={(level) => run("mylevel", () => Api.setMyLevel(d.id, level))} />
+        <LevelToggle layout="grid" value={me.level} busy={busyKey === "mylevel"} onChange={(level) => run("mylevel", () => Api.setMyLevel(d.id, level))} />
       </div>
     </Card>
   );
