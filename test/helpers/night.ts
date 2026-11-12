@@ -7,6 +7,7 @@ import { mulberry32 } from "../../src/shared/formats/types";
 import { buildHistory, creditAbsences } from "../../src/shared/history";
 import { computeStandings, rankForCourts } from "../../src/shared/standings";
 import { poolRounds } from "../../src/shared/formats/pools";
+import { dropOn } from "../../src/shared/drop";
 import type { RoundRow } from "../../src/shared/types";
 
 export type Planner = (ctx: EngineContext) => RoundPlan;
@@ -29,8 +30,8 @@ export interface NightOptions {
   dealAhead?: boolean;
   /** Beginner court on: these players are the newbie pool (kept out of the main rounds by the planner). */
   newbies?: string[];
-  /** Competitive sit-outs on. */
-  competitive?: boolean;
+  /** Competitive sit-outs on, with the drop after this round. */
+  dropAfter?: number;
   /** Rank the ladder from these courts' matches only (the beginner court's results stay out of it). */
   ladderOnly?: boolean;
 }
@@ -65,7 +66,7 @@ export function playNight(planner: Planner, o: NightOptions): NightRound[] {
       genders: o.genders,
       mixedPairs: o.mixedPairs,
       teams: o.teams,
-      competitive: o.competitive,
+      competitive: o.dropAfter != null && dropOn(o.dropAfter, n),
       busy: o.dealAhead && played.length > 0 ? (({ a, b }) => [...a, ...b])(played[played.length - 1].matches.at(-1)!) : undefined,
       rng,
     };

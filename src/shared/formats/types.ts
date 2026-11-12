@@ -48,8 +48,9 @@ export interface EngineContext {
    */
   busy?: string[];
   /**
-   * Competitive sit-outs: once everyone here has played COMPETITIVE_FLOOR games,
-   * the bottom of the standings sits out instead of the fair rotation.
+   * The drop is on for this round (competitive sit-outs, past the organizer's
+   * "drop after round N"): the bottom of the standings sits out instead of the
+   * fair rotation.
    */
   competitive?: boolean;
   /** Finals: the organizer has called them — the lowest on the table sit, whatever anyone has played so far. */

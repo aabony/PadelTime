@@ -6,6 +6,7 @@ import { computeTeamStandings, minGamesToRank, pointsPerGame } from "../../share
 import type { GroupRole, MeResponse, SessionStatus, SessionSummary, UserInfo } from "../../shared/types";
 import { displayName, isProfileComplete, validateProfile } from "../../shared/profile";
 import { beginnerCourtOf } from "../../shared/formats/pools";
+import { normalizeDropAfter } from "../../shared/drop";
 import { gameSessions, groupMembers, groups, matches, playerResults, rounds, sessionPlayers, user } from "../db/schema";
 import type { DB } from "../lib/detail";
 import { isGroupOrganizer, loadPlayersFor, loadRoundsFor } from "../lib/detail";
@@ -185,6 +186,7 @@ async function createSession(
         beginnerCourtNo: beginnerCourtOf({ beginnerCourtNo: asInt(body.beginnerCourtNo), courts }),
         beginnerCourtCoached: body.beginnerCourtCoached === true,
         competitiveSitouts: body.competitiveSitouts === true,
+        competitiveAfterRound: normalizeDropAfter(body.competitiveAfterRound),
         status: "draft",
         inviteCode: inviteCode(),
         createdBy: u.id,

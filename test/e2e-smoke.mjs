@@ -984,6 +984,81 @@ const finalsPlayerView = await paula.request.post(`${BASE}/api/sessions/${finals
 if (finalsPlayerView.status() !== 403) fail("only the organizer can call finals");
 log("finals: one tap sends the round on deck to the top 8 of the table, the other 12 sit; it holds round after round and can be ended");
 
+// --- The drop: competitive sit-outs start after the round the organizer picks, counted down on the live screen ----
+const dropSession = await api("POST", "/sessions", {
+  name: "Drop Night",
+  format: "americano",
+  courts: 2,
+  pointsPerMatch: 16,
+  maxPlayers: 24,
+  competitiveSitouts: true,
+  competitiveAfterRound: 2,
+});
+for (let i = 1; i <= 14; i++) await api("POST", `/sessions/${dropSession.id}/players`, { guestName: `D${i}` });
+await api("POST", `/sessions/${dropSession.id}/status`, { action: "start" });
+let dropNight = await api("GET", `/sessions/${dropSession.id}`);
+const reloadDrop = async () => (dropNight = await api("GET", `/sessions/${dropSession.id}`));
+if (dropNight.competitiveAfterRound !== 2) fail(`the drop round should be saved with the session, got ${dropNight.competitiveAfterRound}`);
+await org.goto(`${BASE}/app/sessions/${dropSession.id}`);
+const dropBar = org.getByTestId("drop-countdown");
+await dropBar.waitFor({ timeout: 10000 });
+if ((await dropBar.getAttribute("data-state")) !== "counting" || !/2 rounds to the drop/.test(await dropBar.innerText()))
+  fail(`round 1 of a drop after round 2 should count "2 rounds to the drop", got: ${await dropBar.innerText()}`);
+if (!(await org.getByText("Drop after round 2").first().isVisible())) fail("the session header should name the drop round");
+if ((await org.getByTestId("below-cut").count()) !== 0) fail("nobody is below the cut before a score is in");
+// Round 1: team A wins 12–4 on both courts → four winners, four losers; the other six are playing round 2.
+const dropWinners = new Set();
+const dropLosers = new Set();
+for (const m of dropNight.rounds[0].matches) {
+  await api("POST", `/matches/${m.id}/score`, { scoreA: 12, scoreB: 4 });
+  for (const id of m.a) dropWinners.add(id);
+  for (const id of m.b) dropLosers.add(id);
+}
+await reloadDrop();
+const firstDrop = dropNight.rounds[2];
+if (!firstDrop || firstDrop.number !== 3) fail("round 3 should be on deck once round 1 is scored");
+// Round 3 is the first the table decides: the four losers sit, the four winners play, and the six
+// still in their first game (no result yet) take their turn for the last two sit-outs.
+if (![...dropLosers].every((id) => firstDrop.byes.includes(id))) fail("everyone who lost round 1 should sit round 3");
+if ([...dropWinners].some((id) => firstDrop.byes.includes(id))) fail("nobody who won round 1 should sit round 3");
+if (firstDrop.byes.length !== 6) fail(`6 should sit round 3, got ${firstDrop.byes.length}`);
+if (dropNight.warnings.some((w) => /sat out/.test(w))) fail("uneven sit-outs are the point of the drop and shouldn't raise a warning");
+await org.reload();
+await org.waitForFunction(() => document.querySelector('[data-testid="drop-countdown"]')?.getAttribute("data-state") === "last", null, { timeout: 10000 });
+if (!/Last round before the drop/.test(await dropBar.innerText())) fail("round 2 of a drop after round 2 should read as the last round before the drop");
+if ((await org.getByTestId("below-cut").count()) !== 4) fail(`the four losers should be tagged below the cut, got ${await org.getByTestId("below-cut").count()}`);
+if (!/4 lowest on points per game/.test(await org.getByTestId("cut-note").innerText())) fail("the standings should explain the cut");
+await shot(org, "24-drop-countdown");
+for (const m of dropNight.rounds[1].matches) await api("POST", `/matches/${m.id}/score`, { scoreA: 9, scoreB: 7 });
+await org.reload();
+await org.waitForFunction(() => document.querySelector('[data-testid="drop-countdown"]')?.getAttribute("data-state") === "on", null, { timeout: 10000 });
+if (!/The drop is on/.test(await dropBar.innerText())) fail("round 3 should show the drop as on");
+await shot(org, "25-drop-on");
+// Round 4, dealt with rounds 1–2 scored: all 14 have a result, so the six lowest averages sit.
+await reloadDrop();
+const dropRows = [...dropNight.standings].sort((a, b) => a.points / a.played - b.points / b.played);
+const lowestSix = dropRows.slice(0, 6).map((r) => r.playerId);
+const fourth = dropNight.rounds[3];
+if (!fourth || fourth.number !== 4) fail("round 4 should be on deck once round 2 is scored");
+const cutAvg = dropRows[5].points / dropRows[5].played;
+const strictlyBelow = dropRows.filter((r) => r.points / r.played < cutAvg).map((r) => r.playerId);
+if (!strictlyBelow.every((id) => fourth.byes.includes(id)) || fourth.byes.some((id) => !dropRows.slice(0, 14).find((r) => r.playerId === id)))
+  fail(`round 4 should sit the lowest averages (${lowestSix.join(",")}), got ${fourth.byes.join(",")}`);
+if (fourth.byes.some((id) => dropRows.find((r) => r.playerId === id).points / dropRows.find((r) => r.playerId === id).played > cutAvg))
+  fail("nobody above the cut should sit round 4");
+// The round is the organizer's choice, changeable in Settings: pushed back to 5, the bar counts down again.
+await org.getByRole("button", { name: "Settings" }).click();
+// Americano with competitive sit-outs matches no night type ("Custom"), so Fine-tune is already open.
+const dropPicker = org.getByRole("group", { name: "Drop after round" });
+if ((await dropPicker.getByRole("button", { name: "2", exact: true }).getAttribute("aria-pressed")) !== "true") fail("Settings should show the chosen drop round");
+await dropPicker.getByRole("button", { name: "5", exact: true }).click();
+await org.getByRole("button", { name: "Save changes" }).click();
+await org.waitForFunction(() => document.querySelector('[data-testid="drop-countdown"]')?.getAttribute("data-state") === "counting", null, { timeout: 10000 });
+if (!/3 rounds to the drop/.test(await dropBar.innerText())) fail(`round 3 of a drop after round 5 should count 3 rounds, got: ${await dropBar.innerText()}`);
+await reloadDrop();
+if (dropNight.competitiveAfterRound !== 5) fail("the new drop round should be saved");
+log("the drop: counts down to the organizer's round, then the lowest points per game sit; losers tagged below the cut; the round can be moved in Settings");
+
 // --- Adding players: typing a name suggests registered members and the stand-ins ----
 const pick = await api("POST", "/sessions", { name: "Pick Players", format: "americano", courts: 2, maxPlayers: 16 });
 await org.goto(`${BASE}/app/sessions/${pick.id}`);

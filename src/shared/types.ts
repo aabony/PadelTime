@@ -163,8 +163,10 @@ export interface SessionDetail {
   beginnerCourtCoached: boolean;
   /** The coached court is in effect tonight: tagged newbies are out of the draw, and `newbie` is sent to everyone. */
   coachedActive: boolean;
-  /** Competitive sit-outs: after the floor, the bottom of each pool sits. */
+  /** Competitive sit-outs: after the drop round, the bottom of the table sits. */
   competitiveSitouts: boolean;
+  /** The drop: sit-outs rotate fairly up to this round; from the next one the table decides. */
+  competitiveAfterRound: number;
   /** Finals are on: each round goes to the top of the table and everyone else sits. */
   finals: boolean;
   /** The beginner court is running tonight (toggle on, newbies checked in, enough players). */
@@ -220,7 +222,7 @@ export interface JoinInfo {
   myPartner: string | null;
   /** The beginner court is on (newbies the organizer tags play the first court among themselves). */
   beginnerCourt: boolean;
-  /** Competitive sit-outs are on (after three games each, the bottom of the table sits). */
+  /** Competitive sit-outs are on (after the drop round, the bottom of the table sits). */
   competitiveSitouts: boolean;
 }
 

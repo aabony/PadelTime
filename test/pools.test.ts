@@ -12,7 +12,7 @@ import {
   poolRounds,
   poolsActive,
 } from "../src/shared/formats/pools";
-import { COMPETITIVE_FLOOR, pickByes } from "../src/shared/formats/byes";
+import { pickByes } from "../src/shared/formats/byes";
 import { mulberry32 } from "../src/shared/formats/types";
 import type { EngineContext } from "../src/shared/formats/types";
 import { buildHistory } from "../src/shared/history";
@@ -178,28 +178,47 @@ describe("competitive sit-outs", () => {
   ];
   const standings = names(8).map((playerId, i) => ({ playerId, points: 40 - i * 3, played: 3 }));
 
-  it("does nothing before everyone has reached the floor", () => {
-    const ctx = { ...ctxOf(names(8), 1, playedTwice, standings), competitive: true };
-    expect(ctx.playedCounts.p1).toBe(2);
-    expect(COMPETITIVE_FLOOR).toBe(3);
-    // Fair rotation: nobody has sat, so the pick is random — but it is not forced to be the bottom four.
+  it("off (or before the drop round): fairness decides, so the pick spreads", () => {
+    const ctx = { ...ctxOf(names(8), 1, playedTwice, standings), competitive: false };
     const picks = new Set<string>();
-    for (let seed = 1; seed <= 30; seed++) {
-      const c = { ...ctx, rng: mulberry32(seed) };
-      for (const p of pickByes(c, 4)) picks.add(p);
-    }
+    for (let seed = 1; seed <= 30; seed++) for (const p of pickByes({ ...ctx, rng: mulberry32(seed) }, 4)) picks.add(p);
     expect(picks.size).toBeGreaterThan(4);
   });
 
-  it("benches the lowest averages once everyone has the floor", () => {
-    const three: HistoryRound[] = [...playedTwice, { number: 3, byes: [], matches: [{ a: ["p1", "p4"], b: ["p2", "p3"] }, { a: ["p5", "p8"], b: ["p6", "p7"] }] }];
-    const ctx = { ...ctxOf(names(8), 1, three, standings), competitive: true };
-    expect(pickByes(ctx, 4).sort()).toEqual(["p5", "p6", "p7", "p8"]);
-    // Off: fairness decides, so the pick spreads.
-    const fair = { ...ctx, competitive: false };
-    const picks = new Set<string>();
-    for (let seed = 1; seed <= 30; seed++) for (const p of pickByes({ ...fair, rng: mulberry32(seed) }, 4)) picks.add(p);
-    expect(picks.size).toBeGreaterThan(4);
+  it("once the drop is on, benches the lowest averages — whatever anyone has played", () => {
+    // Two games each: the old rule waited for three. The drop round is the organizer's call now.
+    const ctx = { ...ctxOf(names(8), 1, playedTwice, standings), competitive: true };
+    expect(ctx.playedCounts.p1).toBe(2);
+    for (let seed = 1; seed <= 10; seed++) expect(pickByes({ ...ctx, rng: mulberry32(seed) }, 4).sort()).toEqual(["p5", "p6", "p7", "p8"]);
+  });
+
+  it("never drops someone before their first game: a late arrival plays, the next-lowest sits instead", () => {
+    // p9 has just arrived: no game dealt, no result. p8..p5 are the bottom of the table.
+    const ctx = { ...ctxOf([...names(8), "p9"], 1, playedTwice, standings), competitive: true };
+    for (let seed = 1; seed <= 10; seed++) {
+      const sitting = pickByes({ ...ctx, rng: mulberry32(seed) }, 5).sort();
+      expect(sitting).toEqual(["p4", "p5", "p6", "p7", "p8"]);
+    }
+    // Finals give no such grace: no result, no place.
+    expect(pickByes({ ...ctx, competitive: false, finals: true }, 5)).toContain("p9");
+  });
+
+  it("someone still in their first game counts as average: the known losers sit before them, the winners stay on", () => {
+    // Round 1 scored: p1–p4 won (12 a game), p5–p8 lost (4). p9–p12 are playing round 2 now — no result yet.
+    const afterOne: HistoryRound[] = [
+      { number: 1, byes: ["p9", "p10", "p11", "p12"], matches: [{ a: ["p1", "p2"], b: ["p5", "p6"] }, { a: ["p3", "p4"], b: ["p7", "p8"] }] },
+      { number: 2, byes: ["p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8"], matches: [{ a: ["p9", "p10"], b: ["p11", "p12"] }] },
+    ];
+    const table = names(8).map((playerId, i) => ({ playerId, points: i < 4 ? 12 : 4, played: 1 }));
+    const ctx = { ...ctxOf(names(12), 2, afterOne, table), competitive: true };
+    const losers = ["p5", "p6", "p7", "p8"];
+    const unknown = ["p9", "p10", "p11", "p12"];
+    for (let seed = 1; seed <= 10; seed++) {
+      expect(pickByes({ ...ctx, rng: mulberry32(seed) }, 4).sort()).toEqual([...losers].sort());
+      const six = pickByes({ ...ctx, rng: mulberry32(seed) }, 6);
+      expect(losers.every((p) => six.includes(p))).toBe(true);
+      expect(six.filter((p) => unknown.includes(p)).length).toBe(2);
+    }
   });
 
   it("applies to the ladder with the beginner court set aside", () => {
@@ -210,13 +229,13 @@ describe("competitive sit-outs", () => {
       courts: 2,
       rounds: 8,
       seed: 4,
-      competitive: true,
+      dropAfter: 3,
       ladderOnly: true,
       levels: Object.fromEntries(players.map((p, i) => [p, i < 4 ? 4 : i < 8 ? 2 : 3])),
     });
     // The newbies are on their own court's clock: never in a main round, playing or sitting.
     for (const r of night) expect([...r.plan.byes, ...r.plan.matches.flatMap((m) => [...m.a, ...m.b])].some((p) => newbies.includes(p))).toBe(false);
-    // Ladder: from round 4 (everyone has 3 games) the four sitting are the bottom four by average; the
+    // Ladder: from round 4 (the drop is after round 3) the four sitting are the bottom four by average; the
     // level-2 players (p5..p8) lose most games to the level-4s, so they sit far more in the later rounds.
     const late = night.slice(3);
     const sits = (ids: string[]) => late.reduce((n, r) => n + r.plan.byes.filter((p) => ids.includes(p)).length, 0);

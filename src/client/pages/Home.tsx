@@ -10,6 +10,7 @@ import { CourtNumbersField } from "../components/CourtNumbersField";
 import { courtLabel, fitCourtLabels, parseCourtLabels } from "../../shared/courts";
 import { GroupByLevelToggle } from "../components/GroupByLevelToggle";
 import { BeginnerCourtToggle, CompetitiveToggle } from "../components/BeginnerCourtToggle";
+import { DEFAULT_DROP_AFTER } from "../../shared/drop";
 import { FineTune, NightTypePicker } from "../components/NightTypePicker";
 import { flagsOf, nightTypeOf } from "../../shared/nightTypes";
 import { TeamsToggle } from "../components/TeamsToggle";
@@ -208,6 +209,7 @@ export function NewSessionModal({
     beginnerCourtNo: 1,
     beginnerCourtCoached: false,
     competitiveSitouts: false,
+    competitiveAfterRound: DEFAULT_DROP_AFTER,
   });
   // Coached court: that court isn't part of the tournament, and its players aren't in the draw.
   const coachedForm = form.beginnerCourt && form.beginnerCourtCoached && !form.fixedTeams && form.courts >= 2;
@@ -234,6 +236,7 @@ export function NewSessionModal({
         beginnerCourtNo: form.beginnerCourtNo,
         beginnerCourtCoached: form.beginnerCourtCoached,
         competitiveSitouts: form.competitiveSitouts,
+        competitiveAfterRound: form.competitiveAfterRound,
         copyPlayersFrom: form.copyPlayersFrom || null,
       });
       onClose();
@@ -302,7 +305,12 @@ export function NewSessionModal({
               onChange={(beginnerCourt) => setForm({ ...form, beginnerCourt })}
             />
           )}
-          <CompetitiveToggle checked={form.competitiveSitouts} onChange={(competitiveSitouts) => setForm({ ...form, competitiveSitouts })} />
+          <CompetitiveToggle
+            checked={form.competitiveSitouts}
+            onChange={(competitiveSitouts) => setForm({ ...form, competitiveSitouts })}
+            afterRound={form.competitiveAfterRound}
+            onAfterRoundChange={(competitiveAfterRound) => setForm({ ...form, competitiveAfterRound })}
+          />
           <TeamsToggle checked={form.fixedTeams} onChange={(fixedTeams) => setForm({ ...form, fixedTeams })} />
         </FineTune>
         {previous.length > 0 && (

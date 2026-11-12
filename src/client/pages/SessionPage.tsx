@@ -33,6 +33,8 @@ import { LevelSelect, LevelToggle } from "../components/LevelSelect";
 import { GroupByLevelToggle } from "../components/GroupByLevelToggle";
 import { TeamsToggle } from "../components/TeamsToggle";
 import { BeginnerCourtToggle, CompetitiveToggle, NewbieToggle } from "../components/BeginnerCourtToggle";
+import { DropCountdown } from "../components/DropCountdown";
+import { belowTheCut, dropOn } from "../../shared/drop";
 import { FineTune, NightTypePicker } from "../components/NightTypePicker";
 import { NIGHT_TYPES, flagsOf, nightTypeOf } from "../../shared/nightTypes";
 import { PartnerSelect } from "../components/PartnerSelect";
@@ -243,7 +245,7 @@ function Hero({ d, isOrganizer, onSettings }: { d: SessionDetail; isOrganizer: b
               {d.beginnerCourtCoached ? "🎓 Coached court" : "🌱 Beginner court"} {courtLabel(d.courtLabels, d.beginnerCourtNo)}
             </Badge>
           )}
-          {d.competitiveSitouts && <Badge tone="zinc">🏁 Competitive sit-outs</Badge>}
+          {d.competitiveSitouts && <Badge tone="zinc">🏁 Drop after round {d.competitiveAfterRound}</Badge>}
           {d.finals && <Badge tone="lime">🏆 Finals</Badge>}
         </div>
         <h1 className="mt-2 text-2xl font-black leading-tight tracking-tight text-navy">{d.name}</h1>
@@ -415,6 +417,7 @@ function SettingsModal({
     beginnerCourtNo: d.beginnerCourtNo,
     beginnerCourtCoached: d.beginnerCourtCoached,
     competitiveSitouts: d.competitiveSitouts,
+    competitiveAfterRound: d.competitiveAfterRound,
   });
   // Every score on the board adds up to the points per game, so they can't change once one is in.
   const pointsLocked = d.rounds.some((r) => r.matches.some((m) => m.scoreA != null));
@@ -486,8 +489,10 @@ function SettingsModal({
           )}
           <CompetitiveToggle
             checked={form.competitiveSitouts}
-            note={live ? "Applies from the next round." : undefined}
+            note={live ? "Applies from the next round dealt." : undefined}
             onChange={(competitiveSitouts) => setForm({ ...form, competitiveSitouts })}
+            afterRound={form.competitiveAfterRound}
+            onAfterRoundChange={(competitiveAfterRound) => setForm({ ...form, competitiveAfterRound })}
           />
           <TeamsToggle
             checked={form.fixedTeams}
@@ -518,6 +523,7 @@ function SettingsModal({
                 beginnerCourtNo: form.beginnerCourtNo,
                 beginnerCourtCoached: form.beginnerCourtCoached,
                 competitiveSitouts: form.competitiveSitouts,
+                competitiveAfterRound: form.competitiveAfterRound,
               });
               onClose();
             })
@@ -1157,6 +1163,11 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
         </div>
       )}
 
+      {/* The drop, counted down — while someone sits each round (otherwise there's nobody to drop). */}
+      {d.competitiveSitouts && !d.fixedTeams && !d.finals && playing && finalsCap.sitting > 0 && (
+        <DropCountdown afterRound={d.competitiveAfterRound} playingRound={playing.number} spots={finalsSpots} sitting={finalsCap.sitting} />
+      )}
+
       {/* A newbie's own game on the beginner court (its own sequence, so it isn't in the rounds below). */}
       {!isOrganizer && me && me.newbie && me.status === "checked_in" && beginnerGame && (
         <>
@@ -1494,6 +1505,14 @@ function LiveRosterCard({ d, isOrganizer, run, busyKey }: ViewProps) {
   const benched = d.players.filter((p) => p.status === "waitlist" || p.status === "dropped");
   const inCount = d.counts.confirmed + d.counts.checkedIn;
   const { courts: courtsUsed, sitting } = roundCapacity(d, checkedIn(d));
+  // The cut as the table stands: who the drop (or the finals) leaves out — lowest points per game, not total points.
+  const cutShown = d.status === "active" && !d.fixedTeams && sitting > 0 && (d.competitiveSitouts || d.finals);
+  const inDraw = checkedIn(d).filter((p) => !(setAside(d) && p.newbie)).map((p) => p.id);
+  const dealt = new Set(d.rounds.flatMap((r) => r.matches.flatMap((m) => [...m.a, ...m.b])));
+  const cut = cutShown
+    ? belowTheCut(d.standings, inDraw, sitting, { finals: d.finals, owedAGame: inDraw.filter((id) => !dealt.has(id)) })
+    : new Set<string>();
+  const cutLive = d.finals || dropOn(d.competitiveAfterRound, d.rounds[d.rounds.length - 1]?.number ?? 0);
 
   return (
     <Card>
@@ -1510,6 +1529,12 @@ function LiveRosterCard({ d, isOrganizer, run, busyKey }: ViewProps) {
         {courtsUsed} court{courtsUsed === 1 ? "" : "s"} per round
         {sitting > 0 ? ` · ${sitting} sit${sitting === 1 ? "s" : ""} out each round` : " · everyone plays"}
       </p>
+      {cut.size > 0 && (
+        <p className="mb-3 rounded-xl bg-rose-soft/60 px-3 py-2 text-xs text-rose-dark" data-testid="cut-note">
+          <b>Below the cut</b> marks the {cut.size} lowest on points per game right now.{" "}
+          {cutLive ? "They sit out." : `They sit out from round ${d.competitiveAfterRound + 1}.`}
+        </p>
+      )}
       {isOrganizer && d.groupByLevel && <LevelHint players={d.players.filter((p) => p.status !== "dropped" && p.status !== "waitlist")} />}
       {isOrganizer && d.fixedTeams && <PairingHint d={d} />}
 
@@ -1557,6 +1582,11 @@ function LiveRosterCard({ d, isOrganizer, run, busyKey }: ViewProps) {
                           {p.name}
                           {p.isGuest && <span className="ml-1.5 text-xs font-medium text-faint">guest</span>}
                           {me && <span className="ml-1.5 text-xs font-bold text-royal">you</span>}
+                          {section.key === "ladder" && cut.has(p.id) && (
+                            <span className="ml-1.5 rounded-full bg-rose-soft px-1.5 py-0.5 text-[10px] font-bold text-rose-dark" data-testid="below-cut">
+                              below the cut
+                            </span>
+                          )}
                         </p>
                         {isOrganizer && (
                           <div className="flex flex-wrap items-center gap-1">

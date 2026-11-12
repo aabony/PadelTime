@@ -1,4 +1,5 @@
 import { courtLabel } from "../../shared/courts";
+import { DROP_AFTER_CHOICES } from "../../shared/drop";
 import { cls } from "./ui";
 
 const selectCls =
@@ -102,19 +103,62 @@ export function BeginnerCourtToggle({
   );
 }
 
-/** "Competitive sit-outs": after everyone has three games, the bottom of each pool sits instead of the fair rotation. */
-export function CompetitiveToggle({ checked, onChange, note }: { checked: boolean; onChange: (on: boolean) => void; note?: string }) {
+/**
+ * "Competitive sit-outs" and its drop round: sit-outs take turns up to the
+ * round the organizer picks; from the next one the bottom of the table sits.
+ */
+export function CompetitiveToggle({
+  checked,
+  onChange,
+  afterRound,
+  onAfterRoundChange,
+  note,
+}: {
+  checked: boolean;
+  onChange: (on: boolean) => void;
+  /** The drop: the last round with fair sit-outs. */
+  afterRound: number;
+  onAfterRoundChange: (round: number) => void;
+  note?: string;
+}) {
+  // A round saved outside the usual choices still shows as picked.
+  const choices = [...new Set([...DROP_AFTER_CHOICES, afterRound])].sort((a, b) => a - b);
   return (
-    <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-line px-3.5 py-3">
-      <input type="checkbox" className="mt-0.5 size-5 accent-royal" checked={checked} onChange={(e) => onChange(e.target.checked)} />
-      <span>
-        <span className="block text-sm font-bold text-navy">🏁 Competitive sit-outs</span>
-        <span className="block text-xs text-muted">
-          Once everyone has played 3 games, whoever is lowest on the table sits out instead of taking turns. Winners play more.
-          {note && ` ${note}`}
+    <div className="rounded-2xl border border-line px-3.5 py-3">
+      <label className="flex cursor-pointer items-start gap-3">
+        <input type="checkbox" className="mt-0.5 size-5 accent-royal" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+        <span>
+          <span className="block text-sm font-bold text-navy">🏁 Competitive sit-outs</span>
+          <span className="block text-xs text-muted">
+            {checked
+              ? `Sit-outs take turns through round ${afterRound}. From round ${afterRound + 1}, whoever is lowest on points per game sits out and the top of the table keeps playing.`
+              : "Sit-outs take turns for the first rounds. After the round you pick, whoever is lowest on the table sits out. Winners play more."}
+            {note && ` ${note}`}
+          </span>
         </span>
-      </span>
-    </label>
+      </label>
+      {checked && (
+        <div className="mt-3 flex items-center justify-between gap-3 border-t border-line pt-3">
+          <span className="text-xs font-bold uppercase tracking-wider text-muted">Drop after round</span>
+          <div className="flex gap-1.5" role="group" aria-label="Drop after round">
+            {choices.map((n) => (
+              <button
+                key={n}
+                type="button"
+                aria-pressed={afterRound === n}
+                onClick={() => onAfterRoundChange(n)}
+                className={cls(
+                  "size-9 rounded-full border text-sm font-bold transition-colors",
+                  afterRound === n ? "border-royal bg-royal text-white" : "border-line bg-white text-navy hover:border-line-strong",
+                )}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 

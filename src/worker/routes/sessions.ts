@@ -7,6 +7,7 @@ import { buildDetail, isGroupMember, isGroupOrganizer, loadRounds, loadSession, 
 import { beginnerCourtActive, dropUnplayedUpNext, dropUnscoredBeginnerGame, generateNextRound, keepBeginnerGame, keepUpNext } from "../lib/engine";
 import { getFormat } from "../../shared/formats/registry";
 import { beginnerCourtOf } from "../../shared/formats/pools";
+import { normalizeDropAfter } from "../../shared/drop";
 import { parseGender } from "../../shared/genders";
 import { isNewbie, normalizeLevel, parseLevel } from "../../shared/levels";
 import { TEST_BATCH, TEST_PLAYERS, nextTestPlayers } from "../../shared/testPlayers";
@@ -107,6 +108,8 @@ sessionRoutes.patch("/sessions/:id", async (c) => {
     patch.beginnerCourtNo = beginnerCourtOf({ beginnerCourtNo: beginnerCourtNo ?? session.beginnerCourtNo, courts: courtsAfter });
   }
   if (typeof body.competitiveSitouts === "boolean") patch.competitiveSitouts = body.competitiveSitouts;
+  // The drop round: sit-outs rotate fairly up to it; from the next round dealt after it, the table decides.
+  if (asInt(body.competitiveAfterRound) != null) patch.competitiveAfterRound = normalizeDropAfter(asInt(body.competitiveAfterRound));
 
   // Max players can change any time (extra people turn up mid-session). The
   // points per game lock once a score is in, since every score on the board

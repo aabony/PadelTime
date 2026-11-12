@@ -1,17 +1,19 @@
 import type { EngineContext } from "./types";
 import { shuffle } from "./types";
-
-/** Competitive sit-outs only start once everyone in the pool has played this many games. */
-export const COMPETITIVE_FLOOR = 3;
+import { averageResult } from "../drop";
 
 /**
  * Who sits out this round: fewest sit-outs so far first, then (dealing ahead)
  * whoever is still finishing a game, then whoever sat longest ago, then random —
  * so sit-outs rotate evenly.
  *
- * Competitive sit-outs (session toggle): once every player here has played the
- * floor, the bottom of the table sits instead — lowest points per game first,
- * fairness breaking ties — so the night's later rounds go to whoever is winning.
+ * Competitive sit-outs (session toggle), from the round after the organizer's
+ * "drop after round N": the bottom of the table sits instead — lowest points
+ * per game first, fairness breaking ties — so the night's later rounds go to
+ * whoever is winning. Nobody is dropped before their first game: a late
+ * arrival who has never been dealt one plays before anyone is ranked out, and
+ * someone still in their first game (the round on deck is dealt while it's
+ * being played) counts as average.
  *
  * Finals (the organizer's button, for the last part of the night): the same
  * benching, straight away — no floor to reach. With 3 courts the top 12 play
@@ -27,8 +29,14 @@ export function pickByes(ctx: EngineContext, byeCount: number): string[] {
     return fx[0] - fy[0] || fx[1] - fy[1] || fx[2] - fy[2];
   };
   if (competitiveBenching(ctx)) {
-    const avg = new Map(ctx.standings.map((s) => [s.playerId, s.played ? s.points / s.played : -1]));
-    const of = (id: string) => avg.get(id) ?? -1;
+    const rows = ctx.standings.map((s) => ({ playerId: s.playerId, points: s.points, played: s.played ?? 0 }));
+    const avg = new Map(rows.filter((s) => s.played > 0).map((s) => [s.playerId, s.points / s.played]));
+    // The drop (not finals): someone never dealt a game sorts last, so they play; someone still in
+    // their first game counts as average, so they take their turn instead of sitting for a result nobody has yet.
+    const owedAGame = (id: string) => !ctx.finals && !(ctx.playedCounts[id] > 0);
+    const here = new Set(ctx.players);
+    const unknown = ctx.finals ? -1 : averageResult(rows.filter((s) => here.has(s.playerId)));
+    const of = (id: string) => (owedAGame(id) ? Number.MAX_SAFE_INTEGER : avg.get(id) ?? unknown);
     candidates.sort((x, y) => of(x) - of(y) || fair(x, y));
   } else {
     candidates.sort(fair);
@@ -36,10 +44,9 @@ export function pickByes(ctx: EngineContext, byeCount: number): string[] {
   return candidates.slice(0, byeCount);
 }
 
-/** The table decides who sits: finals are on, or competitive sit-outs are on and everyone here has reached the floor. */
+/** The table decides who sits: finals are on, or the drop has started (competitive sit-outs, past the organizer's round). */
 export function competitiveBenching(ctx: EngineContext): boolean {
-  if (ctx.finals) return ctx.players.length > 0;
-  return !!ctx.competitive && ctx.players.length > 0 && ctx.players.every((p) => (ctx.playedCounts[p] ?? 0) >= COMPETITIVE_FLOOR);
+  return (!!ctx.finals || !!ctx.competitive) && ctx.players.length > 0;
 }
 
 /** Sit-out order key: sit-outs so far, then still busy on court (0) before free (1), then last sit-out round. */

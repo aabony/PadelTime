@@ -1,5 +1,6 @@
 import { courtLabel, fitCourtLabels, parseCourtLabels } from "../../shared/courts";
 import { normalizeLevel } from "../../shared/levels";
+import { dropOn, normalizeDropAfter } from "../../shared/drop";
 import { and, eq, inArray } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import * as schema from "../db/schema";
@@ -240,7 +241,7 @@ export function computeWarnings(
   pools = false,
   /** Coached court: the newbies are with the coach, not in the rotation, so their sit-outs aren't compared. */
   coached = false,
-  /** Finals: the table decides who sits, so uneven sit-outs are the point, not a problem. */
+  /** Finals, or the drop has started: the table decides who sits, so uneven sit-outs are the point, not a problem. */
   finals = false,
 ): string[] {
   // Things to act on first; partner repeats (often unavoidable) fill whatever room is left.
@@ -368,6 +369,9 @@ export async function buildDetail(
     waitlist: players.filter((p) => p.status === "waitlist").length,
     checkedIn: players.filter((p) => p.status === "checked_in").length,
   };
+  // The drop: once a round past the organizer's has been dealt, the table (not the rotation) decides who sits.
+  const dropAfter = normalizeDropAfter(session.competitiveAfterRound);
+  const dropStarted = session.competitiveSitouts && !session.fixedTeams && roundRows.some((r) => dropOn(dropAfter, r.number));
   // The beginner court is running its own games tonight (four newbies here among enough players).
   const pools =
     !coached &&
@@ -402,6 +406,7 @@ export async function buildDetail(
     beginnerCourtCoached: session.beginnerCourtCoached,
     coachedActive: coached,
     competitiveSitouts: session.competitiveSitouts,
+    competitiveAfterRound: dropAfter,
     finals: session.finals,
     poolsActive: pools,
     inviteCode: session.inviteCode,
@@ -419,7 +424,7 @@ export async function buildDetail(
     teamStandings: session.fixedTeams ? computeTeamStandings(players, roundRows) : undefined,
     beginnerStandings: beginnerTable(coached, tables?.beginner),
     nudges: myRole === "organizer" && split && !coached ? computeNudges(players, bothTracks, beginnerCourt) : undefined,
-    warnings: myRole === "organizer" ? computeWarnings(players, roundRows, session.fixedTeams, parseCourtLabels(session.courtLabels ?? ""), false, coached || pools, session.finals) : [],
+    warnings: myRole === "organizer" ? computeWarnings(players, roundRows, session.fixedTeams, parseCourtLabels(session.courtLabels ?? ""), false, coached || pools, session.finals || dropStarted) : [],
     counts,
     createdAt: session.createdAt,
   };

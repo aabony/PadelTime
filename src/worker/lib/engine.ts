@@ -7,6 +7,7 @@ import type { MatchRow, RoundRow } from "../../shared/types";
 import { buildHistory, creditAbsences } from "../../shared/history";
 import { computeStandings, rankForCourts } from "../../shared/standings";
 import { normalizeLevel } from "../../shared/levels";
+import { dropOn, normalizeDropAfter } from "../../shared/drop";
 import { matches, playerResults, rounds, sessionPlayers } from "../db/schema";
 import type { DB, SessionRow } from "./detail";
 import { loadRounds, loadTracks } from "./detail";
@@ -69,10 +70,11 @@ export async function generateNextRound(
     computeStandings(players.map((p) => ({ id: p.id, name: p.id })), setAside ? poolRounds(played, "ladder", beginnerCourt) : played),
   ).filter((r) => r.played > 0);
 
+  const roundNumber = (latest?.number ?? 0) + 1;
   const ctx: EngineContext = {
     players: eligible,
     courts: session.courts,
-    roundNumber: (latest?.number ?? 0) + 1,
+    roundNumber,
     ...history,
     standings: ranked.map((r) => ({ playerId: r.playerId, points: r.points, diff: r.diff, played: r.played })),
     levels: session.groupByLevel ? levels : undefined,
@@ -80,7 +82,8 @@ export async function generateNextRound(
     genders,
     mixedPairs: session.mixedPairs,
     busy: finishing.length ? finishing.flatMap((m) => [...m.a, ...m.b]) : undefined,
-    competitive: session.competitiveSitouts,
+    // The drop: fair sit-outs up to the organizer's round, the table decides after it.
+    competitive: session.competitiveSitouts && dropOn(normalizeDropAfter(session.competitiveAfterRound), roundNumber),
     finals: session.finals,
     rng: Math.random,
   };
