@@ -275,14 +275,17 @@ groupRoutes.get("/me", async (c) => {
   }
 
   let sessions: SessionSummary[] = [];
-  if (groupIds.length > 0) {
+  // An admin runs the club, whichever of the admin accounts set a tournament up: they see them all.
+  // Everyone else sees the tournaments of the crews they're in.
+  if (u.isAdmin || groupIds.length > 0) {
+    const notCancelled = notInArray(gameSessions.status, ["cancelled"]);
     const rows = await db
       .select({ s: gameSessions, groupName: groups.name, groupIsPersonal: groups.isPersonal })
       .from(gameSessions)
       .innerJoin(groups, eq(gameSessions.groupId, groups.id))
-      .where(and(inArray(gameSessions.groupId, groupIds), notInArray(gameSessions.status, ["cancelled"])))
+      .where(u.isAdmin ? notCancelled : and(inArray(gameSessions.groupId, groupIds), notCancelled))
       .orderBy(desc(gameSessions.createdAt))
-      .limit(40);
+      .limit(u.isAdmin ? 80 : 40);
     const counts = await confirmedCounts(db, rows.map((r) => r.s.id));
     const winners = await winnersFor(
       db,
@@ -330,7 +333,7 @@ groupRoutes.post("/sessions", async (c) => {
   if (sourceId) {
     const [source] = await db.select().from(gameSessions).where(eq(gameSessions.id, sourceId)).limit(1);
     const allowed =
-      source && (source.createdBy === u.id || (await isGroupOrganizer(db, source.groupId, u.id)));
+      source && (u.isAdmin || source.createdBy === u.id || (await isGroupOrganizer(db, source.groupId, u.id)));
     if (allowed) {
       const players = await db
         .select()

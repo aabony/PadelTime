@@ -1057,6 +1057,15 @@ await org.waitForFunction(() => document.querySelector('[data-testid="drop-count
 if (!/3 rounds to the drop/.test(await dropBar.innerText())) fail(`round 3 of a drop after round 5 should count 3 rounds, got: ${await dropBar.innerText()}`);
 await reloadDrop();
 if (dropNight.competitiveAfterRound !== 5) fail("the new drop round should be saved");
+// --- Admins see every tournament, whichever admin account created it ----
+// Vic is a second admin who has never joined anything of Andrew's: the tournaments still show on Vic's home screen.
+const vicHome = await (await visitor.request.get(`${BASE}/api/me`)).json();
+if (!vicHome.user.isAdmin) fail("Vic should be an admin");
+if (!vicHome.sessions.some((x) => x.id === dropSession.id) || !vicHome.sessions.some((x) => x.id === finalsSession.id))
+  fail("an admin should see tournaments another admin created");
+const vicDetail = await visitor.request.get(`${BASE}/api/sessions/${dropSession.id}`);
+if (vicDetail.status() !== 200 || (await vicDetail.json()).myRole !== "organizer") fail("an admin should be able to open and run another admin's tournament");
+log("admins: a second admin sees and can run the tournaments another admin created");
 log("the drop: counts down to the organizer's round, then the lowest points per game sit; losers tagged below the cut; the round can be moved in Settings");
 
 // --- Adding players: the box lists every registered member; typing narrows it; no stand-ins ----
