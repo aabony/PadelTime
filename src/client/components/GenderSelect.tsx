@@ -22,12 +22,14 @@ export function GenderSelect({
       disabled={busy}
       value={value ?? ""}
       onChange={(e) => onChange(e.target.value === "woman" || e.target.value === "man" ? e.target.value : null)}
+      // Icon-sized: no arrow, just the emoji — a roster row has room for the name, not for a wide picker.
+      style={{ textAlignLast: "center" }}
       className={cls(
-        "h-7 rounded-full border px-2 text-xs font-bold outline-none focus:ring-2 focus:ring-royal/30 disabled:opacity-50",
+        "h-7 w-9 shrink-0 appearance-none rounded-full border px-0 text-center text-sm outline-none focus:ring-2 focus:ring-royal/30 disabled:opacity-50",
         meta ? "border-line bg-canvas text-navy" : "border-dashed border-line-strong bg-white text-muted",
       )}
     >
-      <option value="">👩/👨</option>
+      <option value="">⚥</option>
       {GENDERS.map((g) => (
         <option key={g.value} value={g.value} aria-label={g.label}>
           {g.emoji}

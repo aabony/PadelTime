@@ -62,8 +62,8 @@ export function BeginnerCourtToggle({
           <span className="block text-sm font-bold text-navy">🌱 Beginner court</span>
           <span className="block text-xs text-muted">
             {checked && coached
-              ? `Court ${name} is for coaching: the players you tag as newbies train there and aren't in the draw. The tournament runs on the other courts. Untag someone to bring them in.`
-              : `Court ${name} is for the players you tag as newbies: they play each other and keep their own table. It runs on its own clock, so it never holds up the rounds on the other courts. Needs 4 newbies. Only you move someone across.`}
+              ? `Court ${name} is for coaching: players whose level is New train there and aren't in the draw. The tournament runs on the other courts. Change someone's level to bring them in.`
+              : `Court ${name} is for players whose level is New: they play each other and keep their own table. It runs on its own clock, so it never holds up the rounds on the other courts. Needs 4 newbies. Only you move someone across.`}
             {note && ` ${note}`}
           </span>
         </span>
@@ -218,7 +218,7 @@ export function NewbieToggle({
       role="switch"
       aria-checked={checked}
       aria-label={label}
-      title={checked ? "Newbie — plays the beginner court. Tap to move up to the ladder." : "Tap to tag as a newbie (plays the beginner court)"}
+      title={checked ? "Newbie — plays the beginner court. Tap to move up to the ladder." : "Tap to add them as a newbie (plays the beginner court)"}
       disabled={busy}
       onClick={() => onChange(!checked)}
       className={cls(

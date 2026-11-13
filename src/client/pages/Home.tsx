@@ -280,7 +280,7 @@ export function NewSessionModal({
           courtName={beginnerCourtName}
           coachNote={
             coachedForm
-              ? `🎓 Court ${beginnerCourtName} is the coached court: players tagged Newbie train there and aren't in the draw. These numbers are for the tournament on the other ${form.courts - 1} court${form.courts - 1 === 1 ? "" : "s"}.`
+              ? `🎓 Court ${beginnerCourtName} is the coached court: players whose level is New train there and aren't in the draw. These numbers are for the tournament on the other ${form.courts - 1} court${form.courts - 1 === 1 ? "" : "s"}.`
               : undefined
           }
           onPick={(pointsPerMatch) => setForm({ ...form, pointsPerMatch })}

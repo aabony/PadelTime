@@ -8,7 +8,7 @@ import type { DB } from "../lib/detail";
 import { beginnerTable, isCoached, loadPlayers, loadRounds, loadSessionByCode, loadTracks, poolStandings, splitTables } from "../lib/detail";
 import { parseGender } from "../../shared/genders";
 import type { Gender } from "../../shared/genders";
-import { isNewbie, normalizeLevel, parseLevel } from "../../shared/levels";
+import { NEWBIE, isNewbie, normalizeLevel, parseLevel } from "../../shared/levels";
 import { isProfileComplete } from "../../shared/profile";
 import { isTestPlayerName } from "../../shared/testPlayers";
 import { beginnerCourtOf } from "../../shared/formats/pools";
@@ -191,7 +191,7 @@ publicRoutes.post("/join/:code", async (c) => {
         checkedInAt: status === "checked_in" ? (guest.checkedInAt ?? now()) : guest.checkedInAt,
         gender: parseGender(guest.gender) ?? gender,
         // A level the organizer already gave this guest wins over the player's own.
-        level: normalizeLevel(guest.level) ?? level,
+        level: guest.newbie ? NEWBIE : (normalizeLevel(guest.level) ?? level),
         // A self-declared Newbie arrives tagged for the beginner court (the organizer's tag stays if already set).
         newbie: guest.newbie || isNewbie(normalizeLevel(guest.level) ?? level),
       })

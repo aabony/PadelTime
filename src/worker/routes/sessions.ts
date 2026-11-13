@@ -10,7 +10,7 @@ import { beginnerCourtOf } from "../../shared/formats/pools";
 import { normalizeDropAfter } from "../../shared/drop";
 import { newbieSpotsLeft, normalizeNewbieCap, promotable } from "../../shared/newbieCap";
 import { parseGender } from "../../shared/genders";
-import { isNewbie, normalizeLevel, parseLevel } from "../../shared/levels";
+import { BEGINNER, NEWBIE, isNewbie, normalizeLevel, parseLevel } from "../../shared/levels";
 import { TEST_BATCH, TEST_PLAYERS, nextTestPlayers } from "../../shared/testPlayers";
 import { pickReplacement, swapInRound, swapTeamsInRound, waitingToStart } from "../../shared/swap";
 import type { RoundRow } from "../../shared/types";
@@ -310,7 +310,8 @@ sessionRoutes.post("/sessions/:id/players", async (c) => {
         joinedAt: now(),
         checkedInAt: playing ? now() : null,
         gender: parseGender(member.gender),
-        level,
+        // New is the level that plays the beginner court: added as a newbie, that's their level tonight.
+        level: newbie ? NEWBIE : level,
         newbie,
       });
     }
@@ -337,6 +338,7 @@ sessionRoutes.post("/sessions/:id/players", async (c) => {
     status: playing ? "checked_in" : "confirmed",
     joinedAt: now(),
     checkedInAt: playing ? now() : null,
+    level: body.newbie === true ? NEWBIE : null,
     newbie: body.newbie === true,
   });
   // A fourth newbie arriving is what the beginner court was waiting for.
@@ -597,16 +599,19 @@ sessionRoutes.patch("/sessions/:id/players/:pid", async (c) => {
       // The organizer can set or override anyone's level (players set their own via /level).
       const level = parseLevel(body.level);
       await db.update(sessionPlayers).set({ level }).where(eq(sessionPlayers.id, player.id));
-      // Newbie is the level that plays the beginner court, so the organizer's change moves the player
-      // with it: down when set to Newbie, back up when a Newbie is set to anything else.
-      if (isNewbie(level) && !player.newbie) await moveCourts(db, session, player.id, true, body.now === true);
-      else if (isNewbie(player.level) && !isNewbie(level) && player.newbie) await moveCourts(db, session, player.id, false, false);
+      // New is the level that plays the beginner court — one setting, not two — so the organizer's
+      // change moves the player with it: down when set to New, back up when set to anything else.
+      if (isNewbie(level) !== !!player.newbie) await moveCourts(db, session, player.id, isNewbie(level), body.now === true);
       break;
     }
-    case "set_newbie":
-      // Move down (tag) / move up (untag).
-      await moveCourts(db, session, player.id, body.newbie === true, body.now === true);
+    case "set_newbie": {
+      // Move down / move up (the "Worth a look" hints): the level follows, so the roster shows one truth.
+      const down = body.newbie === true;
+      if (down && !isNewbie(player.level)) await db.update(sessionPlayers).set({ level: NEWBIE }).where(eq(sessionPlayers.id, player.id));
+      if (!down && isNewbie(player.level)) await db.update(sessionPlayers).set({ level: BEGINNER }).where(eq(sessionPlayers.id, player.id));
+      await moveCourts(db, session, player.id, down, body.now === true);
       break;
+    }
     case "merge": {
       // "Brandon Pourmorady" (account) is the same person as guest "Brandon P":
       // the guest row keeps its history and becomes the account's row.
@@ -696,7 +701,14 @@ sessionRoutes.post("/sessions/:id/level", async (c) => {
     .where(and(eq(sessionPlayers.sessionId, session.id), eq(sessionPlayers.userId, u.id)))
     .limit(1);
   if (!me) return c.json({ error: "Join the session first" }, 400);
-  await db.update(sessionPlayers).set({ level: parseLevel(body.level) }).where(eq(sessionPlayers.id, me.id));
+  const level = parseLevel(body.level);
+  // New is the level that plays the beginner court, and only the organizer moves someone between courts.
+  // Without a beginner court the two just stay in step.
+  const crossing = isNewbie(level) !== !!me.newbie;
+  if (crossing && session.beginnerCourt && !session.fixedTeams) {
+    return c.json({ error: "Ask the organizer to change this one — it decides which court you play on" }, 400);
+  }
+  await db.update(sessionPlayers).set(crossing ? { level, newbie: isNewbie(level) } : { level }).where(eq(sessionPlayers.id, me.id));
   return c.json({ ok: true });
 });
 

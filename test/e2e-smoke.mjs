@@ -359,7 +359,7 @@ await org.getByTestId("up-next").getByRole("button", { name: "Swap a player, Cou
 // The sheet shows who's partnered with whom: Team 1 / Team 2 bands.
 for (const t of ["Team 1", "Team 2"]) await org.locator(".fixed").getByText(t, { exact: true }).waitFor({ timeout: 5000 });
 await org.locator(".fixed").getByRole("button", { name: nameIn(goingOff), exact: true }).click();
-await org.locator(".fixed").getByText(/Coming on for .* \(Team 1, with /).waitFor({ timeout: 5000 });
+await org.locator(".fixed").getByText("Coming on", { exact: true }).waitFor({ timeout: 5000 });
 await shot(org, "08d-swap-sheet");
 await org.locator(".fixed").getByRole("button", { name: new RegExp(`^${nameIn(sitter)}\\s*sitting out`) }).click();
 await org.locator(".fixed").waitFor({ state: "detached", timeout: 10000 });
@@ -690,11 +690,15 @@ if (!(yPlaying < yDeck && yDeck < yBeginner)) fail(`expected now playing, then u
 if ((await org.getByTestId("now-playing").getByTestId("beginner-court").count()) !== 0) fail("the beginner court's game must not sit inside the round being played");
 await org.getByText("Ladder", { exact: true }).waitFor();
 await org.getByText(/Beginner court · Court 3/).waitFor();
-const switches = await org.getByRole("switch", { name: "Newbie", exact: true }).count();
-if (switches !== 14) {
+// One setting, not two: the level picker is how a player moves courts — no separate Newbie switch on the rows.
+if ((await org.getByRole("switch", { name: "Newbie", exact: true }).count()) !== 0) fail("roster rows shouldn't carry a separate Newbie switch");
+const levelPickers = await org.locator("tbody tr").getByRole("combobox", { name: "Level" }).count();
+if (levelPickers !== 14) {
   await shot(org, "17-beginner-court-fail");
-  fail(`every roster row should carry the Newbie switch for the organizer (found ${switches}; rows: ${await org.locator("tbody tr").count()})`);
+  fail(`every roster row should carry the level picker for the organizer (found ${levelPickers}; rows: ${await org.locator("tbody tr").count()})`);
 }
+const newLevels = await org.locator("tbody tr").getByRole("combobox", { name: "Level" }).evaluateAll((els) => els.filter((e) => e.value === "1").length);
+if (newLevels !== 6) fail(`the six newbies should read as level New in the roster, got ${newLevels}`);
 await shot(org, "17-beginner-court");
 log("beginner court: the ladder's rounds on Courts 2 and 4, the newbies' own Game 1 on Court 3 underneath, two tables");
 // Its own clock: two main rounds are played out while the beginner court's game 1 is never scored.
@@ -747,7 +751,8 @@ const onDeck = bd.rounds[bd.rounds.length - 1];
 const crossSwap = await org.request.post(`${BASE}/api/sessions/${bc.id}/rounds/${onDeck.id}/swap`, { data: { out: onDeck.matches[0].a[0], in: [...newbieIds][0] } });
 if (crossSwap.ok()) fail("a newbie must not be swapped into a main game");
 // Move up: untag a newbie in the roster → reshuffle the round on deck → they're in the ladder's rounds, and off the beginner court.
-await org.getByRole("switch", { name: "Newbie", checked: true }).first().click();
+// N1…N6 are the newbies; "N1" is the only row whose name is exactly that.
+await org.locator("tbody tr").filter({ has: org.getByText("N1", { exact: true }) }).getByRole("combobox", { name: "Level" }).selectOption("2");
 await org.waitForFunction(async (id) => (await (await fetch(`/api/sessions/${id}`)).json()).players.filter((p) => p.newbie).length === 5, bc.id, { timeout: 10000 });
 await reloadBd();
 const mover = bd.players.find((p) => newbieIds.has(p.id) && !p.newbie);
@@ -885,11 +890,11 @@ await api("PATCH", `/sessions/${mv.id}/players/${stays}`, { action: "set_newbie"
 await reloadMd();
 if (!onCourtIn(md.rounds[0]).includes(stays)) fail("without the organizer's OK, a player on court finishes their game");
 if ([...onCourtIn(md.rounds[1]), ...md.rounds[1].byes].includes(stays)) fail("…but they're out of the round up next");
-// (d) The same from the screen: the Newbie switch asks, the organizer says yes (dialogs are accepted), and a sitter comes on.
+// (d) The same from the screen: picking New asks, the organizer says yes (dialogs are accepted), and a sitter comes on.
 const sittersBefore = [...md.rounds[0].byes];
 await org.goto(`${BASE}/app/sessions/${mv.id}`);
 const goesRow = org.locator("tr", { hasText: mvName(goes) });
-await goesRow.getByRole("switch", { name: "Newbie", exact: true }).click();
+await goesRow.getByRole("combobox", { name: "Level" }).selectOption("1");
 await org.waitForFunction(async ([id, pid]) => (await (await fetch(`/api/sessions/${id}`)).json()).players.find((p) => p.id === pid).newbie, [mv.id, goes], { timeout: 10000 });
 await reloadMd();
 if (onCourtIn(md.rounds[0]).includes(goes)) fail("with the organizer's OK, the player comes off the game on court");

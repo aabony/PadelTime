@@ -21,7 +21,7 @@ export function LevelSelect({
   return (
     <select
       aria-label="Level"
-      title="Playing level — only you can see this"
+      title="Playing level — only you can see this. New plays the beginner court."
       disabled={busy}
       value={meta?.value ?? ""}
       onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}

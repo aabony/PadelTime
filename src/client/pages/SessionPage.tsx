@@ -45,7 +45,7 @@ import { formatPhone, normalizePhone } from "../../shared/phone";
 import { playerSuggestions } from "../../shared/members";
 import type { MemberRow } from "../../shared/members";
 import { genderMeta } from "../../shared/genders";
-import { isNewbie, levelMeta } from "../../shared/levels";
+import { NEWBIE, isNewbie, levelMeta } from "../../shared/levels";
 import { waitingToStart } from "../../shared/swap";
 import { newbiesIn } from "../../shared/newbieCap";
 import { TEST_BATCH, nextTestPlayers } from "../../shared/testPlayers";
@@ -827,17 +827,10 @@ function PlayersCard({ d, isOrganizer, run, busyKey }: ViewProps) {
                   />
                   <LevelSelect
                     compact
-                    value={p.level}
+                    value={p.newbie ? NEWBIE : p.level}
                     busy={busyKey === `lvl-${p.id}`}
                     onChange={(level) => run(`lvl-${p.id}`, () => Api.playerAction(d.id, p.id, "set_level", { level, now: isNewbie(level) && !p.newbie && takeOffNow(d, p) }))}
                   />
-                  {pools && (
-                    <NewbieToggle
-                      checked={p.newbie}
-                      busy={busyKey === `nb-${p.id}`}
-                      onChange={(newbie) => run(`nb-${p.id}`, () => Api.playerAction(d.id, p.id, "set_newbie", { newbie, now: newbie && takeOffNow(d, p) }))}
-                    />
-                  )}
                   <ProfileBadges p={p} />
                   {d.fixedTeams && (
                     <PartnerSelect
@@ -909,16 +902,16 @@ function NewbieHint({ d, players }: { d: SessionDetail; players: PlayerRow[] }) 
     return (
       <p className="mt-3 rounded-xl bg-canvas px-3 py-2 text-xs text-muted">
         🎓 With the coach: <b className={n === 0 ? "text-amber-dark" : "text-navy"}>{n}</b> of {players.length} · they train on Court{" "}
-        {courtLabel(d.courtLabels, d.beginnerCourtNo)} and aren't in the draw{n === 0 && " — tag them above"}. Untag someone to bring them into the tournament
-        from the next round dealt.
+        {courtLabel(d.courtLabels, d.beginnerCourtNo)} and aren't in the draw{n === 0 && " — set their level to New above"}. Change someone's level to bring them into the
+        tournament.
       </p>
     );
   }
   return (
     <p className="mt-3 rounded-xl bg-canvas px-3 py-2 text-xs text-muted">
-      🌱 Newbies tagged: <b className={n === 0 ? "text-amber-dark" : "text-navy"}>{n}</b> of {players.length} · they play Court{" "}
-      {courtLabel(d.courtLabels, d.beginnerCourtNo)} among themselves{n === 0 && " — tag them above, or the court runs as a normal court"}
-      {n > 0 && n < 4 && " — it takes 4 for a game there; until a fourth arrives they play the main draw"}. Players don't see the tag.
+      🌱 Newbies (level New): <b className={n === 0 ? "text-amber-dark" : "text-navy"}>{n}</b> of {players.length} · they play Court{" "}
+      {courtLabel(d.courtLabels, d.beginnerCourtNo)} among themselves{n === 0 && " — set a player's level to New above, or the court runs as a normal court"}
+      {n > 0 && n < 4 && " — it takes 4 for a game there; until a fourth arrives they play the main draw"}.
     </p>
   );
 }
@@ -1123,7 +1116,13 @@ function MatchStatusBadge({ m }: { m: MatchRow }) {
     case "disputed":
       return <Badge tone="rose">disputed</Badge>;
     default:
-      return <Badge tone="zinc">live</Badge>;
+      // On court now: green, with a pulse, so it reads at a glance from across the court.
+      return (
+        <Badge tone="emerald" className="bg-mint-dark text-white">
+          <span aria-hidden className="size-1.5 animate-pulse rounded-full bg-white" />
+          live
+        </Badge>
+      );
   }
 }
 
@@ -1664,17 +1663,10 @@ function LiveRosterCard({ d, isOrganizer, run, busyKey }: ViewProps) {
                             />
                             <LevelSelect
                               compact
-                              value={p.level}
+                              value={p.newbie ? NEWBIE : p.level}
                               busy={busyKey === `lvl-${p.id}`}
                               onChange={(level) => run(`lvl-${p.id}`, () => Api.playerAction(d.id, p.id, "set_level", { level, now: isNewbie(level) && !p.newbie && takeOffNow(d, p) }))}
                             />
-                            {pools && (
-                              <NewbieToggle
-                                checked={p.newbie}
-                                busy={busyKey === `nb-${p.id}`}
-                                onChange={(newbie) => run(`nb-${p.id}`, () => Api.playerAction(d.id, p.id, "set_newbie", { newbie, now: newbie && takeOffNow(d, p) }))}
-                              />
-                            )}
                             <ProfileBadges p={p} />
                             {d.fixedTeams && (
                               <PartnerSelect
@@ -1925,7 +1917,8 @@ function CourtCard({
               ) : (
                 <>
                   <span className="min-w-0 truncate font-bold text-navy">{teamNames(side, nameOf)}</span>
-                  <span className="tabular text-2xl font-black text-navy">{(t === 0 ? m.scoreA : m.scoreB) ?? "–"}</span>
+                  {/* Only a final score is ever entered, so there's nothing to show until it is. */}
+                  {scored && <span className="tabular text-2xl font-black text-navy">{t === 0 ? m.scoreA : m.scoreB}</span>}
                 </>
               )}
             </div>
@@ -2102,19 +2095,8 @@ function SwapModal({
       </div>
       {out && outSide != null && (
         <>
-          <p className="mb-2 mt-4 text-xs font-bold uppercase tracking-wider text-muted">
-            Coming on for{" "}
-            {teams ? (
-              <span className={TEAM_TEXT[outSide]}>{teamNames(outSide === 0 ? m.a : m.b, nameOf)}</span>
-            ) : (
-              <>
-                {nameOf(out)}{" "}
-                <span className={TEAM_TEXT[outSide]}>
-                  (Team {outSide + 1}, with {nameOf((outSide === 0 ? m.a : m.b).find((x) => x !== out)!)})
-                </span>
-              </>
-            )}
-          </p>
+          {/* Who's going off is highlighted above; this only needs to say what the list is. */}
+          <p className="mb-2 mt-4 text-xs font-bold uppercase tracking-wider text-muted">Coming on</p>
           {candidates.length === 0 ? (
             <p className="text-sm text-muted">{teams ? "No other team free to swap in." : "Nobody free to swap in."}</p>
           ) : (
@@ -2445,10 +2427,10 @@ function CoachedCourtCard({ d, me, isOrganizer }: { d: SessionDetail; me: Player
       {withCoach.length > 0 ? (
         <p className="mt-2 text-sm text-ink">{withCoach.map((p) => p.name).join(" · ")}</p>
       ) : (
-        <p className="mt-2 text-sm text-muted">Nobody yet — tag players as Newbie in the roster.</p>
+        <p className="mt-2 text-sm text-muted">Nobody yet — set a player's level to New in the roster.</p>
       )}
       {isOrganizer && withCoach.length > 0 && (
-        <p className="mt-2 text-xs text-muted">To bring someone into the tournament, tap their 🌱 Newbie tag in the roster — they're dealt in from the next round.</p>
+        <p className="mt-2 text-xs text-muted">To bring someone into the tournament, change their level in the roster — they're dealt into the next round.</p>
       )}
     </Card>
     </div>

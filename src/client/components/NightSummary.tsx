@@ -192,8 +192,8 @@ function BeginnerCourtLines({
   if (newbies == null) {
     return (
       <p className="mt-2 px-1 text-xs text-muted">
-        🌱 Court {court} is the beginner court. Admit at most <b className="text-navy">{cap}</b> newbies so they still play two rounds in three — tag
-        them in the roster.
+        🌱 Court {court} is the beginner court. Admit at most <b className="text-navy">{cap}</b> newbies so they still play two rounds in three — set
+        their level to New in the roster.
       </p>
     );
   }
@@ -211,7 +211,7 @@ function BeginnerCourtLines({
             → <b className="text-navy">{games(plan.beginner.playMin, plan.beginner.playMax)}</b> games each, {Math.max(0, newbies - 4)} sit per round
           </>
         )}
-        {newbies === 0 && " — no newbies tagged, so it's a normal court tonight"}
+        {newbies === 0 && " — nobody is set to New, so it's a normal court tonight"}
       </p>
       <p>
         Ladder: <b className="text-navy">{ladder}</b> on {courts - 1} court{courts - 1 === 1 ? "" : "s"}
