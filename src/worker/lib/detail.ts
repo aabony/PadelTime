@@ -1,6 +1,7 @@
 import { courtLabel, fitCourtLabels, parseCourtLabels } from "../../shared/courts";
 import { normalizeLevel } from "../../shared/levels";
 import { dropOn, normalizeDropAfter } from "../../shared/drop";
+import { normalizeNewbieCap } from "../../shared/newbieCap";
 import { and, eq, inArray } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import * as schema from "../db/schema";
@@ -404,6 +405,7 @@ export async function buildDetail(
     beginnerCourt: session.beginnerCourt,
     beginnerCourtNo: beginnerCourt,
     beginnerCourtCoached: session.beginnerCourtCoached,
+    maxNewbies: normalizeNewbieCap(session.maxNewbies),
     coachedActive: coached,
     competitiveSitouts: session.competitiveSitouts,
     competitiveAfterRound: dropAfter,

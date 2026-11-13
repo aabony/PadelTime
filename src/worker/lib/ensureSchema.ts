@@ -51,6 +51,7 @@ export const COLUMNS: Column[] = [
   { migration: "0013_beginner_track.sql", table: "rounds", column: "track", type: "text" },
   { migration: "0014_finals.sql", table: "game_sessions", column: "finals", type: NN0 },
   { migration: "0015_drop_round.sql", table: "game_sessions", column: "competitive_after_round", type: "integer NOT NULL DEFAULT 3" },
+  { migration: "0016_max_newbies.sql", table: "game_sessions", column: "max_newbies", type: "integer" },
 ];
 
 export async function ensureSchema(db: Env["DB"]): Promise<void> {

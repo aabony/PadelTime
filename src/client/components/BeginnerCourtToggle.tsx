@@ -2,6 +2,11 @@ import { courtLabel } from "../../shared/courts";
 import { DROP_AFTER_CHOICES } from "../../shared/drop";
 import { cls } from "./ui";
 
+/** The newbie caps offered: one court plays 4 at a time, so 8 is four on and four waiting. */
+export const NEWBIE_CAP_CHOICES = [4, 6, 8, 10, 12];
+/** What a new night starts with once the beginner court is switched on. */
+export const DEFAULT_NEWBIE_CAP = 8;
+
 const selectCls =
   "h-9 rounded-xl border border-line-strong bg-white px-2 text-sm font-black text-navy outline-none focus:border-royal focus:ring-4 focus:ring-royal/15 disabled:opacity-50";
 
@@ -23,6 +28,8 @@ export function BeginnerCourtToggle({
   onCourtChange,
   coached,
   onCoachedChange,
+  maxNewbies,
+  onMaxNewbiesChange,
   note,
 }: {
   checked: boolean;
@@ -39,6 +46,9 @@ export function BeginnerCourtToggle({
   /** Coaching instead of games on that court. */
   coached: boolean;
   onCoachedChange: (coached: boolean) => void;
+  /** The most newbies the night takes (null = no limit): a Newbie signing up past it goes on the waitlist. */
+  maxNewbies: number | null;
+  onMaxNewbiesChange: (max: number | null) => void;
   note?: string;
 }) {
   // A court that no longer exists (courts were reduced) falls back to the first.
@@ -98,6 +108,33 @@ export function BeginnerCourtToggle({
             ))}
           </div>
         </div>
+      )}
+      {checked && !disabled && (
+        <label className="mt-3 flex items-center justify-between gap-3">
+          <span>
+            <span className="block text-xs font-bold uppercase tracking-wider text-muted">Newbie spots</span>
+            <span className="block text-xs text-muted">
+              {maxNewbies == null
+                ? "Any number of newbies can sign up."
+                : `One court holds 4 at a time, so ${maxNewbies} means ${Math.max(0, maxNewbies - 4)} waiting. A Newbie who signs up after that goes on the waitlist.`}
+            </span>
+          </span>
+          <select
+            aria-label="Newbie spots"
+            className={cls(selectCls, "w-28 shrink-0")}
+            value={maxNewbies ?? 0}
+            onChange={(e) => onMaxNewbiesChange(Number(e.target.value) || null)}
+          >
+            <option value={0}>No limit</option>
+            {[...new Set([...NEWBIE_CAP_CHOICES, ...(maxNewbies ? [maxNewbies] : [])])]
+              .sort((a, b) => a - b)
+              .map((n) => (
+                <option key={n} value={n}>
+                  {n} newbies
+                </option>
+              ))}
+          </select>
+        </label>
       )}
     </div>
   );

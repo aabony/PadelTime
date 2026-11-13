@@ -91,6 +91,7 @@ export const Api = {
       beginnerCourt?: boolean;
       beginnerCourtNo?: number;
       beginnerCourtCoached?: boolean;
+      maxNewbies?: number | null;
       competitiveSitouts?: boolean;
       competitiveAfterRound?: number;
     },

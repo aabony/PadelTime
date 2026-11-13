@@ -919,6 +919,39 @@ if (md.beginnerStandings.some((r) => r.played > 0 || r.points > 0)) fail("a game
 if (md.rounds.length !== 2) fail("the beginner court's Next game must not deal a main round");
 log("beginner court: Next game moves on without a score — the sitters come on, nothing is added to the table");
 
+// --- Newbie cap: once the newbie places are gone, a Newbie signing up goes on the waitlist ----
+const cap = await api("POST", "/sessions", { name: "Cap Night", format: "americano", courts: 3, maxPlayers: 20, beginnerCourt: true, beginnerCourtNo: 3, maxNewbies: 1 });
+await api("POST", `/sessions/${cap.id}/status`, { action: "open" });
+let capD = await api("GET", `/sessions/${cap.id}`);
+if (capD.maxNewbies !== 1) fail(`the newbie cap should be saved with the session, got ${capD.maxNewbies}`);
+const capJoin = (pg) => pg.request.post(`${BASE}/api/join/${capD.inviteCode}`, { data: {} }).then((r) => r.json());
+const capInfo = (pg) => pg.request.get(`${BASE}/api/join/${capD.inviteCode}`).then((r) => r.json());
+if ((await capInfo(nia)).newbieSpotsLeft !== 1) fail("one newbie place should be open");
+// Nia (a registered Newbie) takes the one newbie place; Coco (also a Newbie) is waitlisted; Paula (Intermediate) gets in.
+if ((await capJoin(nia)).status !== "confirmed") fail("the first Newbie should get the newbie place");
+if ((await capInfo(coco)).newbieSpotsLeft !== 0) fail("no newbie place should be left");
+await coco.goto(`${BASE}/join/${capD.inviteCode}`);
+await coco.getByTestId("newbie-spots-left").getByText(/Newbie spots are full/).waitFor({ timeout: 10000 });
+await coco.getByRole("button", { name: "Join waitlist" }).click();
+await coco.getByText(/You're on the waitlist/).waitFor({ timeout: 10000 });
+if ((await capJoin(paula)).status !== "confirmed") fail("a player who isn't a Newbie isn't held back by the newbie cap");
+capD = await api("GET", `/sessions/${cap.id}`);
+const capRow = (name) => capD.players.find((p) => p.name.startsWith(name));
+if (capRow("Coco").status !== "waitlist" || !capRow("Coco").newbie) fail("Coco should be a waitlisted newbie");
+await org.goto(`${BASE}/app/sessions/${cap.id}`);
+await org.getByTestId("newbie-spots").getByText(/Newbies: 1 of 1 spots.*1 waitlisted/).first().waitFor({ timeout: 10000 });
+await shot(org, "20c-newbie-cap");
+// Nia drops out: her newbie place goes to Coco.
+await api("PATCH", `/sessions/${cap.id}/players/${capRow("Nia").id}`, { action: "drop" });
+capD = await api("GET", `/sessions/${cap.id}`);
+if (capRow("Coco").status !== "confirmed") fail("the waitlisted newbie should take the newbie place that opened");
+// The organizer isn't bound by the cap: a second newbie added by hand goes straight in.
+await api("POST", `/sessions/${cap.id}/players`, { guestName: "Extra Newbie", newbie: true });
+capD = await api("GET", `/sessions/${cap.id}`);
+if (capRow("Extra Newbie").status !== "confirmed") fail("the organizer can go over the cap by hand");
+await api("DELETE", `/sessions/${cap.id}`);
+log("newbie cap: the first Newbie gets the place, the next is waitlisted (others aren't held back); a freed place goes to the waitlisted Newbie; the organizer can go over");
+
 await org.goto(`${BASE}/app`);
 await org.getByRole("button", { name: /New session/ }).click();
 await org.getByPlaceholder("Thursday Padel Jam").fill("Quick Start Night");

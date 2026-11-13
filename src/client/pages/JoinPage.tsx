@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { isNewbie } from "../../shared/levels";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { authClient } from "../lib/auth";
 import { Api, useLoad } from "../lib/api";
@@ -99,6 +100,9 @@ export function JoinPage() {
 
   const gender = genderPick === undefined ? data.myGender : genderPick;
   const level = levelPick === undefined ? data.myLevel : levelPick;
+  // The newbie cap: a Newbie signing up once those places are gone goes on the waitlist, like anyone on a full night.
+  const newbiesFull = data.newbieSpotsLeft === 0 && isNewbie(level);
+  const canGetIn = spotsLeft > 0 && !newbiesFull;
   const join = (here: boolean) => act(here ? "here" : "join", () => Api.join(code, { here, gender, level }));
   const pickLevel = (l: number | null) => {
     setLevelPick(l);
@@ -173,6 +177,14 @@ export function JoinPage() {
                   : "Full — new joins go on the waitlist"}
                 {data.waitlistCount > 0 && ` · ${data.waitlistCount} waitlisted`}
               </p>
+              {data.newbieSpotsLeft != null && (
+                <p className="mt-1 text-xs text-muted" data-testid="newbie-spots-left">
+                  🌱{" "}
+                  {data.newbieSpotsLeft > 0
+                    ? `${data.newbieSpotsLeft} newbie spot${data.newbieSpotsLeft === 1 ? "" : "s"} left`
+                    : "Newbie spots are full — a Newbie joining now goes on the waitlist"}
+                </p>
+              )}
             </Card>
           )}
 
@@ -302,13 +314,13 @@ export function JoinPage() {
                   Finish signing up to join →
                 </Button>
               </Link>
-            ) : playing && spotsLeft > 0 ? (
+            ) : playing && canGetIn ? (
               <Button className="w-full" size="lg" busy={busy === "here"} onClick={() => join(true)}>
                 ✓ Join — deal me in
               </Button>
             ) : (
               <Button className="w-full" size="lg" busy={busy === "join"} onClick={() => join(false)}>
-                {spotsLeft > 0 ? "Join session" : "Join waitlist"}
+                {canGetIn ? "Join session" : "Join waitlist"}
               </Button>
             )}
           </div>

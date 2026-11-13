@@ -8,6 +8,7 @@ import { beginnerCourtActive, dropUnplayedUpNext, dropUnscoredBeginnerGame, gene
 import { getFormat } from "../../shared/formats/registry";
 import { beginnerCourtOf } from "../../shared/formats/pools";
 import { normalizeDropAfter } from "../../shared/drop";
+import { newbieSpotsLeft, normalizeNewbieCap, promotable } from "../../shared/newbieCap";
 import { parseGender } from "../../shared/genders";
 import { isNewbie, normalizeLevel, parseLevel } from "../../shared/levels";
 import { TEST_BATCH, TEST_PLAYERS, nextTestPlayers } from "../../shared/testPlayers";
@@ -30,12 +31,8 @@ async function promoteWaitlist(db: DB, session: SessionRow): Promise<void> {
     .select()
     .from(sessionPlayers)
     .where(eq(sessionPlayers.sessionId, session.id));
-  const taken = players.filter((p) => p.status === "confirmed" || p.status === "checked_in").length;
-  const waiting = players
-    .filter((p) => p.status === "waitlist")
-    .sort((a, b) => a.joinedAt - b.joinedAt);
-  const spots = Math.max(0, session.maxPlayers - taken);
-  for (const p of waiting.slice(0, spots)) {
+  // A waitlisted newbie only comes in while a newbie place is open (the cap).
+  for (const p of promotable(players, session.maxPlayers, newbieSpotsLeft(session, players))) {
     await db.update(sessionPlayers).set({ status: "confirmed" }).where(eq(sessionPlayers.id, p.id));
   }
 }
@@ -109,6 +106,8 @@ sessionRoutes.patch("/sessions/:id", async (c) => {
     patch.beginnerCourtNo = beginnerCourtOf({ beginnerCourtNo: beginnerCourtNo ?? session.beginnerCourtNo, courts: courtsAfter });
   }
   if (typeof body.competitiveSitouts === "boolean") patch.competitiveSitouts = body.competitiveSitouts;
+  // The newbie cap (null = no limit): for sign-ups from now on; nobody already in is moved.
+  if ("maxNewbies" in body) patch.maxNewbies = normalizeNewbieCap(body.maxNewbies);
   // The drop round: sit-outs rotate fairly up to it; from the next round dealt after it, the table decides.
   if (asInt(body.competitiveAfterRound) != null) patch.competitiveAfterRound = normalizeDropAfter(asInt(body.competitiveAfterRound));
 

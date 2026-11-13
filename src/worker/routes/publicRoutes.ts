@@ -13,6 +13,7 @@ import { isProfileComplete } from "../../shared/profile";
 import { isTestPlayerName } from "../../shared/testPlayers";
 import { beginnerCourtOf } from "../../shared/formats/pools";
 import { keepBeginnerGame } from "../lib/engine";
+import { newbieSpotsLeft } from "../../shared/newbieCap";
 import { newId, now } from "../lib/util";
 import type { ApiCtx } from "./context";
 
@@ -119,6 +120,7 @@ publicRoutes.get("/join/:code", async (c) => {
     groupByLevel: session.groupByLevel,
     fixedTeams: session.fixedTeams,
     beginnerCourt: session.beginnerCourt,
+    newbieSpotsLeft: newbieSpotsLeft(session, players),
     competitiveSitouts: session.competitiveSitouts,
     myPartner: mine?.partnerId
       ? ((await loadPlayers(db, session.id)).find((p) => p.id === mine.partnerId)?.name ?? null)
@@ -150,12 +152,17 @@ publicRoutes.post("/join/:code", async (c) => {
     .from(sessionPlayers)
     .where(eq(sessionPlayers.sessionId, session.id));
   const taken = players.filter((p) => p.status === "confirmed" || p.status === "checked_in").length;
-  const target: PlayerStatus = taken >= session.maxPlayers ? "waitlist" : here ? "checked_in" : "confirmed";
-  const checkedInAt = target === "checked_in" ? now() : null;
   const requestedGender = parseGender(body.gender);
   const requestedLevel = parseLevel(body.level);
-
   const existing = players.find((p) => p.userId === u.id);
+  // The profile is the default for every night; the join page can still override for this one.
+  const gender = requestedGender ?? u.gender ?? (await rememberedGender(db, u.id));
+  const level = requestedLevel ?? normalizeLevel(existing?.level) ?? u.level ?? (await rememberedLevel(db, u.id));
+  // The newbie cap: once the newbie places are gone, a Newbie signing up waits like anyone on a full night.
+  const newbiesFull = (existing?.newbie || isNewbie(level)) && newbieSpotsLeft(session, players) === 0;
+  const target: PlayerStatus = taken >= session.maxPlayers || newbiesFull ? "waitlist" : here ? "checked_in" : "confirmed";
+  const checkedInAt = target === "checked_in" ? now() : null;
+
   if (existing) {
     const changes: Partial<typeof sessionPlayers.$inferInsert> = {};
     if (existing.status === "dropped") {
@@ -171,9 +178,6 @@ publicRoutes.post("/join/:code", async (c) => {
     return c.json({ status: changes.status ?? existing.status });
   }
 
-  // The profile is the default for every night; the join page can still override for this one.
-  const gender = requestedGender ?? u.gender ?? (await rememberedGender(db, u.id));
-  const level = requestedLevel ?? u.level ?? (await rememberedLevel(db, u.id));
   const guest = claimableGuest(players, u.name);
   if (guest) {
     // The organizer already added this person by name — take that entry over.

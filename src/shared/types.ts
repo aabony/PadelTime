@@ -163,6 +163,8 @@ export interface SessionDetail {
   beginnerCourtNo: number;
   /** That court is a coached court: newbies train there with a coach instead of playing games. */
   beginnerCourtCoached: boolean;
+  /** The newbie cap (null = no limit): a Newbie signing up past it goes on the waitlist. */
+  maxNewbies: number | null;
   /** The coached court is in effect tonight: tagged newbies are out of the draw, and `newbie` is sent to everyone. */
   coachedActive: boolean;
   /** Competitive sit-outs: after the drop round, the bottom of the table sits. */
@@ -224,6 +226,8 @@ export interface JoinInfo {
   myPartner: string | null;
   /** The beginner court is on (newbies the organizer tags play the first court among themselves). */
   beginnerCourt: boolean;
+  /** Newbie places still open; null when there's no cap. 0 = a Newbie signing up now goes on the waitlist. */
+  newbieSpotsLeft: number | null;
   /** Competitive sit-outs are on (after the drop round, the bottom of the table sits). */
   competitiveSitouts: boolean;
 }

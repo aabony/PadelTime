@@ -9,7 +9,7 @@ import { NightSummary } from "../components/NightSummary";
 import { CourtNumbersField } from "../components/CourtNumbersField";
 import { courtLabel, fitCourtLabels, parseCourtLabels } from "../../shared/courts";
 import { GroupByLevelToggle } from "../components/GroupByLevelToggle";
-import { BeginnerCourtToggle, CompetitiveToggle } from "../components/BeginnerCourtToggle";
+import { BeginnerCourtToggle, CompetitiveToggle, DEFAULT_NEWBIE_CAP } from "../components/BeginnerCourtToggle";
 import { DEFAULT_DROP_AFTER } from "../../shared/drop";
 import { FineTune, NightTypePicker } from "../components/NightTypePicker";
 import { flagsOf, nightTypeOf } from "../../shared/nightTypes";
@@ -208,6 +208,7 @@ export function NewSessionModal({
     beginnerCourt: false,
     beginnerCourtNo: 1,
     beginnerCourtCoached: false,
+    maxNewbies: DEFAULT_NEWBIE_CAP as number | null,
     competitiveSitouts: false,
     competitiveAfterRound: DEFAULT_DROP_AFTER,
   });
@@ -235,6 +236,7 @@ export function NewSessionModal({
         beginnerCourt: form.beginnerCourt && !form.fixedTeams,
         beginnerCourtNo: form.beginnerCourtNo,
         beginnerCourtCoached: form.beginnerCourtCoached,
+        maxNewbies: form.beginnerCourt && !form.fixedTeams ? form.maxNewbies : null,
         competitiveSitouts: form.competitiveSitouts,
         competitiveAfterRound: form.competitiveAfterRound,
         copyPlayersFrom: form.copyPlayersFrom || null,
@@ -302,6 +304,8 @@ export function NewSessionModal({
               onCourtChange={(beginnerCourtNo) => setForm({ ...form, beginnerCourtNo })}
               coached={form.beginnerCourtCoached}
               onCoachedChange={(beginnerCourtCoached) => setForm({ ...form, beginnerCourtCoached })}
+              maxNewbies={form.maxNewbies}
+              onMaxNewbiesChange={(maxNewbies) => setForm({ ...form, maxNewbies })}
               onChange={(beginnerCourt) => setForm({ ...form, beginnerCourt })}
             />
           )}

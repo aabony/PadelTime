@@ -138,6 +138,8 @@ export const gameSessions = sqliteTable(
     beginnerCourtCoached: integer("beginner_court_coached", { mode: "boolean" }).notNull().default(false),
     /** Competitive sit-outs: after the drop round, the bottom of the table sits. */
     competitiveSitouts: integer("competitive_sitouts", { mode: "boolean" }).notNull().default(false),
+    /** The newbie cap (null = no limit): a Newbie signing up past it goes on the waitlist. */
+    maxNewbies: integer("max_newbies"),
     /** The drop: sit-outs rotate fairly up to this round; from the next one the table decides. */
     competitiveAfterRound: integer("competitive_after_round").notNull().default(3),
     /** Finals: called by the organizer mid-session — each round goes to the top of the table, the rest sit. */

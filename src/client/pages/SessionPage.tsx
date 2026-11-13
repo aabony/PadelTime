@@ -47,6 +47,7 @@ import type { MemberRow } from "../../shared/members";
 import { genderMeta } from "../../shared/genders";
 import { isNewbie, levelMeta } from "../../shared/levels";
 import { waitingToStart } from "../../shared/swap";
+import { newbiesIn } from "../../shared/newbieCap";
 import { TEST_BATCH, nextTestPlayers } from "../../shared/testPlayers";
 import { NightSummary } from "../components/NightSummary";
 import { formatMeta } from "../../shared/formatMeta";
@@ -417,6 +418,7 @@ function SettingsModal({
     beginnerCourt: d.beginnerCourt,
     beginnerCourtNo: d.beginnerCourtNo,
     beginnerCourtCoached: d.beginnerCourtCoached,
+    maxNewbies: d.maxNewbies,
     competitiveSitouts: d.competitiveSitouts,
     competitiveAfterRound: d.competitiveAfterRound,
   });
@@ -484,6 +486,8 @@ function SettingsModal({
               onCourtChange={(beginnerCourtNo) => setForm({ ...form, beginnerCourtNo })}
               coached={form.beginnerCourtCoached}
               onCoachedChange={(beginnerCourtCoached) => setForm({ ...form, beginnerCourtCoached })}
+              maxNewbies={form.maxNewbies}
+              onMaxNewbiesChange={(maxNewbies) => setForm({ ...form, maxNewbies })}
               note={live ? "Applies from the next round." : undefined}
               onChange={(beginnerCourt) => setForm({ ...form, beginnerCourt })}
             />
@@ -523,6 +527,7 @@ function SettingsModal({
                 beginnerCourt: form.beginnerCourt && !form.fixedTeams,
                 beginnerCourtNo: form.beginnerCourtNo,
                 beginnerCourtCoached: form.beginnerCourtCoached,
+                maxNewbies: form.maxNewbies,
                 competitiveSitouts: form.competitiveSitouts,
                 competitiveAfterRound: form.competitiveAfterRound,
               });
@@ -646,6 +651,21 @@ function partnerOf(d: SessionDetail, p: PlayerRow): PlayerRow | undefined {
  * What a round can fill from these players. With Keep teams together only whole
  * teams play: pairs who are both here, plus the unpaired paired up (the engine's rule).
  */
+/** The newbie cap, where the organizer manages the roster: how many of the newbie places are taken. */
+function NewbieSpotsNote({ d }: { d: SessionDetail }) {
+  if (d.myRole !== "organizer" || !d.beginnerCourt || d.fixedTeams || d.maxNewbies == null) return null;
+  const taken = newbiesIn(d.players);
+  const waiting = d.players.filter((p) => p.newbie && p.status === "waitlist").length;
+  const over = taken > d.maxNewbies;
+  return (
+    <p className={cls("mb-2 mt-1 text-xs", over ? "font-semibold text-rose-dark" : "text-muted")} data-testid="newbie-spots">
+      🌱 Newbies: {taken} of {d.maxNewbies} spots
+      {over ? " — over your cap" : taken === d.maxNewbies ? " — full, the next Newbie to sign up is waitlisted" : ""}
+      {waiting > 0 && ` · ${waiting} waitlisted`}
+    </p>
+  );
+}
+
 /** Main games without a score that a player is down for and that are on court now — being played, or ready to start. */
 function gamesOnCourt(d: SessionDetail, playerId: string): { round: number; court: number }[] {
   const latest = d.rounds[d.rounds.length - 1];
@@ -780,6 +800,7 @@ function PlayersCard({ d, isOrganizer, run, busyKey }: ViewProps) {
           {d.counts.waitlist > 0 && `${d.counts.waitlist} waitlisted`}
         </p>
       )}
+      <NewbieSpotsNote d={d} />
       <div className="mb-3" />
       {isOrganizer && d.groupByLevel && visible.length > 0 && <LevelHint players={visible} />}
       {isOrganizer && d.fixedTeams && visible.length > 0 && <PairingHint d={d} />}
@@ -1574,6 +1595,7 @@ function LiveRosterCard({ d, isOrganizer, run, busyKey }: ViewProps) {
         {courtsUsed} court{courtsUsed === 1 ? "" : "s"} per round
         {sitting > 0 ? ` · ${sitting} sit${sitting === 1 ? "s" : ""} out each round` : " · everyone plays"}
       </p>
+      <NewbieSpotsNote d={d} />
       {cut.size > 0 && (
         <p className="mb-3 rounded-xl bg-rose-soft/60 px-3 py-2 text-xs text-rose-dark" data-testid="cut-note">
           <b>Below the cut</b> marks the {cut.size} lowest on points per game right now.{" "}
