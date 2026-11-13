@@ -95,7 +95,7 @@ export function FieldGroup({ label, children, hint }: { label: string; children:
   );
 }
 
-type BadgeTone = "lime" | "zinc" | "amber" | "sky" | "rose" | "emerald";
+type BadgeTone = "lime" | "zinc" | "amber" | "sky" | "rose" | "emerald" | "green";
 
 const badgeTones: Record<BadgeTone, string> = {
   lime: "bg-lime text-navy",
@@ -104,6 +104,8 @@ const badgeTones: Record<BadgeTone, string> = {
   sky: "bg-royal-soft text-royal",
   rose: "bg-rose-soft text-rose-dark",
   emerald: "bg-mint-soft text-mint-dark",
+  // Solid green: on court now.
+  green: "bg-mint-dark text-white",
 };
 
 export function Badge({ tone = "zinc", children, className }: { tone?: BadgeTone; children: ReactNode; className?: string }) {

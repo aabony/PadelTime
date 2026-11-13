@@ -1118,7 +1118,7 @@ function MatchStatusBadge({ m }: { m: MatchRow }) {
     default:
       // On court now: green, with a pulse, so it reads at a glance from across the court.
       return (
-        <Badge tone="emerald" className="bg-mint-dark text-white">
+        <Badge tone="green">
           <span aria-hidden className="size-1.5 animate-pulse rounded-full bg-white" />
           live
         </Badge>
@@ -1151,21 +1151,10 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
   const upNext = prior && !prior.complete ? latest : undefined;
   const previous = d.rounds.filter((r) => r !== playing && r !== upNext);
   const inPlay = playing?.matches.filter((m) => m.status !== "confirmed") ?? [];
-  const label = (court: number) => `Court ${courtLabel(d.courtLabels, court)}`;
-  const finishingAt = new Map(inPlay.flatMap((m) => [...m.a, ...m.b].map((p) => [p, label(m.court)] as const)));
-  const occupied = new Set(inPlay.map((m) => m.court));
-  const onDeckFor = (m: MatchRow): OnDeckState => {
-    const here = [...m.a, ...m.b].filter((p) => !finishingAt.has(p)).length;
-    if (here === 4 && !occupied.has(m.court)) return { finishingOn: () => undefined, status: "ready", label: "Ready · all 4 here" };
-    return {
-      finishingOn: (id) => finishingAt.get(id),
-      status: "filling",
-      label: here === 4 ? `Waits for ${label(m.court)}` : `${here} of 4 here`,
-    };
-  };
-  const nextCourts = upNext?.matches.filter((m) => m.scoreA == null) ?? [];
-  const ready = nextCourts.filter((m) => onDeckFor(m).status === "ready").length;
   const waitingFor = waitingForCourt(d, inPlay);
+  // Up next and clear to start: the court is free and all four are free.
+  const liveCourts = (playing?.matches ?? []).map((m) => ({ court: m.court, players: [...m.a, ...m.b], finished: m.status === "confirmed" }));
+  const canGo = (m: MatchRow) => m.scoreA == null && m.status === "pending" && !waitingToStart(liveCourts, { court: m.court, players: [...m.a, ...m.b] });
   const myPlaying = playing?.matches.find((m) => [...m.a, ...m.b].includes(d.myPlayerId ?? ""));
   const myNext = upNext?.matches.find((m) => [...m.a, ...m.b].includes(d.myPlayerId ?? ""));
   const onCourtNow = !!myPlaying && myPlaying.status !== "confirmed";
@@ -1317,26 +1306,8 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
               <p className="text-xs font-black uppercase tracking-[0.16em] text-navy">Up next</p>
               <h2 className="text-[28px] font-black leading-none text-navy">Round {upNext.number}</h2>
             </div>
-            {nextCourts.length > 0 && (
-              <div className="flex flex-wrap justify-end gap-1.5">
-                {ready > 0 && <span className="rounded-full bg-mint-dark px-3 py-1 text-xs font-black text-white">{ready} READY</span>}
-                {nextCourts.length - ready > 0 && (
-                  <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-amber-dark">{nextCourts.length - ready} FILLING</span>
-                )}
-              </div>
-            )}
           </div>
           <div className="space-y-3 p-4">
-            <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] font-bold text-muted">
-              <span className="inline-flex items-center gap-1.5">
-                <span aria-hidden className="size-2 rounded-full bg-mint-dark" />
-                Standing by
-              </span>
-              <span className="inline-flex items-center gap-1.5">
-                <span aria-hidden className="size-2 rounded-full bg-amber-dark" />
-                Finishing a game
-              </span>
-            </div>
             <div className="grid gap-3 sm:grid-cols-2">
               {upNext.matches.map((m) => (
                 <CourtCard
@@ -1344,7 +1315,8 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
                   d={d}
                   m={m}
                   round={upNext}
-                  onDeck={onDeckFor(m)}
+                  onDeck
+                  go={canGo(m)}
                   nameOf={nameOf}
                   isOrganizer={isOrganizer}
                   run={run}
@@ -1353,7 +1325,6 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
                 />
               ))}
             </div>
-            {upNext.byes.length > 0 && <SittingList d={d} round={upNext} nameOf={nameOf} isOrganizer={isOrganizer} />}
           </div>
         </Card>
         </div>
@@ -1466,30 +1437,6 @@ function isBeginnerCourt(d: SessionDetail, m: MatchRow): boolean {
 }
 
 /** Who sits a round out — by pool when the beginner court is on, so each pool's rotation reads on its own. */
-function SittingList({ d, round, nameOf, isOrganizer }: { d: SessionDetail; round: RoundRow; nameOf: (id: string) => string; isOrganizer: boolean }) {
-  const newbie = new Set(d.players.filter((p) => p.newbie).map((p) => p.id));
-  const groups =
-    isOrganizer && d.poolsActive
-      ? [
-          { label: "Sitting · beginner court", ids: round.byes.filter((id) => newbie.has(id)) },
-          { label: "Sitting · ladder", ids: round.byes.filter((id) => !newbie.has(id)) },
-        ].filter((g) => g.ids.length > 0)
-      : [{ label: `Sitting round ${round.number}`, ids: round.byes }];
-  return (
-    <div className="space-y-2 border-t border-line pt-3 text-sm text-muted">
-      {groups.map((g) => (
-        <p key={g.label}>
-          <span className="text-xs font-black uppercase tracking-wider text-muted">
-            {g.label} · {g.ids.length}
-          </span>
-          <br />
-          <span className="text-ink">{g.ids.map(nameOf).join(", ")}</span>
-        </p>
-      ))}
-    </div>
-  );
-}
-
 /**
  * Move up / move down hints: a newbie on a winning streak on the beginner court,
  * a ladder player without a win. The tap is the organizer's; the app only points.
@@ -1842,6 +1789,7 @@ function CourtCard({
   round,
   waitingFor,
   onDeck,
+  go = false,
   beginner = false,
   nameOf,
   isOrganizer,
@@ -1854,8 +1802,10 @@ function CourtCard({
   round?: RoundRow;
   /** Dealt ahead: the court this game waits on ("Court 4"), while its players finish there. */
   waitingFor?: string;
-  /** Up next: where each player still finishing a game is, and whether the court can start. */
-  onDeck?: OnDeckState;
+  /** A game of the round up next (not on court yet). */
+  onDeck?: boolean;
+  /** Up next and clear to start: its court is free and so are all four players. The one thing the card shouts. */
+  go?: boolean;
   /** The beginner court (the organizer's pill; players just see the court). */
   beginner?: boolean;
   nameOf: (id: string) => string;
@@ -1873,11 +1823,20 @@ function CourtCard({
       {/* For the organizer the whole court is a tap target for the score sheet. */}
       <div
         className={cls(
-          "rounded-2xl border border-line bg-canvas/60 p-4",
-          isOrganizer && "cursor-pointer transition-colors hover:border-royal hover:bg-royal-soft/40",
+          "overflow-hidden rounded-2xl border p-4",
+          go ? "border-2 border-mint-dark bg-mint-soft" : "border-line bg-canvas/60",
+          isOrganizer && !go && "cursor-pointer transition-colors hover:border-royal hover:bg-royal-soft/40",
+          isOrganizer && go && "cursor-pointer",
         )}
+        data-go={go ? "true" : undefined}
         onClick={isOrganizer ? () => setEditing(true) : undefined}
       >
+        {/* Signage, not status: the only thing an up-next court ever says is that these four can walk on. */}
+        {go && (
+          <p className="-mx-4 -mt-4 mb-3 bg-mint-dark px-4 py-2 text-center text-base font-black uppercase tracking-wider text-white" data-testid="go-now">
+            ▶ Go now · {court} is free
+          </p>
+        )}
         <div className="mb-3 flex items-center justify-between gap-2">
           <span className="flex flex-wrap items-center gap-2 text-2xl font-black uppercase tracking-tight text-royal">
             <span aria-hidden>🏟️</span>
@@ -1888,56 +1847,36 @@ function CourtCard({
               </span>
             )}
           </span>
-          {onDeck && !scored ? (
-            <span className={cls("rounded-full px-2.5 py-0.5 text-[11px] font-black uppercase tracking-wide", ON_DECK_PILL[onDeck.status])}>
-              {onDeck.label}
-            </span>
-          ) : (
-            <MatchStatusBadge m={m} />
-          )}
+          {/* Up next: just the court and who's on it — nothing is "live" yet, and there's no status to read. */}
+          {!(onDeck && !scored) && <MatchStatusBadge m={m} />}
         </div>
         {waitingFor && !onDeck && <p className="-mt-1 mb-2 text-xs font-bold text-amber-dark">⏳ Starts when {waitingFor} finishes</p>}
         <div className="space-y-1.5 text-sm">
           {[m.a, m.b].map((side, t) => (
             <div key={t} className={cls("flex items-center justify-between gap-2 border-l-4 pl-2", TEAM_BAND[t])}>
-              {onDeck && !scored ? (
-                // Up next: who's here (standing by) and who's still finishing a game elsewhere.
-                <span className="flex min-w-0 flex-wrap gap-x-3 gap-y-0.5 font-bold text-navy">
-                  {side.map((id) => {
-                    const where = onDeck.finishingOn(id);
-                    return (
-                      <span key={id} className="inline-flex items-center gap-1.5">
-                        <span aria-hidden className={cls("size-2 rounded-full", where ? "bg-amber-dark" : "bg-mint-dark")} />
-                        {nameOf(id)}
-                        {where && <span className="text-xs font-semibold text-amber-dark">on {where} now</span>}
-                      </span>
-                    );
-                  })}
-                </span>
-              ) : (
-                <>
-                  <span className="min-w-0 truncate font-bold text-navy">{teamNames(side, nameOf)}</span>
-                  {/* Only a final score is ever entered, so there's nothing to show until it is. */}
-                  {scored && <span className="tabular text-2xl font-black text-navy">{t === 0 ? m.scoreA : m.scoreB}</span>}
-                </>
-              )}
+              <span className={cls("min-w-0 truncate font-bold text-navy", go && "text-base")}>{teamNames(side, nameOf)}</span>
+              {/* Only a final score is ever entered, so there's nothing to show until it is. */}
+              {scored && <span className="tabular text-2xl font-black text-navy">{t === 0 ? m.scoreA : m.scoreB}</span>}
             </div>
           ))}
         </div>
         {isOrganizer && (
           <div className="mt-3 flex gap-2">
-            <Button
-              className="flex-1"
-              size="sm"
-              variant={scored ? "subtle" : "primary"}
-              aria-label={`${scored ? "Edit" : "Enter"} score, ${court}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                setEditing(true);
-              }}
-            >
-              {scored ? "✏️ Edit score" : "📝 Enter score"}
-            </Button>
+            {/* A game that can't have started has no score to enter: one less button to read past. */}
+            {!(onDeck && !go && !scored) && (
+              <Button
+                className="flex-1"
+                size="sm"
+                variant={scored ? "subtle" : "primary"}
+                aria-label={`${scored ? "Edit" : "Enter"} score, ${court}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setEditing(true);
+                }}
+              >
+                {scored ? "✏️ Edit score" : "📝 Enter score"}
+              </Button>
+            )}
             {canSwap && (
               <Button
                 size="sm"
@@ -1976,14 +1915,6 @@ function CourtCard({
     </>
   );
 }
-
-/** Up next, per court: who's still finishing a game (and where), and whether it can start. */
-interface OnDeckState {
-  finishingOn: (id: string) => string | undefined;
-  status: "ready" | "filling";
-  label: string;
-}
-const ON_DECK_PILL = { ready: "bg-mint-soft text-mint-dark", filling: "bg-amber-soft text-amber-dark" } as const;
 
 // Each game's two teams get a colour band — on the court card and in the swap
 // sheet — so whoever runs the night can tell who's partnered with whom at a glance.
