@@ -65,3 +65,39 @@ export function swapTeamsInRound(
   const changed = current.filter((m, i) => m.slots.some((p, j) => p !== matches[i].slots[j]));
   return { matches: changed, byes: currentByes };
 }
+
+/**
+ * A game dealt up next can't have started while its court is still in use, or
+ * while one of its four is still finishing a game in the round being played.
+ * Until then it can be dealt again without pulling anyone off a court.
+ */
+export function waitingToStart(
+  playing: { court: number; players: string[]; finished: boolean }[],
+  game: { court: number; players: string[] },
+): boolean {
+  const live = playing.filter((m) => !m.finished);
+  return live.some((m) => m.court === game.court || m.players.some((p) => game.players.includes(p)));
+}
+
+/**
+ * Who comes on when a player is taken off a game (moved to the beginner court):
+ * of the players sitting that round, whoever has played least — then whoever
+ * has sat most. With mixed pairs, someone of the same gender first, so the
+ * team stays mixed. Null when nobody is sitting.
+ */
+export function pickReplacement(o: {
+  sitters: string[];
+  out: string;
+  games: Record<string, number>;
+  sitOuts: Record<string, number>;
+  genders?: Record<string, string | null | undefined>;
+  mixedPairs?: boolean;
+}): string | null {
+  const want = o.mixedPairs ? o.genders?.[o.out] : undefined;
+  const key = (id: string) => [want && o.genders?.[id] !== want ? 1 : 0, o.games[id] ?? 0, -(o.sitOuts[id] ?? 0)];
+  const ranked = o.sitters
+    .filter((id) => id !== o.out)
+    .map((id, i) => ({ id, k: key(id), i }))
+    .sort((a, b) => a.k[0] - b.k[0] || a.k[1] - b.k[1] || a.k[2] - b.k[2] || a.i - b.i);
+  return ranked[0]?.id ?? null;
+}

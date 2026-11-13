@@ -4,14 +4,15 @@ import { Hono } from "hono";
 import { gameSessions, groupMembers, matches, rounds, sessionPlayers, user } from "../db/schema";
 import type { DB, SessionRow } from "../lib/detail";
 import { buildDetail, isGroupMember, isGroupOrganizer, loadRounds, loadSession, loadTracks } from "../lib/detail";
-import { beginnerCourtActive, dropUnplayedUpNext, dropUnscoredBeginnerGame, generateNextRound, keepBeginnerGame, keepUpNext } from "../lib/engine";
+import { beginnerCourtActive, dropUnplayedUpNext, dropUnscoredBeginnerGame, generateNextRound, keepBeginnerGame, keepUpNext, redealUpNext } from "../lib/engine";
 import { getFormat } from "../../shared/formats/registry";
 import { beginnerCourtOf } from "../../shared/formats/pools";
 import { normalizeDropAfter } from "../../shared/drop";
 import { parseGender } from "../../shared/genders";
 import { isNewbie, normalizeLevel, parseLevel } from "../../shared/levels";
 import { TEST_BATCH, TEST_PLAYERS, nextTestPlayers } from "../../shared/testPlayers";
-import { swapInRound, swapTeamsInRound } from "../../shared/swap";
+import { pickReplacement, swapInRound, swapTeamsInRound, waitingToStart } from "../../shared/swap";
+import type { RoundRow } from "../../shared/types";
 import { asInt, newId, now, trimmed } from "../lib/util";
 import type { ApiCtx, AuthedUser } from "./context";
 
@@ -402,6 +403,99 @@ async function unpair(db: DB, sessionId: string, ids: string[]): Promise<void> {
   if (ids.length > 0) await unpairQuery(db, sessionId, ids);
 }
 
+/**
+ * Move a player to the beginner court (tag) or back up to the tournament (untag).
+ *
+ * Live, with the beginner court set aside, a player moved down comes off every
+ * main game that hasn't been played: the round up next is dealt again without
+ * them when none of its games can have started; otherwise the player who has
+ * waited most takes their place. A game that is on court now is only touched
+ * when the organizer says so (`now`) — the app can't see whether it has begun.
+ * Moved up, they're dealt into the round up next the same way.
+ */
+async function moveCourts(db: DB, session: SessionRow, playerId: string, newbie: boolean, now: boolean): Promise<void> {
+  await db.update(sessionPlayers).set({ newbie }).where(eq(sessionPlayers.id, playerId));
+  if (session.status !== "active") return;
+  if (!newbie) {
+    // Moved up while on court in the beginner court's game in waiting: that game is re-dealt without them
+    // (unless a score is already on it). Anyone else's game is left alone — it may be mid-play.
+    const { beginner } = await loadTracks(db, session.id);
+    const waiting = beginner[beginner.length - 1];
+    const onIt = !!waiting && !waiting.complete && waiting.matches.some((m) => [...m.a, ...m.b].includes(playerId));
+    if (onIt) await dropUnscoredBeginnerGame(db, session.id);
+    if (!session.fixedTeams) await redealUpNext(db, session);
+  } else if (await beginnerCourtActive(db, session)) {
+    await pullFromMainDraw(db, session, playerId, now);
+  }
+  // Tagging can make the fourth newbie the beginner court was waiting for; untagging frees a place.
+  await keepBeginnerGame(db, session);
+}
+
+/** Take a player who's just moved to the beginner court off the main games that haven't been played. */
+async function pullFromMainDraw(db: DB, session: SessionRow, playerId: string, now: boolean): Promise<void> {
+  const roster = await db.select().from(sessionPlayers).where(eq(sessionPlayers.sessionId, session.id));
+  const swapOut = async (round: RoundRow, all: RoundRow[]): Promise<void> => {
+    const games: Record<string, number> = {};
+    const sitOuts: Record<string, number> = {};
+    for (const r of all) {
+      for (const p of r.byes) sitOuts[p] = (sitOuts[p] ?? 0) + 1;
+      for (const m of r.matches) for (const p of [...m.a, ...m.b]) games[p] = (games[p] ?? 0) + 1;
+    }
+    const inDraw = (id: string) => roster.some((p) => p.id === id && p.status === "checked_in" && !p.newbie);
+    const inn = pickReplacement({
+      sitters: round.byes.filter(inDraw),
+      out: playerId,
+      games,
+      sitOuts,
+      genders: Object.fromEntries(roster.map((p) => [p.id, p.gender])),
+      mixedPairs: session.mixedPairs,
+    });
+    if (!inn) return; // nobody sitting to take the place: the game stays as dealt
+    const slots = round.matches.map((m) => ({
+      id: m.id,
+      slots: [m.a[0], m.a[1], m.b[0], m.b[1]] as [string, string, string, string],
+      scored: m.scoreA != null || m.status !== "pending",
+    }));
+    const result = swapInRound(slots, round.byes, playerId, inn);
+    if ("error" in result) return;
+    for (const m of result.matches) {
+      const [a1, a2, b1, b2] = m.slots;
+      await db.update(matches).set({ a1, a2, b1, b2 }).where(eq(matches.id, m.id));
+    }
+    // They aren't sitting the round out either: they're on the beginner court now.
+    await db.update(rounds).set({ byesJson: JSON.stringify(result.byes.filter((p) => p !== playerId)) }).where(eq(rounds.id, round.id));
+  };
+  const state = async () => {
+    const all = await loadRounds(db, session.id);
+    const latest = all[all.length - 1];
+    const before = all[all.length - 2];
+    const dealtAhead = !!before && !before.complete;
+    return { all, playing: dealtAhead ? before : latest, upNext: dealtAhead ? latest : undefined };
+  };
+  const gameOf = (round: RoundRow | undefined) =>
+    round?.matches.find((m) => m.scoreA == null && m.status === "pending" && [...m.a, ...m.b].includes(playerId));
+  const live = (round: RoundRow) => round.matches.map((m) => ({ court: m.court, players: [...m.a, ...m.b], finished: m.status === "confirmed" }));
+
+  // The game on court now: only when the organizer said to take them off it.
+  let { all, playing, upNext } = await state();
+  if (playing && gameOf(playing) && now) await swapOut(playing, all);
+  // The round up next: dealt again without them when nothing in it can have started…
+  if (await redealUpNext(db, session)) return;
+  // …otherwise just their own game changes — on the organizer's say-so if it may already be on court.
+  ({ all, playing, upNext } = await state());
+  const next = gameOf(upNext);
+  if (upNext && playing && next) {
+    const waiting = waitingToStart(live(playing), { court: next.court, players: [...next.a, ...next.b] });
+    if (waiting || now) await swapOut(upNext, all);
+  }
+  // Listed as sitting a main round they're no longer part of: off that list too.
+  for (const round of [playing, upNext]) {
+    if (round && !round.complete && round.byes.includes(playerId) && !gameOf(round)) {
+      await db.update(rounds).set({ byesJson: JSON.stringify(round.byes.filter((p) => p !== playerId)) }).where(eq(rounds.id, round.id));
+    }
+  }
+}
+
 sessionRoutes.patch("/sessions/:id/players/:pid", async (c) => {
   const u = c.get("user");
   if (!u) return c.json({ error: "Sign in required" }, 401);
@@ -500,26 +594,20 @@ sessionRoutes.patch("/sessions/:id/players/:pid", async (c) => {
       }
       break;
     }
-    case "set_level":
+    case "set_level": {
       // The organizer can set or override anyone's level (players set their own via /level).
-      await db.update(sessionPlayers).set({ level: parseLevel(body.level) }).where(eq(sessionPlayers.id, player.id));
-      break;
-    case "set_newbie": {
-      // Move down (tag) / move up (untag): takes effect from the next round dealt.
-      await db.update(sessionPlayers).set({ newbie: body.newbie === true }).where(eq(sessionPlayers.id, player.id));
-      if (session.status !== "active") break;
-      if (body.newbie !== true) {
-        // Moved up while on court in the beginner court's game in waiting: that game is re-dealt without them
-        // (unless a score is already on it). Anyone else's game is left alone — it may be mid-play.
-        const { beginner } = await loadTracks(db, session.id);
-        const waiting = beginner[beginner.length - 1];
-        const onIt = !!waiting && !waiting.complete && waiting.matches.some((m) => [...m.a, ...m.b].includes(player.id));
-        if (onIt) await dropUnscoredBeginnerGame(db, session.id);
-      }
-      // Tagging can make the fourth newbie the beginner court was waiting for; untagging frees a place.
-      await keepBeginnerGame(db, session);
+      const level = parseLevel(body.level);
+      await db.update(sessionPlayers).set({ level }).where(eq(sessionPlayers.id, player.id));
+      // Newbie is the level that plays the beginner court, so the organizer's change moves the player
+      // with it: down when set to Newbie, back up when a Newbie is set to anything else.
+      if (isNewbie(level) && !player.newbie) await moveCourts(db, session, player.id, true, body.now === true);
+      else if (isNewbie(player.level) && !isNewbie(level) && player.newbie) await moveCourts(db, session, player.id, false, false);
       break;
     }
+    case "set_newbie":
+      // Move down (tag) / move up (untag).
+      await moveCourts(db, session, player.id, body.newbie === true, body.now === true);
+      break;
     case "merge": {
       // "Brandon Pourmorady" (account) is the same person as guest "Brandon P":
       // the guest row keeps its history and becomes the account's row.
@@ -675,6 +763,20 @@ sessionRoutes.post("/sessions/:id/rounds", async (c) => {
 
   const body = await c.req.json().catch(() => ({}));
   // The beginner court's own game: reshuffle the one waiting for a score, or deal one if the court is idle.
+  if (body.beginner === true && body.next === true) {
+    // "Next game" on a coached-style beginner court: the four on court are done, nobody kept score.
+    // The game counts for the rotation (who has played, who has waited) and the next one is dealt.
+    const { beginner } = await loadTracks(db, session.id);
+    const current = beginner[beginner.length - 1];
+    if (current && !current.complete) {
+      if (current.matches.some((m) => m.scoreA != null || m.status !== "pending")) {
+        return c.json({ error: "That game has a score coming in — confirm or correct it instead" }, 400);
+      }
+      await db.update(matches).set({ status: "skipped" }).where(eq(matches.roundId, current.id));
+    }
+    await keepBeginnerGame(db, session);
+    return c.json({ ok: true });
+  }
   if (body.beginner === true) {
     if (!(await dropUnscoredBeginnerGame(db, session.id))) {
       return c.json({ error: "That game already has a score — enter or correct it instead" }, 400);

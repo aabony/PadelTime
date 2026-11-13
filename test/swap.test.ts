@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { swapInRound, swapTeamsInRound } from "../src/shared/swap";
+import { pickReplacement, swapInRound, swapTeamsInRound, waitingToStart } from "../src/shared/swap";
 import type { SwapMatch } from "../src/shared/swap";
 
 const court = (id: string, slots: string[], scored = false): SwapMatch => ({
@@ -63,5 +63,41 @@ describe("swapTeamsInRound", () => {
 
   it("refuses a game with a score", () => {
     expect(swapTeamsInRound([court("m1", ["a", "b", "c", "d"], true)], ["i", "j"], ["a", "b"], ["i", "j"])).toHaveProperty("error");
+  });
+});
+
+describe("waitingToStart (a game dealt up next that can't have begun)", () => {
+  const playing = [
+    { court: 1, players: ["a", "b", "c", "d"], finished: false },
+    { court: 2, players: ["e", "f", "g", "h"], finished: true },
+  ];
+  it("waits while its court is still in use", () => {
+    expect(waitingToStart(playing, { court: 1, players: ["w", "x", "y", "z"] })).toBe(true);
+  });
+  it("waits while one of its four is still finishing a game", () => {
+    expect(waitingToStart(playing, { court: 2, players: ["a", "x", "y", "z"] })).toBe(true);
+  });
+  it("may have started once its court is free and all four are free", () => {
+    expect(waitingToStart(playing, { court: 2, players: ["e", "f", "y", "z"] })).toBe(false);
+    expect(waitingToStart(playing, { court: 3, players: ["w", "x", "y", "z"] })).toBe(false);
+  });
+});
+
+describe("pickReplacement (who comes on for a player moved to the beginner court)", () => {
+  const base = { sitters: ["s1", "s2", "s3"], out: "p", games: { s1: 2, s2: 1, s3: 1 }, sitOuts: { s1: 1, s2: 1, s3: 3 } };
+  it("takes whoever has played least, then whoever has sat most", () => {
+    expect(pickReplacement(base)).toBe("s3");
+    expect(pickReplacement({ ...base, sitOuts: { s1: 1, s2: 1, s3: 1 } })).toBe("s2");
+  });
+  it("with mixed pairs, someone of the same gender first so the team stays mixed", () => {
+    const genders = { p: "woman", s1: "woman", s2: "man", s3: "man" };
+    expect(pickReplacement({ ...base, genders, mixedPairs: true })).toBe("s1");
+    expect(pickReplacement({ ...base, genders, mixedPairs: false })).toBe("s3");
+    // Nobody of that gender sitting: the usual order.
+    expect(pickReplacement({ ...base, genders: { ...genders, s1: "man" }, mixedPairs: true })).toBe("s3");
+  });
+  it("never picks the player going off, and gives up when nobody is sitting", () => {
+    expect(pickReplacement({ ...base, sitters: ["p"] })).toBeNull();
+    expect(pickReplacement({ ...base, sitters: [] })).toBeNull();
   });
 });

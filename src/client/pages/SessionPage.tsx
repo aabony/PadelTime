@@ -45,7 +45,8 @@ import { formatPhone, normalizePhone } from "../../shared/phone";
 import { playerSuggestions } from "../../shared/members";
 import type { MemberRow } from "../../shared/members";
 import { genderMeta } from "../../shared/genders";
-import { levelMeta } from "../../shared/levels";
+import { isNewbie, levelMeta } from "../../shared/levels";
+import { waitingToStart } from "../../shared/swap";
 import { TEST_BATCH, nextTestPlayers } from "../../shared/testPlayers";
 import { NightSummary } from "../components/NightSummary";
 import { formatMeta } from "../../shared/formatMeta";
@@ -645,6 +646,40 @@ function partnerOf(d: SessionDetail, p: PlayerRow): PlayerRow | undefined {
  * What a round can fill from these players. With Keep teams together only whole
  * teams play: pairs who are both here, plus the unpaired paired up (the engine's rule).
  */
+/** Main games without a score that a player is down for and that are on court now — being played, or ready to start. */
+function gamesOnCourt(d: SessionDetail, playerId: string): { round: number; court: number }[] {
+  const latest = d.rounds[d.rounds.length - 1];
+  const prior = d.rounds[d.rounds.length - 2];
+  const dealtAhead = !!prior && !prior.complete;
+  const playing = dealtAhead ? prior : latest;
+  const upNext = dealtAhead ? latest : undefined;
+  if (!playing) return [];
+  const mine = (m: MatchRow) => m.scoreA == null && m.status === "pending" && [...m.a, ...m.b].includes(playerId);
+  const live = playing.matches.map((m) => ({ court: m.court, players: [...m.a, ...m.b], finished: m.status === "confirmed" }));
+  return [
+    ...playing.matches.filter(mine).map((m) => ({ round: playing.number, court: m.court })),
+    ...(upNext?.matches ?? [])
+      .filter((m) => mine(m) && !waitingToStart(live, { court: m.court, players: [...m.a, ...m.b] }))
+      .map((m) => ({ round: upNext!.number, court: m.court })),
+  ];
+}
+
+/**
+ * Moving someone to the beginner court mid-tournament. Games that haven't
+ * started are re-dealt without them on their own; a game that's on court is the
+ * organizer's call, because the app can't see whether it has begun.
+ */
+function takeOffNow(d: SessionDetail, p: PlayerRow): boolean {
+  if (d.status !== "active" || !d.beginnerCourt || d.fixedTeams) return false;
+  const [game] = gamesOnCourt(d, p.id);
+  if (!game) return false;
+  return window.confirm(
+    `${p.name} is down for round ${game.round} on Court ${courtLabel(d.courtLabels, game.court)}, and that game is on court now.\n\n` +
+      "OK: take them off it. Whoever has waited most comes on in their place.\n" +
+      "Cancel: they finish that game first, then move to the beginner court.",
+  );
+}
+
 /** The beginner court is out of the main rounds tonight: a coached court, or one running its own games. */
 const setAside = (d: SessionDetail) => d.coachedActive || d.poolsActive;
 
@@ -773,13 +808,13 @@ function PlayersCard({ d, isOrganizer, run, busyKey }: ViewProps) {
                     compact
                     value={p.level}
                     busy={busyKey === `lvl-${p.id}`}
-                    onChange={(level) => run(`lvl-${p.id}`, () => Api.playerAction(d.id, p.id, "set_level", { level }))}
+                    onChange={(level) => run(`lvl-${p.id}`, () => Api.playerAction(d.id, p.id, "set_level", { level, now: isNewbie(level) && !p.newbie && takeOffNow(d, p) }))}
                   />
                   {pools && (
                     <NewbieToggle
                       checked={p.newbie}
                       busy={busyKey === `nb-${p.id}`}
-                      onChange={(newbie) => run(`nb-${p.id}`, () => Api.playerAction(d.id, p.id, "set_newbie", { newbie }))}
+                      onChange={(newbie) => run(`nb-${p.id}`, () => Api.playerAction(d.id, p.id, "set_newbie", { newbie, now: newbie && takeOffNow(d, p) }))}
                     />
                   )}
                   <ProfileBadges p={p} />
@@ -1322,6 +1357,12 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
               {last.complete ? "Next round →" : `Deal round ${last.number + 1} now`}
             </Button>
           )}
+          {/* Start deals round 1 alone: the roster is still moving, so round 2 waits for the first score (or this button). */}
+          {!upNext && !last.complete && last.number === 1 && (
+            <p className="mb-3 text-center text-xs text-muted" data-testid="round2-waits">
+              Round 2 isn't dealt yet, so late arrivals and changes go into it. It's dealt when round 1's first score comes in.
+            </p>
+          )}
           <div className="flex flex-wrap justify-center gap-1">
             {!last.matches.some((m) => m.status === "confirmed") && (
               <Button
@@ -1450,7 +1491,11 @@ function NudgesCard({ d, nameOf, run, busyKey }: { d: SessionDetail; nameOf: (id
               size="sm"
               variant="secondary"
               busy={busyKey === `nb-${n.playerId}`}
-              onClick={() => run(`nb-${n.playerId}`, () => Api.playerAction(d.id, n.playerId, "set_newbie", { newbie: n.kind === "down" }))}
+              onClick={() => {
+                const p = d.players.find((x) => x.id === n.playerId);
+                const now = n.kind === "down" && !!p && takeOffNow(d, p);
+                run(`nb-${n.playerId}`, () => Api.playerAction(d.id, n.playerId, "set_newbie", { newbie: n.kind === "down", now }));
+              }}
             >
               {n.kind === "up" ? "Move up to the ladder" : "Move down to the beginner court"}
             </Button>
@@ -1599,13 +1644,13 @@ function LiveRosterCard({ d, isOrganizer, run, busyKey }: ViewProps) {
                               compact
                               value={p.level}
                               busy={busyKey === `lvl-${p.id}`}
-                              onChange={(level) => run(`lvl-${p.id}`, () => Api.playerAction(d.id, p.id, "set_level", { level }))}
+                              onChange={(level) => run(`lvl-${p.id}`, () => Api.playerAction(d.id, p.id, "set_level", { level, now: isNewbie(level) && !p.newbie && takeOffNow(d, p) }))}
                             />
                             {pools && (
                               <NewbieToggle
                                 checked={p.newbie}
                                 busy={busyKey === `nb-${p.id}`}
-                                onChange={(newbie) => run(`nb-${p.id}`, () => Api.playerAction(d.id, p.id, "set_newbie", { newbie }))}
+                                onChange={(newbie) => run(`nb-${p.id}`, () => Api.playerAction(d.id, p.id, "set_newbie", { newbie, now: newbie && takeOffNow(d, p) }))}
                               />
                             )}
                             <ProfileBadges p={p} />
@@ -2434,10 +2479,21 @@ function BeginnerGamesCard({ d, nameOf, isOrganizer, run, busyKey }: ViewProps &
           </p>
         )}
         <p className="mt-3 text-xs text-muted">
-          Separate from the rounds above: enter its score whenever the game ends and the next one is dealt. It never holds up the other courts.
+          Separate from the rounds above: enter its score when the game ends and the next four are dealt — or tap Next game to rotate
+          without a score. It never holds up the other courts.
         </p>
         {isOrganizer && ((waiting && untouched) || (!waiting && d.poolsActive)) && (
-          <div className="mt-3">
+          <div className="mt-3 flex flex-wrap gap-2">
+            {waiting && (
+              <Button
+                size="sm"
+                busy={busyKey === "bnext"}
+                title="These four are done and nobody kept score: bring on the next four"
+                onClick={() => run("bnext", () => Api.beginnerNext(d.id))}
+              >
+                ⏭ Next game · no score
+              </Button>
+            )}
             <Button size="sm" variant="secondary" busy={busyKey === "bgame"} onClick={() => run("bgame", () => Api.beginnerGame(d.id))}>
               {waiting ? `🔀 Reshuffle game ${waiting.number}` : "▶️ Deal a game"}
             </Button>

@@ -238,12 +238,15 @@ log("Paula rated herself Beginner on joining, changed it to Intermediate; only s
 if ((await org.getByRole("button", { name: "Start check-in" }).count()) !== 0) fail("check-in is no longer a step");
 await shot(org, "04-ready");
 await org.getByRole("button", { name: "Start session →" }).click();
-// On deck: round 2 is dealt the moment round 1 starts.
+// Start deals round 1 alone: the roster is still moving, so round 2 waits for the first score — or the organizer.
 const nowCard = org.getByTestId("now-playing");
 const nextCard = org.getByTestId("up-next");
+await nowCard.getByText("Round 1").first().waitFor({ timeout: 15000 });
+await org.getByTestId("round2-waits").waitFor({ timeout: 10000 });
+if ((await nextCard.count()) !== 0) fail("round 2 must not be dealt at Start");
+await org.getByRole("button", { name: "Deal round 2 now" }).click();
 await nextCard.getByRole("heading", { name: "Round 2" }).waitFor({ timeout: 15000 });
-await nowCard.getByText("Round 1").first().waitFor();
-log("session started straight from signup — round 1 in play, round 2 already up next");
+log("session started straight from signup — round 1 only; round 2 is dealt when the organizer asks (or at the first score)");
 
 const scoreBtn = (pg, court) =>
   pg.getByTestId("now-playing").getByRole("button", { name: new RegExp(`(Enter|Edit) score, Court ${court}$`) });
@@ -458,6 +461,7 @@ log("bring back an 18-player roster: all 18 copied with their levels");
 const dn = await api("POST", "/sessions", { name: "Drop-out Night", format: "americano", courts: 2, pointsPerMatch: 16 });
 for (let i = 1; i <= 8; i++) await api("POST", `/sessions/${dn.id}/players`, { guestName: `D${i}` });
 await api("POST", `/sessions/${dn.id}/status`, { action: "start" });
+await api("POST", `/sessions/${dn.id}/rounds`, { force: true }); // round 2 up next, as the rest of this scenario expects
 let dd = await api("GET", `/sessions/${dn.id}`);
 const [c1, c2] = dd.rounds[0].matches;
 await api("POST", `/matches/${c1.id}/score`, { scoreA: 16, scoreB: 0 });
@@ -499,6 +503,7 @@ await shot(org, "14-teams-roster");
 log("keep teams together: organizer pairs Ana with Ben in the roster; the hint counts who the app will pair");
 
 await api("POST", `/sessions/${ft.id}/status`, { action: "start" });
+await api("POST", `/sessions/${ft.id}/rounds`, { force: true }); // round 2 up next, as the rest of this scenario expects
 fd = await api("GET", `/sessions/${ft.id}`);
 const partnerAtStart = new Map(fd.players.map((p) => [p.id, p.partnerId]));
 if (fd.players.some((p) => !p.partnerId)) fail("everyone should be paired once round 1 is dealt");
@@ -560,6 +565,7 @@ log(`final: champion "${champ}" on the podium, public results and past-sessions 
 const ah = await api("POST", "/sessions", { name: "Ahead Night", format: "americano", courtLabels: ["3", "4"], pointsPerMatch: 16 });
 for (let i = 1; i <= 12; i++) await api("POST", `/sessions/${ah.id}/players`, { guestName: `A${i}` });
 await api("POST", `/sessions/${ah.id}/status`, { action: "start" });
+await api("POST", `/sessions/${ah.id}/rounds`, { force: true }); // round 2 up next, as the rest of this scenario expects
 let ad = await api("GET", `/sessions/${ah.id}`);
 if (ad.courts !== 2 || ad.courtLabels.join() !== "3,4") fail(`courts 3 and 4 expected, got ${ad.courts} / ${ad.courtLabels}`);
 if (ad.rounds.length !== 2) fail("round 2 should be dealt up next as soon as round 1 starts");
@@ -605,6 +611,7 @@ log(`Court ${fast.court + 2} done → ${readyNow} round-2 court(s) ready; Court 
 const tn = await api("POST", "/sessions", { name: "Six Teams Night", format: "americano", courts: 3, pointsPerMatch: 16, fixedTeams: true });
 for (const g of ["T1", "T2", "T3", "T4", "T5", "T6"]) await api("POST", `/sessions/${tn.id}/players`, { guestName: g });
 await api("POST", `/sessions/${tn.id}/status`, { action: "start" });
+await api("POST", `/sessions/${tn.id}/rounds`, { force: true }); // round 2 up next, as the rest of this scenario expects
 let td = await api("GET", `/sessions/${tn.id}`);
 if (td.rounds[0].matches.length !== 1 || td.rounds[0].byes.length !== 2) fail("6 players in teams: one court, one team sitting");
 await org.goto(`${BASE}/app/sessions/${tn.id}`);
@@ -651,6 +658,7 @@ if (bd.beginnerCourtNo !== 2) fail(`the beginner court should be court 2, got ${
 const newbieIds = new Set(bd.players.filter((p) => p.newbie).map((p) => p.id));
 if (newbieIds.size !== 6) fail(`6 newbies should be tagged, got ${newbieIds.size}`);
 await api("POST", `/sessions/${bc.id}/status`, { action: "start" });
+await api("POST", `/sessions/${bc.id}/rounds`, { force: true }); // round 2 up next, as the rest of this scenario expects
 const reloadBd = async () => (bd = await api("GET", `/sessions/${bc.id}`));
 const inRound = (r) => [...r.byes, ...r.matches.flatMap((m) => [...m.a, ...m.b])];
 const scoreRound = async (r) => {
@@ -778,6 +786,7 @@ const cc = await api("POST", "/sessions", { name: "Coached Court Night", format:
 for (let i = 1; i <= 12; i++) await api("POST", `/sessions/${cc.id}/players`, { guestName: `T${i}` });
 for (let i = 1; i <= 3; i++) await api("POST", `/sessions/${cc.id}/players`, { guestName: `Coachee${i}`, newbie: true });
 await api("POST", `/sessions/${cc.id}/status`, { action: "start" });
+await api("POST", `/sessions/${cc.id}/rounds`, { force: true }); // round 2 up next, as the rest of this scenario expects
 let cd = await api("GET", `/sessions/${cc.id}`);
 if (!cd.beginnerCourtCoached || !cd.coachedActive || cd.poolsActive) fail("the session should be running a coached court (not a games court)");
 const coachees = new Set(cd.players.filter((p) => p.newbie).map((p) => p.id));
@@ -842,6 +851,74 @@ await org.getByText("🌱 Beginner court 4").waitFor({ timeout: 10000 });
 await org.getByTestId("beginner-games").getByRole("heading", { name: "Game 1" }).waitFor({ timeout: 10000 });
 log("coached court: untagging brings a player into the tournament; switching Court 4 to Games at halftime starts the newbies' own games there");
 
+// --- Moving a player to the beginner court pulls them off the games that haven't been played ----
+const mv = await api("POST", "/sessions", { name: "Move Night", format: "americano", courts: 3, pointsPerMatch: 16, maxPlayers: 24, beginnerCourt: true, beginnerCourtNo: 3 });
+for (let i = 1; i <= 4; i++) await api("POST", `/sessions/${mv.id}/players`, { guestName: `Nub${i}`, newbie: true });
+for (let i = 1; i <= 13; i++) await api("POST", `/sessions/${mv.id}/players`, { guestName: `Kay${String(i).padStart(2, "0")}` });
+await api("POST", `/sessions/${mv.id}/status`, { action: "start" });
+let md = await api("GET", `/sessions/${mv.id}`);
+const reloadMd = async () => (md = await api("GET", `/sessions/${mv.id}`));
+const mvName = (id) => md.players.find((p) => p.id === id).name;
+const onCourtIn = (r) => r.matches.flatMap((m) => [...m.a, ...m.b]);
+if (md.rounds.length !== 1) fail(`Start should deal round 1 only, got ${md.rounds.length} rounds`);
+if (md.rounds[0].matches.length !== 2 || md.rounds[0].byes.length !== 5 || md.beginnerRounds.length !== 1) fail("13 on two courts (5 sitting) and the newbies' game 1 expected");
+// (a) Someone sitting round 1 is set to Newbie level: tagged with it, and no longer listed as sitting the main round.
+const sitterToMove = md.rounds[0].byes[0];
+await api("PATCH", `/sessions/${mv.id}/players/${sitterToMove}`, { action: "set_level", level: 1 });
+await reloadMd();
+if (!md.players.find((p) => p.id === sitterToMove).newbie) fail("setting a player's level to Newbie should tag them for the beginner court");
+if (md.rounds[0].byes.includes(sitterToMove)) fail("a player moved to the beginner court isn't sitting the main round any more");
+// (b) Round 2 is dealt; a player in it is moved down: nothing of round 2 can have started, so it's dealt again without them.
+await api("POST", `/sessions/${mv.id}/rounds`, { force: true });
+await reloadMd();
+const round1Before = JSON.stringify(md.rounds[0]);
+const deckBefore = md.rounds[1];
+const inDeckOnly = onCourtIn(deckBefore).find((id) => !onCourtIn(md.rounds[0]).includes(id));
+await api("PATCH", `/sessions/${mv.id}/players/${inDeckOnly}`, { action: "set_newbie", newbie: true });
+await reloadMd();
+if (md.rounds.length !== 2 || md.rounds[1].id === deckBefore.id) fail("the round up next should be dealt again when a player in it moves to the beginner court");
+if ([...onCourtIn(md.rounds[1]), ...md.rounds[1].byes].includes(inDeckOnly)) fail("the moved player must not be in the re-dealt round, playing or sitting");
+if (JSON.stringify(md.rounds[0]) !== round1Before) fail("the round being played must be left alone");
+// (c) A player on court now, moved down without the organizer's say-so: finishes that game, but is out of the next round.
+const [stays, goes] = onCourtIn(md.rounds[0]);
+await api("PATCH", `/sessions/${mv.id}/players/${stays}`, { action: "set_newbie", newbie: true });
+await reloadMd();
+if (!onCourtIn(md.rounds[0]).includes(stays)) fail("without the organizer's OK, a player on court finishes their game");
+if ([...onCourtIn(md.rounds[1]), ...md.rounds[1].byes].includes(stays)) fail("…but they're out of the round up next");
+// (d) The same from the screen: the Newbie switch asks, the organizer says yes (dialogs are accepted), and a sitter comes on.
+const sittersBefore = [...md.rounds[0].byes];
+await org.goto(`${BASE}/app/sessions/${mv.id}`);
+const goesRow = org.locator("tr", { hasText: mvName(goes) });
+await goesRow.getByRole("switch", { name: "Newbie", exact: true }).click();
+await org.waitForFunction(async ([id, pid]) => (await (await fetch(`/api/sessions/${id}`)).json()).players.find((p) => p.id === pid).newbie, [mv.id, goes], { timeout: 10000 });
+await reloadMd();
+if (onCourtIn(md.rounds[0]).includes(goes)) fail("with the organizer's OK, the player comes off the game on court");
+const cameOn = onCourtIn(md.rounds[0]).filter((id) => sittersBefore.includes(id));
+if (cameOn.length !== 1 || onCourtIn(md.rounds[0]).length !== 8) fail(`one of the sitters should take the place, got ${cameOn.length}`);
+if (md.rounds[0].byes.includes(goes) || md.rounds[0].byes.includes(cameOn[0])) fail("neither the mover nor the replacement is listed as sitting round 1");
+if ([...onCourtIn(md.rounds[1]), ...md.rounds[1].byes].some((id) => md.players.find((p) => p.id === id).newbie)) fail("no newbie should be left in the round up next");
+// (e) Moved back up: dealt into the round up next again.
+await api("PATCH", `/sessions/${mv.id}/players/${inDeckOnly}`, { action: "set_newbie", newbie: false });
+await reloadMd();
+if (![...onCourtIn(md.rounds[1]), ...md.rounds[1].byes].includes(inDeckOnly)) fail("a player moved back up should be in the round up next");
+await shot(org, "20b-move-to-beginner-court");
+log("moving to the beginner court: Newbie level tags the player; the round up next is re-dealt without them; a game on court changes only with the organizer's OK; moving up deals them back in");
+
+// --- Beginner court: "Next game" rotates the court without a score ----
+await org.reload();
+const mvGames = org.getByTestId("beginner-games");
+await mvGames.getByRole("heading", { name: "Game 1" }).waitFor({ timeout: 10000 });
+const game1 = md.beginnerRounds[0];
+await mvGames.getByRole("button", { name: /Next game · no score/ }).click();
+await mvGames.getByRole("heading", { name: "Game 2" }).waitFor({ timeout: 10000 });
+await reloadMd();
+const [doneGame, game2] = md.beginnerRounds;
+if (md.beginnerRounds.length !== 2 || !doneGame.complete || doneGame.matches[0].status !== "skipped" || doneGame.matches[0].scoreA != null) fail("game 1 should count as played, without a score");
+if (!game1.byes.every((id) => !md.players.find((p) => p.id === id).newbie || onCourtIn(game2).includes(id))) fail("whoever sat game 1 should be on court for game 2");
+if (md.beginnerStandings.some((r) => r.played > 0 || r.points > 0)) fail("a game moved on from without a score must not count in the beginner table");
+if (md.rounds.length !== 2) fail("the beginner court's Next game must not deal a main round");
+log("beginner court: Next game moves on without a score — the sitters come on, nothing is added to the table");
+
 await org.goto(`${BASE}/app`);
 await org.getByRole("button", { name: /New session/ }).click();
 await org.getByPlaceholder("Thursday Padel Jam").fill("Quick Start Night");
@@ -862,13 +939,11 @@ log("quick start from draft: 4 names → Start → round 1 (no signup step)");
 await shot(org, "12-quick-start");
 
 // --- Undo every round → recover: deal round 1 again, or step back to check-in
-await org.getByRole("button", { name: "Undo round 2" }).click();
 await org.getByRole("button", { name: "Undo round 1" }).click();
 await org.getByText("No rounds on the board").waitFor({ timeout: 10000 });
 await shot(org, "13-empty-board");
 await org.getByRole("button", { name: /Start round 1/ }).click();
-await org.getByTestId("up-next").getByRole("heading", { name: "Round 2" }).waitFor({ timeout: 15000 });
-await org.getByRole("button", { name: "Undo round 2" }).click();
+await org.getByTestId("round2-waits").waitFor({ timeout: 15000 });
 await org.getByRole("button", { name: "Undo round 1" }).click();
 await org.getByRole("button", { name: /Back to setup/ }).click();
 await org.getByText("Game day?").waitFor({ timeout: 10000 });
@@ -942,6 +1017,7 @@ log("signed-out planner → sign in → lands on the prefilled form (2 courts ·
 const finalsSession = await api("POST", "/sessions", { name: "Finals Night", format: "americano", courts: 2, pointsPerMatch: 16, maxPlayers: 24 });
 for (let i = 1; i <= 20; i++) await api("POST", `/sessions/${finalsSession.id}/players`, { guestName: `F${i}` });
 await api("POST", `/sessions/${finalsSession.id}/status`, { action: "start" });
+await api("POST", `/sessions/${finalsSession.id}/rounds`, { force: true }); // round 2 up next, as the rest of this scenario expects
 let finalsNight = await api("GET", `/sessions/${finalsSession.id}`);
 const reloadFinals = async () => (finalsNight = await api("GET", `/sessions/${finalsSession.id}`));
 if (finalsNight.finals) fail("finals should be off until the organizer calls them");
@@ -1158,6 +1234,7 @@ dryRun = await api("GET", `/sessions/${dry.id}`);
 if (dryRun.players.length !== 17 || !dryRun.players.some((p) => p.name === "Test-Jessica" && p.isGuest) || !dryRun.players.some((p) => p.name === "Jessica Test" && !p.isGuest)) fail("a real Jessica should join alongside the stand-in, not take it over");
 // And it plays: 13 in the tournament on courts 1–3, the 4 newbies with the coach.
 await api("POST", `/sessions/${dry.id}/status`, { action: "start" });
+await api("POST", `/sessions/${dry.id}/rounds`, { force: true }); // round 2 up next, as the rest of this scenario expects
 dryRun = await api("GET", `/sessions/${dry.id}`);
 if (!dryRun.coachedActive || dryRun.rounds[0].matches.length !== 3 || dryRun.rounds[0].matches.some((m) => m.court === 4) || dryRun.rounds[0].byes.length !== 1) fail("the dry run should deal 3 courts with one sitting and leave Court 4 to the coach");
 log("test players: one tap adds 12 (6 women, 6 men, 3 per level), another adds 4 more; Newbies tagged; a real player never takes a stand-in's entry");

@@ -185,7 +185,7 @@ async function loadAllRoundsFor(db: DB, sessionIds: string[]): Promise<Map<strin
         createdAt: r.createdAt,
         byes,
         matches: ms,
-        complete: ms.length > 0 && ms.every((m) => m.status === "confirmed"),
+        complete: ms.length > 0 && ms.every((m) => m.status === "confirmed" || m.status === "skipped"),
         track: r.track === "beginner" || r.track === "main" ? r.track : null,
       });
     }

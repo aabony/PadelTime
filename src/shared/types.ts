@@ -3,7 +3,9 @@ import type { StoredProfile } from "./profile";
 
 export type SessionStatus = "draft" | "open" | "checkin" | "active" | "complete" | "cancelled";
 export type PlayerStatus = "confirmed" | "waitlist" | "checked_in" | "dropped";
-export type MatchStatus = "pending" | "submitted" | "disputed" | "confirmed";
+// "skipped": a beginner-court game the organizer moved on from without a score — played, counted for the
+// rotation, but no result.
+export type MatchStatus = "pending" | "submitted" | "disputed" | "confirmed" | "skipped";
 export type FormatKey = "americano" | "mexicano";
 export type GroupRole = "organizer" | "member";
 

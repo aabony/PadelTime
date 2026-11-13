@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { getFormat } from "../../shared/formats/registry";
 import { BEGINNER_TRACK_BASE, beginnerCourtOf, coachedActive, planBeginnerGame, planCoached, poolRounds, poolsActive } from "../../shared/formats/pools";
 import { autoPair } from "../../shared/formats/teams";
+import { waitingToStart } from "../../shared/swap";
 import type { EngineContext, PlannedMatch } from "../../shared/formats/types";
 import type { MatchRow, RoundRow } from "../../shared/types";
 import { buildHistory, creditAbsences } from "../../shared/history";
@@ -136,8 +137,9 @@ export async function generateNextRound(
 /**
  * On deck: while a round is being played, the round after it is already dealt,
  * so the players sitting out can stand by at their court and everyone on court
- * knows where they're headed next. Called at the start and after every score:
- * once the round before the one on deck is fully scored, the next one is dealt.
+ * knows where they're headed next. Called after every score: once the round
+ * before the one on deck is fully scored, the next one is dealt. Round 1 is
+ * the exception — Start deals it alone, and round 2 follows its first score.
  * In Competitive that places the round on deck from the standings one round
  * back — the price of knowing every court before the round in play ends.
  */
@@ -153,6 +155,9 @@ async function keepMainUpNext(db: DB, session: SessionRow): Promise<void> {
   const latest = played[played.length - 1];
   const before = played[played.length - 2];
   if (!latest) return;
+  // Round 1 just started: the first minutes are when the roster changes most (late arrivals, levels
+  // corrected, no-shows), so round 2 isn't dealt until round 1's first score is in — or the organizer asks.
+  if (!before && !latest.matches.some((m) => m.status === "confirmed")) return;
   if (before && !before.complete) {
     // Already one round on deck: a court that just finished frees up, so a game
     // whose four are all standing by moves onto it (nothing's played yet).
@@ -289,6 +294,25 @@ async function recourtUpNext(db: DB, playing: RoundRow, upNext: RoundRow, courts
     const court = planned.find((x) => x.a[0] === m.a[0])?.court;
     if (court != null && court !== m.court) await db.update(matches).set({ court }).where(eq(matches.id, m.id));
   }
+}
+
+/**
+ * The draw changed (someone moved to or from the beginner court): the round up
+ * next is dealt again with the people now in it — but only while none of its
+ * games can have started, so nobody is pulled off a court. Returns whether it was.
+ */
+export async function redealUpNext(db: DB, session: SessionRow): Promise<boolean> {
+  if (session.status !== "active") return false;
+  const played = await loadRounds(db, session.id);
+  const upNext = played[played.length - 1];
+  const playing = played[played.length - 2];
+  if (!upNext || !playing || playing.complete) return false;
+  if (upNext.matches.some((m) => m.scoreA != null || m.status !== "pending")) return false;
+  const live = playing.matches.map((m) => ({ court: m.court, players: [...m.a, ...m.b], finished: m.status === "confirmed" }));
+  if (!upNext.matches.every((m) => waitingToStart(live, { court: m.court, players: [...m.a, ...m.b] }))) return false;
+  await db.delete(rounds).where(eq(rounds.id, upNext.id));
+  await generateNextRound(db, session, { force: true });
+  return true;
 }
 
 /** Finishing the night: rounds dealt at the end that nobody played (no scores) are dropped. */

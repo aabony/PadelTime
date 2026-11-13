@@ -116,6 +116,8 @@ export const Api = {
     req<{ roundNumber?: number }>(`/sessions/${id}/rounds`, post(opts)),
   /** The beginner court's own game: reshuffle the one waiting for a score, or deal one if the court is idle. */
   beginnerGame: (id: string) => req(`/sessions/${id}/rounds`, post({ beginner: true })),
+  /** The beginner court's game is over and nobody kept score: count it as played and deal the next four. */
+  beginnerNext: (id: string) => req(`/sessions/${id}/rounds`, post({ beginner: true, next: true })),
   undoRound: (id: string, roundId: string) =>
     req(`/sessions/${id}/rounds/${roundId}`, { method: "DELETE" }),
   swapPlayer: (id: string, roundId: string, out: string, inn: string) =>
