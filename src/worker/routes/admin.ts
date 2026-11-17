@@ -1,4 +1,4 @@
-import { desc, eq, isNotNull, ne, and, sql } from "drizzle-orm";
+import { desc, eq, inArray, isNotNull, isNull, ne, and, sql } from "drizzle-orm";
 import type { DB } from "../lib/detail";
 import { Hono } from "hono";
 import { parseGender } from "../../shared/genders";
@@ -6,7 +6,10 @@ import { normalizeLevel } from "../../shared/levels";
 import { NO_STATS, deleteBlock, deleteBlockReason, guestNameFor } from "../../shared/members";
 import type { MemberRow, MemberStats, MembersResponse } from "../../shared/members";
 import { isProfileComplete, validateProfilePatch } from "../../shared/profile";
-import { gameSessions, groups, playerResults, sessionPlayers, user } from "../db/schema";
+import { gameSessions, groupMembers, groups, playerResults, sessionPlayers, user } from "../db/schema";
+import type { GuestsResponse } from "../../shared/guests";
+import { isTestPlayerName } from "../../shared/testPlayers";
+import { newId, now } from "../lib/util";
 import { isAdminEmail } from "./admins";
 import type { ApiCtx } from "./context";
 
@@ -165,4 +168,76 @@ adminRoutes.put("/admin/members/:id", async (c) => {
     .set({ ...p, name, updatedAt: new Date() })
     .where(eq(user.id, target.id));
   return c.json({ ok: true, name, profileComplete: isProfileComplete(p) });
+});
+
+// Players without an account: everyone added to a roster by name who went on to
+// play a scored game. Their results belong to no member until they're linked.
+adminRoutes.get("/admin/guests", async (c) => {
+  const u = c.get("user");
+  if (!u) return c.json({ error: "Sign in required" }, 401);
+  if (!u.isAdmin) return c.json({ error: "Admins only" }, 403);
+  const db = c.get("db");
+  const rows = await db
+    .select({
+      playerId: sessionPlayers.id,
+      name: sessionPlayers.guestName,
+      sessionId: gameSessions.id,
+      sessionName: gameSessions.name,
+      sessionAt: gameSessions.createdAt,
+      games: sql<number>`count(${playerResults.id})`,
+    })
+    .from(sessionPlayers)
+    .innerJoin(gameSessions, eq(sessionPlayers.sessionId, gameSessions.id))
+    .innerJoin(playerResults, eq(playerResults.playerId, sessionPlayers.id))
+    .where(isNull(sessionPlayers.userId))
+    .groupBy(sessionPlayers.id);
+  const res: GuestsResponse = {
+    guests: rows
+      .filter((r) => r.name && !isTestPlayerName(r.name))
+      .map((r) => ({ playerId: r.playerId, name: r.name!, sessionId: r.sessionId, sessionName: r.sessionName, sessionAt: Number(r.sessionAt), games: Number(r.games) })),
+  };
+  return c.json(res);
+});
+
+// Link guest entries to a registered member: the entry becomes the member's own, so its games count
+// in their stats and the tournament shows in their history. An entry in a tournament the member is
+// already on is left alone (two rows for one person would deal them twice) and reported back.
+adminRoutes.post("/admin/guests/link", async (c) => {
+  const u = c.get("user");
+  if (!u) return c.json({ error: "Sign in required" }, 401);
+  if (!u.isAdmin) return c.json({ error: "Admins only" }, 403);
+  const db = c.get("db");
+  const body = await c.req.json().catch(() => ({}));
+  const userId = typeof body.userId === "string" ? body.userId : "";
+  const playerIds: string[] = Array.isArray(body.playerIds) ? body.playerIds.filter((x: unknown): x is string => typeof x === "string").slice(0, 80) : [];
+  if (!userId || playerIds.length === 0) return c.json({ error: "Pick a member and at least one tournament" }, 400);
+  const [member] = await db.select().from(user).where(eq(user.id, userId)).limit(1);
+  if (!member) return c.json({ error: "That member no longer exists" }, 404);
+
+  const entries = await db.select().from(sessionPlayers).where(inArray(sessionPlayers.id, playerIds));
+  const guests = entries.filter((e) => !e.userId);
+  const mine = await db.select({ sessionId: sessionPlayers.sessionId }).from(sessionPlayers).where(eq(sessionPlayers.userId, member.id));
+  const already = new Set(mine.map((r) => r.sessionId));
+  let linked = 0;
+  const skipped: string[] = [];
+  for (const g of guests) {
+    if (already.has(g.sessionId)) {
+      skipped.push(g.sessionId);
+      continue;
+    }
+    await db.update(sessionPlayers).set({ userId: member.id, guestName: null }).where(eq(sessionPlayers.id, g.id));
+    already.add(g.sessionId);
+    linked++;
+    // On a roster means part of that tournament's crew, as joining from the link does.
+    const [session] = await db.select({ groupId: gameSessions.groupId }).from(gameSessions).where(eq(gameSessions.id, g.sessionId)).limit(1);
+    if (session) {
+      const [membership] = await db
+        .select()
+        .from(groupMembers)
+        .where(and(eq(groupMembers.groupId, session.groupId), eq(groupMembers.userId, member.id)))
+        .limit(1);
+      if (!membership) await db.insert(groupMembers).values({ id: newId(), groupId: session.groupId, userId: member.id, role: "member", createdAt: now() });
+    }
+  }
+  return c.json({ ok: true, linked, skipped: skipped.length, name: member.name || member.email });
 });

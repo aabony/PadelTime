@@ -11,6 +11,8 @@ import { genderMeta } from "../../shared/genders";
 import { LEVELS, levelMeta } from "../../shared/levels";
 import { MEMBER_SORTS, filterMembers, membersCsv, pointsPerGame, record, sortMembers, winRate } from "../../shared/members";
 import type { MemberRow, MemberSort } from "../../shared/members";
+import { groupGuests, suggestMember } from "../../shared/guests";
+import type { GuestGroup } from "../../shared/guests";
 import { PLAYTOMIC_MAX, PLAYTOMIC_MIN, ageAt, missingProfileFields, namesFromLegacy, validateProfilePatch } from "../../shared/profile";
 
 // Admin only: everyone who has registered — who they are, how to reach them,
@@ -168,6 +170,14 @@ export function MembersPage() {
           Showing {shown.length} of {all.length}. Export CSV saves the ones shown.
         </p>
       )}
+
+      <GuestsSection
+        members={all}
+        onLinked={(message) => {
+          setNotice(message);
+          reload();
+        }}
+      />
 
       <Modal open={!!editing} onClose={() => setEditing(null)} title="Edit member">
         {editing && (
@@ -399,6 +409,148 @@ function MemberEditForm({ m, onCancel, onSaved }: { m: MemberRow; onCancel: () =
         </Button>
         <Button type="submit" className="flex-1" busy={busy}>
           Save
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+/**
+ * Players without an account: names the organizer typed onto a roster, who then
+ * played. Each can be linked to a registered member, tournament by tournament,
+ * so those games count in the member's stats.
+ */
+function GuestsSection({ members, onLinked }: { members: MemberRow[]; onLinked: (message: string) => void }) {
+  const { data, reload } = useLoad(() => Api.guests(), []);
+  const groups = useMemo(() => groupGuests(data?.guests ?? []), [data]);
+  const [linking, setLinking] = useState<GuestGroup | null>(null);
+  if (groups.length === 0) return null;
+  return (
+    <section className="space-y-3 border-t border-line pt-5" data-testid="guests">
+      <div>
+        <h2 className="text-lg font-black tracking-tight text-navy">Players without an account</h2>
+        <p className="text-sm text-muted">
+          {groups.length} name{groups.length === 1 ? " was" : "s were"} added to a roster by hand and played. Their games count for nobody until you link them to a
+          member. Someone who hasn't registered yet has to register first.
+        </p>
+      </div>
+      <ul className="space-y-2">
+        {groups.map((g) => {
+          const guess = suggestMember(g.name, members);
+          return (
+            <li key={g.key} className="flex items-center justify-between gap-3 rounded-2xl border border-line bg-white px-4 py-3">
+              <div className="min-w-0">
+                <p className="truncate font-bold text-navy">{g.name}</p>
+                <p className="text-xs text-muted">
+                  {g.entries.length} tournament{g.entries.length === 1 ? "" : "s"} · {g.games} game{g.games === 1 ? "" : "s"} · last played {fmtDate(g.lastAt)}
+                </p>
+                {guess && <p className="text-xs font-semibold text-royal">Looks like {guess.name.trim() || guess.email}</p>}
+              </div>
+              <Button size="sm" variant="secondary" className="shrink-0" aria-label={`Link ${g.name}`} onClick={() => setLinking(g)}>
+                Link
+              </Button>
+            </li>
+          );
+        })}
+      </ul>
+      <Modal open={!!linking} onClose={() => setLinking(null)} title="Link to a member">
+        {linking && (
+          <GuestLinkForm
+            key={linking.key}
+            group={linking}
+            members={members}
+            onCancel={() => setLinking(null)}
+            onDone={(message) => {
+              setLinking(null);
+              reload();
+              onLinked(message);
+            }}
+          />
+        )}
+      </Modal>
+    </section>
+  );
+}
+
+function GuestLinkForm({
+  group,
+  members,
+  onCancel,
+  onDone,
+}: {
+  group: GuestGroup;
+  members: MemberRow[];
+  onCancel: () => void;
+  onDone: (message: string) => void;
+}) {
+  const [memberId, setMemberId] = useState(() => suggestMember(group.name, members)?.id ?? "");
+  // The same name can be different people on different nights, so each tournament can be left out.
+  const [picked, setPicked] = useState(() => new Set(group.entries.map((e) => e.playerId)));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const sorted = useMemo(
+    () => [...members].sort((a, b) => (a.name.trim() || a.email).localeCompare(b.name.trim() || b.email, undefined, { sensitivity: "base" })),
+    [members],
+  );
+  const toggle = (id: string) =>
+    setPicked((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await Api.linkGuests(memberId, [...picked]);
+      const skipped = res.skipped > 0 ? ` ${res.skipped} left as it was: ${res.name} was already on that roster.` : "";
+      onDone(`Linked ${res.linked} tournament${res.linked === 1 ? "" : "s"} of "${group.name}" to ${res.name}.${skipped}`);
+    } catch (err) {
+      setError((err as Error).message);
+      setBusy(false);
+    }
+  };
+  return (
+    <form className="space-y-4" onSubmit={submit}>
+      <p className="text-sm text-ink">
+        Which member is <b className="text-navy">{group.name}</b>? Their games in the tournaments ticked below become that member's.
+      </p>
+      <Field label="Member">
+        <select aria-label="Member" className={cls(selectCls, "w-full")} value={memberId} onChange={(e) => setMemberId(e.target.value)}>
+          <option value="">Choose a member…</option>
+          {sorted.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.name.trim() ? `${m.name.trim()} (${m.email})` : m.email}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <FieldGroup label="Tournaments">
+        <ul className="space-y-1.5">
+          {group.entries.map((e) => (
+            <li key={e.playerId}>
+              <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-line px-3 py-2">
+                <input type="checkbox" className="size-5 accent-royal" checked={picked.has(e.playerId)} onChange={() => toggle(e.playerId)} />
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-bold text-navy">{e.sessionName}</span>
+                  <span className="block text-xs text-muted">
+                    {fmtDate(e.sessionAt)} · {e.games} game{e.games === 1 ? "" : "s"} · as "{e.name}"
+                  </span>
+                </span>
+              </label>
+            </li>
+          ))}
+        </ul>
+      </FieldGroup>
+      <ErrorNote message={error} />
+      <div className="flex gap-2">
+        <Button type="button" variant="ghost" className="flex-1" onClick={onCancel} disabled={busy}>
+          Cancel
+        </Button>
+        <Button type="submit" className="flex-1" busy={busy} disabled={!memberId || picked.size === 0}>
+          Link
         </Button>
       </div>
     </form>

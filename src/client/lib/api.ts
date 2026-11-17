@@ -9,6 +9,7 @@ import type {
   UserInfo,
 } from "../../shared/types";
 import type { MembersResponse } from "../../shared/members";
+import type { GuestsResponse } from "../../shared/guests";
 
 export class ApiError extends Error {
   status: number;
@@ -60,6 +61,11 @@ const patch = (body: unknown): RequestInit => ({ method: "PATCH", body: JSON.str
 export const Api = {
   me: () => req<MeResponse>("/me"),
   members: () => req<MembersResponse>("/admin/members"),
+  /** Everyone who played without an account (added to a roster by name). */
+  guests: () => req<GuestsResponse>("/admin/guests"),
+  /** Make those roster entries a registered member's own. */
+  linkGuests: (userId: string, playerIds: string[]) =>
+    req<{ ok: true; linked: number; skipped: number; name: string }>("/admin/guests/link", post({ userId, playerIds })),
   updateMember: (id: string, body: Record<string, unknown>) =>
     req<{ ok: true; name: string; profileComplete: boolean }>(`/admin/members/${id}`, { method: "PUT", body: JSON.stringify(body) }),
   deleteMember: (id: string) => req<{ ok: true; name: string }>(`/admin/members/${id}`, { method: "DELETE" }),
