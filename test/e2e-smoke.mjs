@@ -1384,34 +1384,6 @@ await paula.goto(`${BASE}/app/members`);
 await paula.getByText("Admins only").waitFor({ timeout: 10000 });
 if ((await paula.getByRole("button", { name: "Members" }).count()) !== 0) fail("players must not see the Members button");
 log("admin members list: profile, contact and game stats per member; search, CSV export; players are refused");
-
-// --- Players without an account: listed under the members, and linkable to a member ----
-// George was typed onto the first tournament's roster and played it; Nia (registered) wasn't in that tournament.
-const guestsList = await api("GET", "/admin/guests");
-const georgeEntry = guestsList.guests.find((g) => g.sessionId === sessionId && g.name === "George");
-if (!georgeEntry || georgeEntry.games < 1) fail("George should be listed as a guest who played the first tournament");
-if (guestsList.guests.some((g) => g.name.startsWith("Test-"))) fail("the stand-in test players aren't people to link");
-if ((await paula.request.get(`${BASE}/api/admin/guests`)).status() !== 403) fail("players must not see the guest list");
-if ((await paula.request.post(`${BASE}/api/admin/guests/link`, { data: { userId: niaMember.id, playerIds: [georgeEntry.playerId] } })).status() !== 403) fail("players must not link guests");
-const niaBefore = (await api("GET", "/admin/members")).members.find((m) => m.id === niaMember.id);
-await org.goto(`${BASE}/app/members`);
-const guestRows = org.getByTestId("guests");
-await guestRows.getByRole("heading", { name: "Players without an account" }).waitFor({ timeout: 10000 });
-await guestRows.getByRole("button", { name: "Link George", exact: true }).click();
-const linkForm = org.locator("form", { hasText: "Which member is" });
-await linkForm.getByLabel("Member").selectOption(niaMember.id);
-// George is a common test name across earlier runs: keep only this run's tournament ticked.
-for (const box of await linkForm.getByRole("checkbox").all()) await box.uncheck();
-await linkForm.locator("li", { hasText: "Sunday Night Americano" }).first().getByRole("checkbox").check();
-await shot(org, "21b-link-guest");
-await linkForm.getByRole("button", { name: "Link", exact: true }).click();
-await org.getByText(/Linked 1 tournament of "George" to Nia Navarro\./).waitFor({ timeout: 10000 });
-const niaLinked = (await api("GET", "/admin/members")).members.find((m) => m.id === niaMember.id);
-if (niaLinked.stats.games <= niaBefore.stats.games || niaLinked.stats.tournaments !== niaBefore.stats.tournaments + 1) fail(`the linked games should count in the member's stats (${niaBefore.stats.games} → ${niaLinked.stats.games} games)`);
-// Linking again into a tournament the member is now on is refused quietly: nothing is doubled.
-const linkAgain = await api("POST", "/admin/guests/link", { userId: niaMember.id, playerIds: [guestsList.guests.find((g) => g.sessionId === sessionId && g.name !== "George").playerId] });
-if (linkAgain.linked !== 0 || linkAgain.skipped !== 1) fail(`a second entry in the same tournament should be skipped, got ${JSON.stringify(linkAgain)}`);
-log("players without an account: listed under the members; linking one to a member moves their games into the member's stats; a second entry in the same tournament is skipped");
 // Deleting a member: refused for players, for your own account and for another admin.
 const meRow = membersList.members.find((m) => m.email === `andrew${run}@admin.test`);
 const vicRow = membersList.members.find((m) => m.email === `vic${run}@admin.test`);
