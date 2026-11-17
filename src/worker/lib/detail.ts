@@ -173,6 +173,7 @@ async function loadAllRoundsFor(db: DB, sessionIds: string[]): Promise<Map<strin
           scoreB: m.scoreB,
           status: m.status as MatchStatus,
           submittedBy: m.submittedBy,
+          confirmedAt: m.confirmedAt ?? null,
         }));
       let byes: string[] = [];
       try {

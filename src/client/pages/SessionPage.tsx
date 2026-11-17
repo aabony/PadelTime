@@ -47,6 +47,8 @@ import type { MemberRow } from "../../shared/members";
 import { genderMeta } from "../../shared/genders";
 import { NEWBIE, isNewbie, levelMeta } from "../../shared/levels";
 import { waitingToStart } from "../../shared/swap";
+import { courtBoard } from "../../shared/courtBoard";
+import type { CourtView } from "../../shared/courtBoard";
 import { newbiesIn } from "../../shared/newbieCap";
 import { TEST_BATCH, nextTestPlayers } from "../../shared/testPlayers";
 import { NightSummary } from "../components/NightSummary";
@@ -1152,9 +1154,6 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
   const previous = d.rounds.filter((r) => r !== playing && r !== upNext);
   const inPlay = playing?.matches.filter((m) => m.status !== "confirmed") ?? [];
   const waitingFor = waitingForCourt(d, inPlay);
-  // Up next and clear to start: the court is free and all four are free.
-  const liveCourts = (playing?.matches ?? []).map((m) => ({ court: m.court, players: [...m.a, ...m.b], finished: m.status === "confirmed" }));
-  const canGo = (m: MatchRow) => m.scoreA == null && m.status === "pending" && !waitingToStart(liveCourts, { court: m.court, players: [...m.a, ...m.b] });
   const myPlaying = playing?.matches.find((m) => [...m.a, ...m.b].includes(d.myPlayerId ?? ""));
   const myNext = upNext?.matches.find((m) => [...m.a, ...m.b].includes(d.myPlayerId ?? ""));
   const onCourtNow = !!myPlaying && myPlaying.status !== "confirmed";
@@ -1252,83 +1251,8 @@ function ActiveView({ d, isOrganizer, run, busyKey }: ViewProps) {
         </Card>
       )}
 
-      {playing && (
-        <div data-testid="now-playing">
-        <Card className="overflow-hidden border-2 border-go p-0! shadow-[0_12px_28px_-16px_rgba(26,163,74,0.6)]">
-          <div className="flex items-center justify-between gap-3 bg-go px-4 py-3.5 text-white">
-            <div>
-              <p className="flex items-center gap-1.5 text-xs font-black uppercase tracking-[0.16em]">
-                <span aria-hidden className="size-2 animate-pulse rounded-full bg-white" />
-                Now playing
-              </p>
-              <h2 className="text-[28px] font-black leading-none">
-                Round {playing.number}
-                {est && (
-                  <span className="ml-1.5 text-sm font-semibold text-white/80">{playing.number <= est ? `of ~${est}` : "· extra time"}</span>
-                )}
-              </h2>
-            </div>
-            {playing.complete ? (
-              <span className="rounded-full bg-white px-3 py-1 text-xs font-black uppercase text-go-dark">all scores in</span>
-            ) : (
-              <span className="rounded-full bg-white/20 px-3 py-1 text-xs font-black uppercase text-white">
-                {playing.matches.filter((m) => m.status === "confirmed").length}/{playing.matches.length} scored
-              </span>
-            )}
-          </div>
-          <div className="space-y-3 p-4">
-          {isOrganizer && <IdleCourtsNote d={d} inPlay={playing.matches.length} />}
-          <div className="grid gap-3 sm:grid-cols-2">
-            {playing.matches.map((m) => (
-              <CourtCard
-                key={m.id}
-                d={d}
-                m={m}
-                round={playing}
-                nameOf={nameOf}
-                isOrganizer={isOrganizer}
-                run={run}
-                busyKey={busyKey}
-                beginner={isBeginnerCourt(d, m)}
-              />
-            ))}
-          </div>
-          </div>
-        </Card>
-        </div>
-      )}
-
-      {upNext && (
-        <div data-testid="up-next">
-        <Card className="overflow-hidden border-standby-dark/30 p-0!">
-          <div className="flex items-center justify-between gap-3 bg-standby px-4 py-3.5">
-            <div>
-              <p className="text-xs font-black uppercase tracking-[0.16em] text-navy">Up next</p>
-              <h2 className="text-[28px] font-black leading-none text-navy">Round {upNext.number}</h2>
-            </div>
-          </div>
-          <div className="space-y-3 p-4">
-            <div className="grid gap-3 sm:grid-cols-2">
-              {upNext.matches.map((m) => (
-                <CourtCard
-                  key={m.id}
-                  d={d}
-                  m={m}
-                  round={upNext}
-                  onDeck
-                  go={canGo(m)}
-                  nameOf={nameOf}
-                  isOrganizer={isOrganizer}
-                  run={run}
-                  busyKey={busyKey}
-                  beginner={isBeginnerCourt(d, m)}
-                />
-              ))}
-            </div>
-          </div>
-        </Card>
-        </div>
-      )}
+      {/* The court board: one card per court — who's on it, who's next, and the one thing to do about it. */}
+      {playing && <CourtBoard d={d} playing={playing} est={est} nameOf={nameOf} isOrganizer={isOrganizer} run={run} busyKey={busyKey} />}
 
       {/* The beginner court's own games sit under the tournament's rounds and never hold them up. */}
       <BeginnerGamesCard d={d} nameOf={nameOf} isOrganizer={isOrganizer} run={run} busyKey={busyKey} />
@@ -1783,13 +1707,244 @@ function IdleCourtsNote({ d, inPlay }: { d: SessionDetail; inPlay: number }) {
   );
 }
 
+/** Hold amber: dark enough for white text on the band (the theme's amber-dark isn't). */
+const HOLD = { band: "bg-[#8a5200]", border: "border-[#8a5200]", title: "text-[#6b3f00]", rule: "border-[#e6c98f]", foot: "text-[#5a3600]" } as const;
+const GO = { band: "bg-go-dark", border: "border-go-dark", title: "text-[#0f5c2b]", rule: "border-[#a9dcc3]", foot: "text-[#1c4a36]" } as const;
+
+/**
+ * The live screen as signage: one card per court. A court that is simply
+ * playing is calm; the only things that shout are "Go now" (these four can
+ * walk on) and "Hold" (the court is free but one of its four is still playing).
+ */
+function CourtBoard({
+  d,
+  playing,
+  est,
+  nameOf,
+  isOrganizer,
+  run,
+  busyKey,
+}: ViewProps & { playing: RoundRow; est: number | null; nameOf: (id: string) => string }) {
+  const [scoring, setScoring] = useState<MatchRow | null>(null);
+  const [swapping, setSwapping] = useState<{ m: MatchRow; round: RoundRow } | null>(null);
+  const courts = courtBoard(d.rounds, Date.now());
+  const scored = playing.matches.filter((m) => m.status === "confirmed").length;
+  const label = (court: number) => `Court ${courtLabel(d.courtLabels, court)}`;
+  // The dialogs follow the freshest copy of their game (the page re-polls underneath them).
+  const fresh = (m: MatchRow) => d.rounds.flatMap((r) => r.matches).find((x) => x.id === m.id) ?? m;
+  const swapRound = swapping && d.rounds.find((r) => r.id === swapping.round.id);
+  return (
+    <div className="space-y-3" data-testid="court-board">
+      <div className="flex items-end justify-between gap-3 px-1">
+        <div>
+          <p className="text-[11px] font-extrabold uppercase tracking-[0.14em] text-muted">
+            Round {playing.number}
+            {est ? (playing.number <= est ? ` of ~${est}` : " · extra time") : ""}
+          </p>
+          <h2 className="text-3xl font-black leading-tight tracking-tight text-navy">Courts</h2>
+        </div>
+        <p className="mb-1 text-sm font-bold text-muted">
+          {scored} of {playing.matches.length} scored
+        </p>
+      </div>
+      {isOrganizer && <IdleCourtsNote d={d} inPlay={playing.matches.length} />}
+      <div className="grid gap-3 sm:grid-cols-2">
+        {courts.map((c) => (
+          <BoardCourt
+            key={c.court}
+            d={d}
+            c={c}
+            name={label(c.court)}
+            nameOf={nameOf}
+            isOrganizer={isOrganizer}
+            onScore={setScoring}
+            onSwap={(m, round) => setSwapping({ m, round })}
+          />
+        ))}
+      </div>
+      {scoring && (
+        <Modal open onClose={() => setScoring(null)} title={`${label(scoring.court)} — score`}>
+          <ScoreEntry
+            total={d.pointsPerMatch}
+            teamA={teamNames(scoring.a, nameOf)}
+            teamB={teamNames(scoring.b, nameOf)}
+            initialA={fresh(scoring).scoreA}
+            busy={busyKey === `score-${scoring.id}`}
+            submitLabel="Save score"
+            onSubmit={(a, b) =>
+              run(`score-${scoring.id}`, async () => {
+                await Api.score(scoring.id, a, b);
+                setScoring(null);
+              })
+            }
+          />
+        </Modal>
+      )}
+      {swapping && swapRound && (
+        <SwapModal open onClose={() => setSwapping(null)} d={d} m={fresh(swapping.m)} round={swapRound} nameOf={nameOf} run={run} busyKey={busyKey} />
+      )}
+    </div>
+  );
+}
+
+/** One court on the board. */
+function BoardCourt({
+  d,
+  c,
+  name,
+  nameOf,
+  isOrganizer,
+  onScore,
+  onSwap,
+}: {
+  d: SessionDetail;
+  c: CourtView;
+  name: string;
+  nameOf: (id: string) => string;
+  isOrganizer: boolean;
+  onScore: (m: MatchRow) => void;
+  onSwap: (m: MatchRow, round: RoundRow) => void;
+}) {
+  const { state, game, round, next, nextRound, last } = c;
+  const loud = state === "go" || state === "hold";
+  const tone = state === "go" ? GO : HOLD;
+  const swapWhat = d.fixedTeams ? "team" : "player";
+  const waiting = new Set(c.waitingFor.map((w) => w.id));
+  const shown = game ?? last;
+  const canSwap = (m: MatchRow) => isOrganizer && m.scoreA == null && m.status === "pending";
+  const tapToScore = isOrganizer && !!shown && state !== "hold";
+  // A button inside the card does its own thing, not the card's.
+  const only = (act: () => void) => (e: { stopPropagation: () => void }) => {
+    e.stopPropagation();
+    act();
+  };
+  // "Kevin is still playing on Court 2." — or two names, or more than one court.
+  const holdLine = () => {
+    const names = c.waitingFor.map((w) => nameOf(w.id));
+    const where = [...new Set(c.waitingFor.map((w) => w.court))].map((n) => `Court ${courtLabel(d.courtLabels, n)}`);
+    const who = names.length > 2 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : names.join(" and ");
+    return `${who} ${names.length === 1 ? "is" : "are"} still playing on ${where.join(" and ")}.`;
+  };
+  // A team's two names; on a held court the ones it's waiting for stand out.
+  const team = (ids: [string, string]) =>
+    ids.map((id, i) => (
+      <Fragment key={id}>
+        {i > 0 && " + "}
+        {waiting.has(id) ? <span className={cls("rounded-md px-1.5 text-white", HOLD.band)}>{nameOf(id)}</span> : nameOf(id)}
+      </Fragment>
+    ));
+  return (
+    <section
+      className={cls(
+        "overflow-hidden rounded-2xl",
+        loud ? cls("border-2", tone.border, state === "go" ? "bg-mint-soft" : "bg-amber-soft") : "border border-line bg-white",
+        tapToScore && "cursor-pointer",
+      )}
+      // For the organizer the whole court is a tap target for the score sheet (not while it's held: nothing to score).
+      onClick={tapToScore ? () => onScore(shown!) : undefined}
+      data-testid="court"
+      data-court={courtLabel(d.courtLabels, c.court)}
+      data-state={state}
+    >
+      {loud && (
+        <div className={cls("flex items-center gap-3 px-4 py-3.5 text-white", tone.band)} data-testid={state === "go" ? "go-now" : "hold"}>
+          <svg aria-hidden="true" className="size-7 shrink-0" viewBox="0 0 24 24" fill="currentColor">
+            {state === "go" ? <path d="M6 4l14 8-14 8z" /> : <path d="M6 4h4v16H6zM14 4h4v16h-4z" />}
+          </svg>
+          <div>
+            <p className="text-[28px] font-black uppercase leading-none tracking-tight">{state === "go" ? "Go now" : "Hold"}</p>
+            <p className="mt-0.5 text-sm font-bold">{state === "go" ? `${name} is free. Send these four on.` : holdLine()}</p>
+          </div>
+        </div>
+      )}
+      <div className="space-y-3 p-4">
+        <div className="flex items-center justify-between gap-2">
+          <h3 className={cls("text-[28px] font-black uppercase leading-none tracking-tight", loud ? tone.title : "text-royal")}>
+            {name}
+            {shown && isOrganizer && isBeginnerCourt(d, shown) && (
+              <span className="ml-2 rounded-full bg-mint-soft px-2 py-0.5 align-middle text-[11px] font-black normal-case tracking-wide text-mint-dark" data-testid="beginner-court">
+                Beginner court
+              </span>
+            )}
+          </h3>
+          {!loud && shown && <MatchStatusBadge m={shown} />}
+        </div>
+        {shown && (
+          <div className="space-y-1.5">
+            {[shown.a, shown.b].map((side, t) => (
+              <div key={t} className={cls("flex items-center justify-between gap-2 border-l-4 pl-2.5", TEAM_BAND[t])}>
+                <p className={cls("min-w-0 text-navy", loud ? "text-[22px] font-extrabold leading-tight" : "truncate text-[17px] font-bold")}>{team(side)}</p>
+                {shown.scoreA != null && shown.scoreB != null && (
+                  <span className="tabular text-2xl font-black text-navy">{t === 0 ? shown.scoreA : shown.scoreB}</span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+        {isOrganizer && shown && (
+          <div className="flex gap-2">
+            {/* A held game hasn't started, so there's no score to enter yet. */}
+            {state !== "hold" && (
+              <Button
+                className="flex-1"
+                variant={game ? (state === "go" ? "secondary" : "primary") : "subtle"}
+                aria-label={`${game ? "Enter" : "Edit"} score, ${name}`}
+                onClick={only(() => onScore(shown))}
+              >
+                {game ? "Enter score" : "Edit score"}
+              </Button>
+            )}
+            {game && round && canSwap(game) && (
+              <Button className={state === "hold" ? "flex-1" : ""} variant="secondary" aria-label={`Swap a ${swapWhat}, ${name}`} onClick={only(() => onSwap(game, round))}>
+                ⇄ Swap {swapWhat}
+              </Button>
+            )}
+          </div>
+        )}
+        {/* Under a game that's playing: who walks on when it ends. */}
+        {next && nextRound && (
+          <div className="border-t border-line pt-2.5" data-testid="next-on-court">
+            <p className="text-[11px] font-extrabold uppercase tracking-[0.12em] text-muted">Next on this court</p>
+            <div className="mt-0.5 flex items-center justify-between gap-2">
+              <p className="min-w-0 text-sm font-semibold text-ink">
+                {teamNames(next.a, nameOf)} <span className="font-medium text-muted">vs</span> {teamNames(next.b, nameOf)}
+              </p>
+              {canSwap(next) && (
+                <button
+                  type="button"
+                  className="shrink-0 rounded-full px-2.5 py-1.5 text-xs font-extrabold text-royal hover:bg-royal-soft"
+                  aria-label={`Swap a ${swapWhat}, next game, ${name}`}
+                  onClick={only(() => onSwap(next, nextRound))}
+                >
+                  ⇄ Swap
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+        {/* On a court that has just changed over: the result that went in, in case it needs fixing. */}
+        {loud && last && last.scoreA != null && last.scoreB != null && (
+          <div className={cls("flex items-center justify-between gap-3 border-t pt-2.5", tone.rule)}>
+            <p className={cls("min-w-0 text-[13px] font-semibold", tone.foot)}>
+              Last game: {teamNames(last.a, nameOf)} {last.scoreA}, {teamNames(last.b, nameOf)} {last.scoreB}
+            </p>
+            {isOrganizer && (
+              <button type="button" className={cls("shrink-0 text-[13px] font-extrabold underline", tone.title)} aria-label={`Edit last score, ${name}`} onClick={only(() => onScore(last))}>
+                Edit
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function CourtCard({
   d,
   m,
   round,
   waitingFor,
-  onDeck,
-  go = false,
   beginner = false,
   nameOf,
   isOrganizer,
@@ -1802,10 +1957,6 @@ function CourtCard({
   round?: RoundRow;
   /** Dealt ahead: the court this game waits on ("Court 4"), while its players finish there. */
   waitingFor?: string;
-  /** A game of the round up next (not on court yet). */
-  onDeck?: boolean;
-  /** Up next and clear to start: its court is free and so are all four players. The one thing the card shouts. */
-  go?: boolean;
   /** The beginner court (the organizer's pill; players just see the court). */
   beginner?: boolean;
   nameOf: (id: string) => string;
@@ -1823,20 +1974,11 @@ function CourtCard({
       {/* For the organizer the whole court is a tap target for the score sheet. */}
       <div
         className={cls(
-          "overflow-hidden rounded-2xl border p-4",
-          go ? "border-2 border-mint-dark bg-mint-soft" : "border-line bg-canvas/60",
-          isOrganizer && !go && "cursor-pointer transition-colors hover:border-royal hover:bg-royal-soft/40",
-          isOrganizer && go && "cursor-pointer",
+          "rounded-2xl border border-line bg-canvas/60 p-4",
+          isOrganizer && "cursor-pointer transition-colors hover:border-royal hover:bg-royal-soft/40",
         )}
-        data-go={go ? "true" : undefined}
         onClick={isOrganizer ? () => setEditing(true) : undefined}
       >
-        {/* Signage, not status: the only thing an up-next court ever says is that these four can walk on. */}
-        {go && (
-          <p className="-mx-4 -mt-4 mb-3 bg-mint-dark px-4 py-2 text-center text-base font-black uppercase tracking-wider text-white" data-testid="go-now">
-            ▶ Go now · {court} is free
-          </p>
-        )}
         <div className="mb-3 flex items-center justify-between gap-2">
           <span className="flex flex-wrap items-center gap-2 text-2xl font-black uppercase tracking-tight text-royal">
             <span aria-hidden>🏟️</span>
@@ -1847,14 +1989,13 @@ function CourtCard({
               </span>
             )}
           </span>
-          {/* Up next: just the court and who's on it — nothing is "live" yet, and there's no status to read. */}
-          {!(onDeck && !scored) && <MatchStatusBadge m={m} />}
+          <MatchStatusBadge m={m} />
         </div>
-        {waitingFor && !onDeck && <p className="-mt-1 mb-2 text-xs font-bold text-amber-dark">⏳ Starts when {waitingFor} finishes</p>}
+        {waitingFor && <p className="-mt-1 mb-2 text-xs font-bold text-amber-dark">⏳ Starts when {waitingFor} finishes</p>}
         <div className="space-y-1.5 text-sm">
           {[m.a, m.b].map((side, t) => (
             <div key={t} className={cls("flex items-center justify-between gap-2 border-l-4 pl-2", TEAM_BAND[t])}>
-              <span className={cls("min-w-0 truncate font-bold text-navy", go && "text-base")}>{teamNames(side, nameOf)}</span>
+              <span className="min-w-0 truncate font-bold text-navy">{teamNames(side, nameOf)}</span>
               {/* Only a final score is ever entered, so there's nothing to show until it is. */}
               {scored && <span className="tabular text-2xl font-black text-navy">{t === 0 ? m.scoreA : m.scoreB}</span>}
             </div>
@@ -1862,21 +2003,18 @@ function CourtCard({
         </div>
         {isOrganizer && (
           <div className="mt-3 flex gap-2">
-            {/* A game that can't have started has no score to enter: one less button to read past. */}
-            {!(onDeck && !go && !scored) && (
-              <Button
-                className="flex-1"
-                size="sm"
-                variant={scored ? "subtle" : "primary"}
-                aria-label={`${scored ? "Edit" : "Enter"} score, ${court}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setEditing(true);
-                }}
-              >
-                {scored ? "✏️ Edit score" : "📝 Enter score"}
-              </Button>
-            )}
+            <Button
+              className="flex-1"
+              size="sm"
+              variant={scored ? "subtle" : "primary"}
+              aria-label={`${scored ? "Edit" : "Enter"} score, ${court}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                setEditing(true);
+              }}
+            >
+              {scored ? "✏️ Edit score" : "📝 Enter score"}
+            </Button>
             {canSwap && (
               <Button
                 size="sm"

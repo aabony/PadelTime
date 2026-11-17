@@ -100,6 +100,8 @@ export interface MatchRow {
   scoreB: number | null;
   status: MatchStatus;
   submittedBy: string | null; // session_player id
+  /** When the score became final (ms). Lets the court board tell a court that has just come free. */
+  confirmedAt?: number | null;
 }
 
 export interface RoundRow {

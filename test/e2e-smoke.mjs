@@ -240,28 +240,30 @@ if ((await org.getByRole("button", { name: "Start check-in" }).count()) !== 0) f
 await shot(org, "04-ready");
 await org.getByRole("button", { name: "Start session →" }).click();
 // Start deals round 1 alone: the roster is still moving, so round 2 waits for the first score — or the organizer.
-const nowCard = org.getByTestId("now-playing");
-const nextCard = org.getByTestId("up-next");
+// The court board: one card per court. Under a game being played, "Next on this court" is the game dealt to follow it.
+const nowCard = org.getByTestId("court-board");
+const nextCard = nowCard.getByTestId("next-on-court");
 await nowCard.getByText("Round 1").first().waitFor({ timeout: 15000 });
 await org.getByTestId("round2-waits").waitFor({ timeout: 10000 });
 if ((await nextCard.count()) !== 0) fail("round 2 must not be dealt at Start");
 await org.getByRole("button", { name: "Deal round 2 now" }).click();
-await nextCard.getByRole("heading", { name: "Round 2" }).waitFor({ timeout: 15000 });
+await nextCard.first().waitFor({ timeout: 15000 });
 log("session started straight from signup — round 1 only; round 2 is dealt when the organizer asks (or at the first score)");
 
 const scoreBtn = (pg, court) =>
-  pg.getByTestId("now-playing").getByRole("button", { name: new RegExp(`(Enter|Edit) score, Court ${court}$`) });
+  pg.getByTestId("court-board").getByRole("button", { name: new RegExp(`(Enter|Edit) score, Court ${court}$`) });
 const courtCount = await nowCard.getByRole("button", { name: /Enter score, Court/ }).count();
 if (courtCount !== 2) fail(`expected 2 courts, saw ${courtCount}`);
 for (const label of [3, 4]) await scoreBtn(org, label).waitFor();
 if ((await org.getByRole("button", { name: /score, Court [12]$/ }).count()) !== 0) fail("courts should be labelled 3 and 4, not 1 and 2");
 if ((await org.getByRole("button", { name: "Next round →" }).count()) !== 0) fail("no Next round button: round 2 is already up next");
-// Up next is just the courts and who's on them: no status badges, no "live", no sitting list.
-if ((await nextCard.getByRole("button", { name: /Swap a player, Court/ }).count()) !== 2) fail("up next should show both round-2 courts");
-if ((await nextCard.getByText(/FILLING|READY|of 4 here|Waits for|^live$/i).count()) !== 0) fail("up next shouldn't carry status badges");
-if ((await nextCard.getByTestId("go-now").count()) !== 0 || (await nextCard.getByRole("button", { name: /Enter score/ }).count()) !== 0) fail("nothing up next can go while both courts are still playing");
-if ((await nowCard.getByText("live", { exact: true }).count()) !== 2) fail("both courts being played should read live");
-log("2 courts (labelled Court 3 / Court 4), 8 players, no byes ✓; up next lists both courts without status badges");
+// Each court card carries its next game underneath; nothing else: no status badges, no sitting list.
+if ((await nextCard.count()) !== 2) fail("each of the two courts should show the game dealt to follow it");
+if ((await nextCard.getByRole("button", { name: /Swap a player, next game, Court/ }).count()) !== 2) fail("the next game on each court should be swappable");
+if ((await nowCard.getByText(/FILLING|READY|of 4 here|Waits for|Sitting round/i).count()) !== 0) fail("the board shouldn't carry status badges or a sitting list");
+// Just started: both courts are telling their four to walk on.
+if ((await nowCard.locator('[data-testid="court"][data-state="go"]').count()) !== 2) fail("right after Start both courts should say Go now");
+log("2 courts (labelled Court 3 / Court 4), 8 players, no byes ✓; each court card shows who's on and who's next");
 await shot(org, "05-live-round1");
 
 // --- Paula scores her own match --------------------------------------------
@@ -303,8 +305,8 @@ for (const court of [3, 4]) {
   await org.getByRole("button", { name: /Save score/ }).click();
   await org.locator(".fixed").waitFor({ state: "detached", timeout: 10000 });
 }
-await nextCard.getByRole("heading", { name: "Round 3" }).waitFor({ timeout: 15000 });
-await nowCard.getByText("Round 2").first().waitFor();
+await nowCard.getByText("Round 2").first().waitFor({ timeout: 15000 });
+await nextCard.first().waitFor({ timeout: 15000 });
 log("organizer entered both court scores → round 2 moves up to now playing, round 3 dealt up next");
 await paula.reload();
 await paula.getByText(/Up next · round 3|you sit round 3/i).first().waitFor({ timeout: 15000 });
@@ -331,7 +333,7 @@ await late.getByRole("button", { name: /Join — deal me in/ }).click({ timeout:
 await late.getByText("in the rotation from the next round").waitFor({ timeout: 10000 });
 await late.getByRole("button", { name: "Open session" }).click();
 await late.waitForURL("**/app/sessions/**");
-await late.getByTestId("now-playing").waitFor({ timeout: 10000 });
+await late.getByTestId("court-board").waitFor({ timeout: 10000 });
 await org.waitForTimeout(4500); // next poll
 if ((await org.locator("tbody tr", { hasText: "Late" }).count()) !== 1) fail("joining should claim the guest entry, not duplicate it");
 if ((await org.locator("tbody tr", { hasText: "Late" }).getByText("guest").count()) !== 0) fail("claimed entry should no longer be a guest");
@@ -359,7 +361,7 @@ const sitter = r2.byes[0];
 const court3 = r2.matches.find((m) => m.court === 1);
 const goingOff = court3.a[0];
 const nameIn = (id) => lateView.players.find((p) => p.id === id).name;
-await org.getByTestId("up-next").getByRole("button", { name: "Swap a player, Court 3" }).click();
+await org.getByTestId("court-board").getByRole("button", { name: "Swap a player, next game, Court 3" }).click();
 // The sheet shows who's partnered with whom: Team 1 / Team 2 bands.
 for (const t of ["Team 1", "Team 2"]) await org.locator(".fixed").getByText(t, { exact: true }).waitFor({ timeout: 5000 });
 await org.locator(".fixed").getByRole("button", { name: nameIn(goingOff), exact: true }).click();
@@ -577,9 +579,10 @@ if (ad.rounds.length !== 2) fail("round 2 should be dealt up next as soon as rou
 const r2On = ad.rounds[1].matches.flatMap((m) => [...m.a, ...m.b]);
 if (!ad.rounds[0].byes.every((p) => r2On.includes(p))) fail("everyone sitting round 1 plays round 2");
 await org.goto(`${BASE}/app/sessions/${ah.id}`);
-const upNext = org.getByTestId("up-next");
-await upNext.getByRole("heading", { name: "Round 2" }).waitFor({ timeout: 10000 });
-if ((await upNext.getByText(/on Court [34] now|Sitting round/).count()) !== 0) fail("up next shouldn't say who's finishing where or who sits");
+const upNext = org.getByTestId("court-board");
+await upNext.getByTestId("next-on-court").first().waitFor({ timeout: 10000 });
+if ((await upNext.getByTestId("next-on-court").count()) !== 2) fail("both courts should show their next game");
+if ((await upNext.getByText(/on Court [34] now|Sitting round/).count()) !== 0) fail("the board shouldn't say who's finishing where or who sits");
 await shot(org, "12a-on-deck");
 log("on deck: round 2 dealt up next — round 1's sitters all play it");
 // One court finishes: a round-2 game whose four are free and whose court is free is ready.
@@ -597,19 +600,27 @@ const freeFours = ad.rounds[1].matches.filter((m) => [...m.a, ...m.b].every((p) 
 if (freeFours.some((m) => m.court === slow.court)) fail(`a game whose four are free should move onto the free court, not wait on Court ${slow.court + 2}`);
 const readyNow = freeFours.length;
 await org.reload();
-await upNext.getByRole("heading", { name: "Round 2" }).waitFor({ timeout: 10000 });
-// Signage: a court that can go says so, loudly; a court that can't says nothing (and has no score button yet).
-if ((await upNext.getByTestId("go-now").count()) !== readyNow) fail(`${readyNow} round-2 court(s) should say "Go now" once Court ${fast.court + 2} is done, got ${await upNext.getByTestId("go-now").count()}`);
-if (readyNow > 0 && !(await upNext.getByTestId("go-now").first().innerText()).match(/go now · court [34] is free/i)) fail("the go sign should name the free court");
-if ((await upNext.getByRole("button", { name: /Enter score, Court/ }).count()) !== readyNow) fail("only a court that can start should offer a score button up next");
-await upNext.scrollIntoViewIfNeeded();
+const fastCard = upNext.locator(`[data-testid="court"][data-court="${fast.court + 2}"]`);
+await fastCard.waitFor({ timeout: 10000 });
+// Signage: the court that just finished either sends its next four on (all free) or holds for whoever is still playing.
+const fastState = await fastCard.getAttribute("data-state");
+if (fastState !== (readyNow > 0 ? "go" : "hold")) fail(`Court ${fast.court + 2} should read ${readyNow > 0 ? "go" : "hold"} once its game is scored, got ${fastState}`);
+if (readyNow > 0) {
+  if (!(await fastCard.getByTestId("go-now").innerText()).match(new RegExp(`go now\\s+court ${fast.court + 2} is free`, "i"))) fail("the go sign should name the free court");
+} else {
+  if (!(await fastCard.getByTestId("hold").innerText()).match(new RegExp(`still playing on court ${slow.court + 2}`, "i"))) fail("the hold sign should say who the court is waiting for, and where");
+  if ((await fastCard.getByRole("button", { name: /Enter score/ }).count()) !== 0) fail("a held court has no score to enter yet");
+}
+if (!(await fastCard.innerText()).match(/Last game:.*10.*6/s)) fail("the court that changed over should show the result that just went in");
+await fastCard.scrollIntoViewIfNeeded();
 await shot(org, "12b-go-now");
 // The other court finishes: round 2 moves up, round 3 is dealt up next.
 await scoreBtn(org, slow.court + 2).click();
 await org.locator(".fixed").getByRole("button", { name: "+", exact: true }).click();
 await org.getByRole("button", { name: /Save score/ }).click();
 await org.locator(".fixed").waitFor({ state: "detached", timeout: 10000 });
-await upNext.getByRole("heading", { name: "Round 3" }).waitFor({ timeout: 15000 });
+await upNext.getByText("Round 2").first().waitFor({ timeout: 15000 });
+await upNext.getByTestId("next-on-court").first().waitFor({ timeout: 15000 });
 ad = await api("GET", `/sessions/${ah.id}`);
 if (!ad.rounds[0].complete || ad.rounds.length !== 3) fail("round 1 complete and round 3 up next once the second court's score is in");
 if (ad.standings.filter((r) => r.played > 0).length !== 8) fail("all 8 round-1 players should have a result");
@@ -633,7 +644,7 @@ await org.getByRole("button", { name: "Close" }).click();
 // Keep teams together: the sitting team comes on as a team.
 const tm = td.rounds[1].matches[0];
 const tnName = (id) => td.players.find((p) => p.id === id).name;
-await org.getByTestId("up-next").getByRole("button", { name: "Swap a team, Court 1" }).click();
+await org.getByTestId("court-board").getByRole("button", { name: "Swap a team, next game, Court 1" }).click();
 await org.locator(".fixed").getByRole("button", { name: `${tnName(tm.a[0])} + ${tnName(tm.a[1])}`, exact: true }).click();
 await shot(org, "16c-team-swap");
 await org.locator(".fixed").getByRole("button", { name: /sitting out/ }).click();
@@ -693,9 +704,9 @@ await bGames.getByText(/Sitting game 1/).waitFor();
 await org.getByText("🌱 Beginner court 3").waitFor();
 // Screen order: now playing, up next, then the beginner court — and its game isn't inside the round being played.
 const yOf = async (loc) => (await loc.boundingBox()).y;
-const [yPlaying, yDeck, yBeginner] = [await yOf(org.getByTestId("now-playing")), await yOf(org.getByTestId("up-next")), await yOf(bGames)];
+const [yPlaying, yDeck, yBeginner] = [await yOf(org.getByTestId("court-board")), await yOf(org.getByTestId("court-board").getByTestId("next-on-court").first()), await yOf(bGames)];
 if (!(yPlaying < yDeck && yDeck < yBeginner)) fail(`expected now playing, then up next, then the beginner court — got y ${yPlaying} / ${yDeck} / ${yBeginner}`);
-if ((await org.getByTestId("now-playing").getByTestId("beginner-court").count()) !== 0) fail("the beginner court's game must not sit inside the round being played");
+if ((await org.getByTestId("court-board").getByTestId("beginner-court").count()) !== 0) fail("the beginner court's game must not sit inside the round being played");
 await org.getByText("Ladder", { exact: true }).waitFor();
 await org.getByText(/Beginner court · Court 3/).waitFor();
 // One setting, not two: the level picker is how a player moves courts — no separate Newbie switch on the rows.
@@ -819,7 +830,7 @@ await coachCard.getByText("Court 4 · with the coach").waitFor();
 await coachCard.getByText("Coachee1 · Coachee2 · Coachee3").waitFor();
 if ((await org.getByText(/open Court 4/).count()) !== 0) fail("the coached court must not be offered as an empty tournament court");
 // Screen order for the organizer: now playing, up next, then the coach's court.
-const [yNow, yNext, yCoach] = [await yOf(org.getByTestId("now-playing")), await yOf(org.getByTestId("up-next")), await yOf(coachCard)];
+const [yNow, yNext, yCoach] = [await yOf(org.getByTestId("court-board")), await yOf(org.getByTestId("court-board").getByTestId("next-on-court").first()), await yOf(coachCard)];
 if (!(yNow < yNext && yNext < yCoach)) fail(`expected now playing, then up next, then the coached court — got y ${yNow} / ${yNext} / ${yCoach}`);
 await shot(org, "18-coached-court");
 log("coached court: 12 play the tournament on courts 1–3, 3 newbies train on Court 4 — out of the draw, no table");
@@ -980,7 +991,7 @@ for (const g of ["Ana", "Bea", "Cal", "Dee"]) {
 await org.getByText(/4 players · 1 court → nobody sits out/).waitFor({ timeout: 10000 });
 await startBtn.click();
 await org.getByText("Round 1").first().waitFor({ timeout: 15000 });
-if ((await org.getByTestId("now-playing").getByRole("button", { name: /Enter score, Court/ }).count()) !== 1) fail("quick start should yield 1 court");
+if ((await org.getByTestId("court-board").getByRole("button", { name: /Enter score, Court/ }).count()) !== 1) fail("quick start should yield 1 court");
 log("quick start from draft: 4 names → Start → round 1 (no signup step)");
 await shot(org, "12-quick-start");
 
@@ -1291,7 +1302,7 @@ const comingOff = liveCourt.a[0];
 const comingOn = liveRound.byes[0];
 const dryName = (id) => dryRun.players.find((p) => p.id === id).name;
 await org.goto(`${BASE}/app/sessions/${dry.id}`);
-await org.getByTestId("now-playing").getByRole("button", { name: "Swap a player, Court 1" }).click();
+await org.getByTestId("court-board").getByRole("button", { name: "Swap a player, Court 1" }).click();
 await org.locator(".fixed").getByRole("button", { name: dryName(comingOff), exact: true }).click();
 await org.locator(".fixed").getByRole("button", { name: new RegExp(`^${dryName(comingOn)}\\s*sitting out`) }).click();
 await org.locator(".fixed").waitFor({ state: "detached", timeout: 10000 });
@@ -1308,7 +1319,7 @@ if (tooLate.ok()) fail("a round that's been played can't have players swapped");
 log("swap in the game being played: the sitter comes on for someone on Court 1 now; the round up next is untouched; a scored round is locked");
 // The same button is there once a tournament is live: late stand-ins are checked in and dealt from the next round.
 await org.goto(`${BASE}/app/sessions/${finalsSession.id}`);
-await org.getByTestId("now-playing").waitFor({ timeout: 10000 });
+await org.getByTestId("court-board").waitFor({ timeout: 10000 });
 await org.getByRole("button", { name: /Add 12 test players/ }).click();
 await org.waitForFunction(async (id) => (await (await fetch(`/api/sessions/${id}`)).json()).players.filter((p) => p.name.startsWith("Test-")).length === 12, finalsSession.id, { timeout: 10000 });
 const liveWithTests = await api("GET", `/sessions/${finalsSession.id}`);
